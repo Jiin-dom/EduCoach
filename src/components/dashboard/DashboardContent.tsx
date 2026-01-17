@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Upload, FileText, Brain, Clock, TrendingUp, Eye, Trash2, Sparkles } from "lucide-react"
+import { Upload, FileText, Brain, Clock, TrendingUp, Eye, Trash2, Sparkles, Loader2, RefreshCw } from "lucide-react"
 import { FileUploadDialog } from "@/components/files/FileUploadDialog"
 import { QuizCard } from "@/components/dashboard/QuizCard"
 import { ReadinessScoreCard } from "@/components/dashboard/ReadinessScoreCard"
@@ -10,41 +10,61 @@ import { WeakTopicsPanel } from "@/components/dashboard/WeakTopicsPanel"
 import { MotivationalCard } from "@/components/dashboard/MotivationalCard"
 import { AiTutorChat } from "@/components/shared/AiTutorChat"
 import { Link } from "react-router-dom"
+import { useAuth } from "@/contexts/AuthContext"
+import { useDocuments, useDeleteDocument, type Document } from "@/hooks/useDocuments"
+import { formatFileSize } from "@/lib/storage"
+import { Badge } from "@/components/ui/badge"
 
 export function DashboardContent() {
-    const [uploadedFiles, setUploadedFiles] = useState<
-        Array<{ id: string; name: string; uploadedAt: string; size: string }>
-    >([])
+    const { profile } = useAuth()
     const [showUploadDialog, setShowUploadDialog] = useState(false)
 
-    const handleFileUpload = (file: File) => {
-        const newFile = {
-            id: Date.now().toString(),
-            name: file.name,
-            uploadedAt: new Date().toLocaleDateString(),
-            size: `${(file.size / 1024).toFixed(2)} KB`,
+    // Use real document data
+    const { data: documents, isLoading, refetch } = useDocuments()
+    const deleteDocument = useDeleteDocument()
+
+    // Get recent files (last 5)
+    const recentFiles = documents?.slice(0, 5) || []
+
+    const handleUploadComplete = () => {
+        refetch()
+    }
+
+    const handleDeleteFile = (doc: Document) => {
+        if (window.confirm(`Delete "${doc.title}"?`)) {
+            deleteDocument.mutate(doc)
         }
-        setUploadedFiles([...uploadedFiles, newFile])
-        setShowUploadDialog(false)
-    }
-
-    const handleDeleteFile = (fileId: string) => {
-        setUploadedFiles(uploadedFiles.filter((file) => file.id !== fileId))
-    }
-
-    const handleViewFile = (fileName: string) => {
-        alert(`Opening ${fileName}...`)
     }
 
     const handleGenerateQuiz = (fileName: string) => {
         alert(`Generating quiz from ${fileName}...`)
     }
 
+    const getStatusColor = (status: string) => {
+        switch (status) {
+            case 'ready': return 'text-green-600 bg-green-50'
+            case 'processing': return 'text-blue-600 bg-blue-50'
+            case 'pending': return 'text-orange-600 bg-orange-50'
+            case 'error': return 'text-red-600 bg-red-50'
+            default: return 'text-gray-600 bg-gray-50'
+        }
+    }
+
+    // Get greeting based on time of day
+    const getGreeting = () => {
+        const hour = new Date().getHours()
+        if (hour < 12) return "Good morning"
+        if (hour < 18) return "Good afternoon"
+        return "Good evening"
+    }
+
+    const displayName = profile?.display_name || "Student"
+
     return (
         <div className="space-y-8">
             {/* Welcome Section */}
             <div className="bg-gradient-to-r from-primary to-accent rounded-2xl p-8 text-primary-foreground">
-                <h1 className="text-3xl font-bold mb-2">Welcome back, Student!</h1>
+                <h1 className="text-3xl font-bold mb-2">{getGreeting()}, {displayName}!</h1>
                 <p className="text-primary-foreground/90 text-lg">Ready to continue your learning journey?</p>
             </div>
 
@@ -93,11 +113,27 @@ export function DashboardContent() {
                 {/* Uploaded Files Section */}
                 <Card className="lg:col-span-1">
                     <CardHeader>
-                        <CardTitle>Study Materials</CardTitle>
-                        <CardDescription>Upload and manage your study files</CardDescription>
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <CardTitle>Study Materials</CardTitle>
+                                <CardDescription>Upload and manage your study files</CardDescription>
+                            </div>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => refetch()}
+                                disabled={isLoading}
+                            >
+                                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                            </Button>
+                        </div>
                     </CardHeader>
                     <CardContent>
-                        {uploadedFiles.length === 0 ? (
+                        {isLoading ? (
+                            <div className="flex items-center justify-center py-12">
+                                <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                            </div>
+                        ) : recentFiles.length === 0 ? (
                             <div className="flex flex-col items-center justify-center py-12 text-center">
                                 <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
                                     <Upload className="w-8 h-8 text-muted-foreground" />
@@ -114,7 +150,7 @@ export function DashboardContent() {
                         ) : (
                             <div className="space-y-4">
                                 <div className="space-y-2">
-                                    {uploadedFiles.map((file) => (
+                                    {recentFiles.map((file) => (
                                         <div
                                             key={file.id}
                                             className="flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/5"
@@ -123,33 +159,40 @@ export function DashboardContent() {
                                                 <FileText className="w-5 h-5 text-primary" />
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <p className="font-medium truncate">{file.name}</p>
-                                                <p className="text-xs text-muted-foreground">
-                                                    {file.uploadedAt} • {file.size}
-                                                </p>
+                                                <p className="font-medium truncate">{file.title}</p>
+                                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                    <span>{formatFileSize(file.file_size)}</span>
+                                                    <Badge variant="outline" className={`text-xs ${getStatusColor(file.status)}`}>
+                                                        {file.status}
+                                                    </Badge>
+                                                </div>
                                             </div>
                                             <div className="flex items-center gap-1">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-8 w-8"
-                                                    onClick={() => handleViewFile(file.name)}
-                                                >
-                                                    <Eye className="w-4 h-4" />
-                                                </Button>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-8 w-8 text-primary hover:text-primary"
-                                                    onClick={() => handleGenerateQuiz(file.name)}
-                                                >
-                                                    <Sparkles className="w-4 h-4" />
-                                                </Button>
+                                                <Link to={`/files/${file.id}`}>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8"
+                                                    >
+                                                        <Eye className="w-4 h-4" />
+                                                    </Button>
+                                                </Link>
+                                                {file.status === 'ready' && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 text-primary hover:text-primary"
+                                                        onClick={() => handleGenerateQuiz(file.title)}
+                                                    >
+                                                        <Sparkles className="w-4 h-4" />
+                                                    </Button>
+                                                )}
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
                                                     className="h-8 w-8 text-destructive hover:text-destructive"
-                                                    onClick={() => handleDeleteFile(file.id)}
+                                                    onClick={() => handleDeleteFile(file)}
+                                                    disabled={deleteDocument.isPending}
                                                 >
                                                     <Trash2 className="w-4 h-4" />
                                                 </Button>
@@ -157,10 +200,17 @@ export function DashboardContent() {
                                         </div>
                                     ))}
                                 </div>
-                                <Button onClick={() => setShowUploadDialog(true)} variant="outline" className="w-full">
-                                    <Upload className="w-4 h-4 mr-2" />
-                                    Upload More Files
-                                </Button>
+                                <div className="flex gap-2">
+                                    <Button onClick={() => setShowUploadDialog(true)} variant="outline" className="flex-1">
+                                        <Upload className="w-4 h-4 mr-2" />
+                                        Upload More
+                                    </Button>
+                                    <Link to="/files" className="flex-1">
+                                        <Button variant="ghost" className="w-full">
+                                            View All
+                                        </Button>
+                                    </Link>
+                                </div>
                             </div>
                         )}
                     </CardContent>
@@ -215,7 +265,11 @@ export function DashboardContent() {
 
             <MotivationalCard />
 
-            <FileUploadDialog open={showUploadDialog} onOpenChange={setShowUploadDialog} onUpload={handleFileUpload} />
+            <FileUploadDialog
+                open={showUploadDialog}
+                onOpenChange={setShowUploadDialog}
+                onUploadComplete={handleUploadComplete}
+            />
 
             <AiTutorChat />
         </div>

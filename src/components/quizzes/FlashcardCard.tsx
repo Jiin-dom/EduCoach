@@ -1,7 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Layers, Clock } from "lucide-react"
-import { Link } from "react-router-dom"
 
 interface FlashcardCardProps {
     id: string
@@ -11,7 +10,7 @@ interface FlashcardCardProps {
     lastStudied: string
 }
 
-export function FlashcardCard({ id, title, cards, subject, lastStudied }: FlashcardCardProps) {
+export function FlashcardCard({ id: _id, title, cards, subject, lastStudied }: FlashcardCardProps) {
     return (
         <Card className="hover:shadow-lg transition-shadow">
             <CardHeader>

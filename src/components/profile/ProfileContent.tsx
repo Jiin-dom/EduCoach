@@ -6,10 +6,8 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import {
     User,
-    Mail,
     GraduationCap,
     Calendar,
     Clock,
@@ -19,7 +17,6 @@ import {
     Bell,
     Moon,
     Trash2,
-    BookOpen,
     Target,
     Award,
     Flame,

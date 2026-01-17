@@ -1,24 +1,49 @@
 import { useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useLocation } from "react-router-dom"
+import { useAuth } from "@/contexts/AuthContext"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Eye, EyeOff } from "lucide-react"
+import { Eye, EyeOff, Loader2 } from "lucide-react"
 
 export function LoginForm() {
     const navigate = useNavigate()
+    const location = useLocation()
+    const { signIn, profile } = useAuth()
+
     const [showPassword, setShowPassword] = useState(false)
     const [email, setEmail] = useState("")
     const [password, setPassword] = useState("")
+    const [error, setError] = useState<string | null>(null)
+    const [loading, setLoading] = useState(false)
 
-    const handleSubmit = (e: React.FormEvent) => {
+    // Get the intended destination from state, or default to dashboard
+    const from = (location.state as { from?: { pathname: string } })?.from?.pathname || "/dashboard"
+
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
-        const hasProfile = localStorage.getItem("userProfile")
-        if (hasProfile) {
-            navigate("/dashboard")
-        } else {
-            navigate("/profiling")
+        setError(null)
+        setLoading(true)
+
+        try {
+            const { error } = await signIn(email, password)
+
+            if (error) {
+                setError(error.message)
+                return
+            }
+
+            // Check if profile is completed, redirect accordingly
+            if (profile?.has_completed_profiling) {
+                navigate(from, { replace: true })
+            } else {
+                navigate("/profiling", { replace: true })
+            }
+        } catch (err) {
+            setError("An unexpected error occurred. Please try again.")
+        } finally {
+            setLoading(false)
         }
     }
 
@@ -30,6 +55,12 @@ export function LoginForm() {
             </CardHeader>
             <CardContent>
                 <form onSubmit={handleSubmit} className="space-y-4">
+                    {error && (
+                        <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
+                            {error}
+                        </div>
+                    )}
+
                     <div className="space-y-2">
                         <Label htmlFor="email">Email</Label>
                         <Input
@@ -38,6 +69,7 @@ export function LoginForm() {
                             placeholder="student@example.com"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
+                            disabled={loading}
                             required
                         />
                     </div>
@@ -56,6 +88,7 @@ export function LoginForm() {
                                 placeholder="Enter your password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
+                                disabled={loading}
                                 required
                             />
                             <button
@@ -68,8 +101,15 @@ export function LoginForm() {
                         </div>
                     </div>
 
-                    <Button type="submit" className="w-full" size="lg">
-                        Sign in
+                    <Button type="submit" className="w-full" size="lg" disabled={loading}>
+                        {loading ? (
+                            <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Signing in...
+                            </>
+                        ) : (
+                            "Sign in"
+                        )}
                     </Button>
                 </form>
             </CardContent>

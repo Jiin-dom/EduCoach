@@ -1,13 +1,16 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
+import { useAuth } from "@/contexts/AuthContext"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Eye, EyeOff } from "lucide-react"
+import { Eye, EyeOff, Loader2 } from "lucide-react"
 
 export function RegisterForm() {
     const navigate = useNavigate()
+    const { signUp } = useAuth()
+
     const [showPassword, setShowPassword] = useState(false)
     const [formData, setFormData] = useState({
         name: "",
@@ -15,10 +18,43 @@ export function RegisterForm() {
         password: "",
         confirmPassword: "",
     })
+    const [error, setError] = useState<string | null>(null)
+    const [loading, setLoading] = useState(false)
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
-        navigate("/profiling")
+        setError(null)
+
+        // Validate passwords match
+        if (formData.password !== formData.confirmPassword) {
+            setError("Passwords do not match")
+            return
+        }
+
+        // Validate password strength
+        if (formData.password.length < 6) {
+            setError("Password must be at least 6 characters")
+            return
+        }
+
+        setLoading(true)
+
+        try {
+            const { error } = await signUp(formData.email, formData.password)
+
+            if (error) {
+                setError(error.message)
+                return
+            }
+
+            // Success! Redirect to profiling
+            // Note: Supabase may require email confirmation depending on settings
+            navigate("/profiling")
+        } catch (err) {
+            setError("An unexpected error occurred. Please try again.")
+        } finally {
+            setLoading(false)
+        }
     }
 
     return (
@@ -29,6 +65,12 @@ export function RegisterForm() {
             </CardHeader>
             <CardContent>
                 <form onSubmit={handleSubmit} className="space-y-4">
+                    {error && (
+                        <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
+                            {error}
+                        </div>
+                    )}
+
                     <div className="space-y-2">
                         <Label htmlFor="name">Full Name</Label>
                         <Input
@@ -37,6 +79,7 @@ export function RegisterForm() {
                             placeholder="John Doe"
                             value={formData.name}
                             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                            disabled={loading}
                             required
                         />
                     </div>
@@ -49,6 +92,7 @@ export function RegisterForm() {
                             placeholder="student@example.com"
                             value={formData.email}
                             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                            disabled={loading}
                             required
                         />
                     </div>
@@ -62,6 +106,7 @@ export function RegisterForm() {
                                 placeholder="Create a strong password"
                                 value={formData.password}
                                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                                disabled={loading}
                                 required
                             />
                             <button
@@ -72,6 +117,7 @@ export function RegisterForm() {
                                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                             </button>
                         </div>
+                        <p className="text-xs text-muted-foreground">Must be at least 6 characters</p>
                     </div>
 
                     <div className="space-y-2">
@@ -82,12 +128,20 @@ export function RegisterForm() {
                             placeholder="Re-enter your password"
                             value={formData.confirmPassword}
                             onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                            disabled={loading}
                             required
                         />
                     </div>
 
-                    <Button type="submit" className="w-full" size="lg">
-                        Create Account
+                    <Button type="submit" className="w-full" size="lg" disabled={loading}>
+                        {loading ? (
+                            <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Creating account...
+                            </>
+                        ) : (
+                            "Create Account"
+                        )}
                     </Button>
                 </form>
             </CardContent>

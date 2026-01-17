@@ -1,51 +1,136 @@
 import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { FolderOpen, Upload, Eye, Trash2, Sparkles, FileText, File } from "lucide-react"
+import { FolderOpen, Upload, Trash2, Sparkles, FileText, File, Loader2, RefreshCw, AlertCircle, Clock, CheckCircle2 } from "lucide-react"
 import { FileUploadDialog } from "@/components/files/FileUploadDialog"
 import { Link } from "react-router-dom"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-
-interface StudyFile {
-    id: string
-    name: string
-    type: string
-    size: string
-    uploadDate: string
-    subject: string
-}
+import { Badge } from "@/components/ui/badge"
+import { useDocuments, useDeleteDocument, useProcessDocument, type Document } from "@/hooks/useDocuments"
+import { formatFileSize } from "@/lib/storage"
 
 export function FilesContent() {
-    const [files, setFiles] = useState<StudyFile[]>([
-        { id: "1", name: "Introduction to Algorithms.pdf", type: "PDF", size: "2.4 MB", uploadDate: "2024-01-15", subject: "Computer Science" },
-        { id: "2", name: "Data Structures Notes.pdf", type: "PDF", size: "1.8 MB", uploadDate: "2024-01-14", subject: "Computer Science" },
-        { id: "3", name: "Database Management.docx", type: "DOCX", size: "956 KB", uploadDate: "2024-01-13", subject: "Information Systems" },
-        { id: "4", name: "Web Development Guide.pdf", type: "PDF", size: "3.2 MB", uploadDate: "2024-01-12", subject: "Web Development" },
-    ])
-
     const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
 
-    const handleUpload = (file: File) => {
-        const newFile: StudyFile = {
-            id: Date.now().toString(),
-            name: file.name,
-            type: file.name.split(".").pop()?.toUpperCase() || "FILE",
-            size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
-            uploadDate: new Date().toISOString().split("T")[0],
-            subject: "General",
-        }
-        setFiles([newFile, ...files])
-        setUploadDialogOpen(false)
+    // React Query hooks
+    const { data: documents, isLoading, error, refetch } = useDocuments()
+    const deleteDocument = useDeleteDocument()
+    const processDocument = useProcessDocument()
+
+    const handleUploadComplete = () => {
+        // Refetch documents after successful upload
+        refetch()
     }
 
-    const handleDelete = (id: string) => {
-        setFiles(files.filter((file) => file.id !== id))
+    const handleDelete = async (doc: Document) => {
+        if (window.confirm(`Are you sure you want to delete "${doc.title}"?`)) {
+            deleteDocument.mutate(doc)
+        }
+    }
+
+    const handleProcess = (doc: Document) => {
+        processDocument.mutate(doc.id)
     }
 
     const getFileIcon = (type: string) => {
-        if (type === "PDF") return <FileText className="w-5 h-5 text-red-500" />
+        if (type === "pdf") return <FileText className="w-5 h-5 text-red-500" />
         return <File className="w-5 h-5 text-blue-500" />
     }
+
+    const getStatusBadge = (status: Document['status']) => {
+        switch (status) {
+            case 'pending':
+                return (
+                    <Badge variant="outline" className="gap-1 text-orange-600 border-orange-300 bg-orange-50">
+                        <Clock className="w-3 h-3" />
+                        Pending
+                    </Badge>
+                )
+            case 'processing':
+                return (
+                    <Badge variant="outline" className="gap-1 text-blue-600 border-blue-300 bg-blue-50">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Processing
+                    </Badge>
+                )
+            case 'ready':
+                return (
+                    <Badge variant="outline" className="gap-1 text-green-600 border-green-300 bg-green-50">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Ready
+                    </Badge>
+                )
+            case 'error':
+                return (
+                    <Badge variant="outline" className="gap-1 text-red-600 border-red-300 bg-red-50">
+                        <AlertCircle className="w-3 h-3" />
+                        Error
+                    </Badge>
+                )
+            default:
+                return null
+        }
+    }
+
+    // Loading state
+    if (isLoading) {
+        return (
+            <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                            <FolderOpen className="w-6 h-6 text-primary" />
+                        </div>
+                        <div>
+                            <h1 className="text-3xl font-bold">Study Materials</h1>
+                            <p className="text-muted-foreground">Manage and organize your learning resources</p>
+                        </div>
+                    </div>
+                </div>
+                <Card>
+                    <CardContent className="flex items-center justify-center py-16">
+                        <div className="flex flex-col items-center gap-4">
+                            <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                            <p className="text-muted-foreground">Loading your documents...</p>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+        )
+    }
+
+    // Error state
+    if (error) {
+        return (
+            <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                            <FolderOpen className="w-6 h-6 text-primary" />
+                        </div>
+                        <div>
+                            <h1 className="text-3xl font-bold">Study Materials</h1>
+                            <p className="text-muted-foreground">Manage and organize your learning resources</p>
+                        </div>
+                    </div>
+                </div>
+                <Card>
+                    <CardContent className="flex items-center justify-center py-16">
+                        <div className="flex flex-col items-center gap-4 text-destructive">
+                            <AlertCircle className="w-8 h-8" />
+                            <p>Failed to load documents</p>
+                            <Button variant="outline" onClick={() => refetch()} className="gap-2">
+                                <RefreshCw className="w-4 h-4" />
+                                Try Again
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+        )
+    }
+
+    const files = documents || []
 
     return (
         <div className="space-y-6">
@@ -59,10 +144,15 @@ export function FilesContent() {
                         <p className="text-muted-foreground">Manage and organize your learning resources</p>
                     </div>
                 </div>
-                <Button onClick={() => setUploadDialogOpen(true)} className="gap-2">
-                    <Upload className="w-4 h-4" />
-                    Upload File
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button variant="outline" size="icon" onClick={() => refetch()}>
+                        <RefreshCw className="w-4 h-4" />
+                    </Button>
+                    <Button onClick={() => setUploadDialogOpen(true)} className="gap-2">
+                        <Upload className="w-4 h-4" />
+                        Upload File
+                    </Button>
+                </div>
             </div>
 
             <Card>
@@ -86,49 +176,75 @@ export function FilesContent() {
                             {files.map((file) => (
                                 <div
                                     key={file.id}
-                                    className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+                                    className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors group"
                                 >
-                                    <div className="flex items-center gap-4 flex-1">
-                                        {getFileIcon(file.type)}
-                                        <div className="flex-1">
-                                            <h4 className="font-semibold">{file.name}</h4>
-                                            <div className="flex items-center gap-4 text-sm text-muted-foreground mt-1">
-                                                <span>{file.subject}</span>
-                                                <span>•</span>
-                                                <span>{file.size}</span>
-                                                <span>•</span>
-                                                <span>Uploaded {new Date(file.uploadDate).toLocaleDateString()}</span>
+                                    {/* Clickable area - navigates to file detail */}
+                                    <Link
+                                        to={`/files/${file.id}`}
+                                        className="flex items-center gap-4 flex-1 cursor-pointer"
+                                    >
+                                        {getFileIcon(file.file_type)}
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2">
+                                                <h4 className="font-semibold truncate group-hover:text-primary transition-colors">{file.title}</h4>
+                                                {getStatusBadge(file.status)}
                                             </div>
+                                            <div className="flex items-center gap-4 text-sm text-muted-foreground mt-1">
+                                                <span className="truncate">{file.file_name}</span>
+                                                <span>•</span>
+                                                <span>{formatFileSize(file.file_size)}</span>
+                                                <span>•</span>
+                                                <span>Uploaded {new Date(file.created_at).toLocaleDateString()}</span>
+                                                {file.concept_count > 0 && (
+                                                    <>
+                                                        <span>•</span>
+                                                        <span className="text-primary">{file.concept_count} concepts</span>
+                                                    </>
+                                                )}
+                                            </div>
+                                            {file.status === 'error' && file.error_message && (
+                                                <p className="text-sm text-destructive mt-1">{file.error_message}</p>
+                                            )}
                                         </div>
-                                    </div>
+                                    </Link>
+                                    {/* Action buttons - separate from clickable area */}
                                     <div className="flex items-center gap-2">
-                                        <TooltipProvider>
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <Link to={`/files/${file.id}`}>
-                                                        <Button variant="ghost" size="icon">
-                                                            <Eye className="w-4 h-4" />
-                                                        </Button>
-                                                    </Link>
-                                                </TooltipTrigger>
-                                                <TooltipContent>
-                                                    <p>View file</p>
-                                                </TooltipContent>
-                                            </Tooltip>
-                                        </TooltipProvider>
 
-                                        <TooltipProvider>
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="text-primary hover:text-primary">
-                                                        <Sparkles className="w-4 h-4" />
-                                                    </Button>
-                                                </TooltipTrigger>
-                                                <TooltipContent>
-                                                    <p>Generate quiz from this file</p>
-                                                </TooltipContent>
-                                            </Tooltip>
-                                        </TooltipProvider>
+                                        {file.status === 'pending' && (
+                                            <TooltipProvider>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="text-primary hover:text-primary"
+                                                            onClick={() => handleProcess(file)}
+                                                            disabled={processDocument.isPending}
+                                                        >
+                                                            <RefreshCw className={`w-4 h-4 ${processDocument.isPending ? 'animate-spin' : ''}`} />
+                                                        </Button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>
+                                                        <p>Process document</p>
+                                                    </TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
+                                        )}
+
+                                        {file.status === 'ready' && (
+                                            <TooltipProvider>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <Button variant="ghost" size="icon" className="text-primary hover:text-primary">
+                                                            <Sparkles className="w-4 h-4" />
+                                                        </Button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>
+                                                        <p>Generate quiz from this file</p>
+                                                    </TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
+                                        )}
 
                                         <TooltipProvider>
                                             <Tooltip>
@@ -136,8 +252,9 @@ export function FilesContent() {
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        onClick={() => handleDelete(file.id)}
+                                                        onClick={() => handleDelete(file)}
                                                         className="text-destructive hover:text-destructive"
+                                                        disabled={deleteDocument.isPending}
                                                     >
                                                         <Trash2 className="w-4 h-4" />
                                                     </Button>
@@ -155,7 +272,11 @@ export function FilesContent() {
                 </CardContent>
             </Card>
 
-            <FileUploadDialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen} onUpload={handleUpload} />
+            <FileUploadDialog
+                open={uploadDialogOpen}
+                onOpenChange={setUploadDialogOpen}
+                onUploadComplete={handleUploadComplete}
+            />
         </div>
     )
 }
