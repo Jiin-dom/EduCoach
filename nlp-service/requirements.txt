@@ -1,0 +1,7 @@
+fastapi==0.109.0
+uvicorn==0.27.0
+python-multipart==0.0.6
+requests==2.31.0
+keybert==0.8.3
+pytextrank==3.2.5
+spacy==3.7.2

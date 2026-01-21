@@ -25,11 +25,11 @@ const corsHeaders = {
 }
 
 // Configuration
-const CHUNK_SIZE = 4000      // Characters per chunk (increased for better context)
-const CHUNK_OVERLAP = 200    // Overlap between chunks
-const MAX_CHUNKS = 10        // Maximum chunks to process (prevents runaway costs)
-const MAX_RETRIES = 3        // API retry attempts
-const BASE_DELAY_MS = 2000   // Base delay for exponential backoff
+const CHUNK_SIZE = 1000       // Characters per chunk (~200 words) - optimized for quiz generation
+const CHUNK_OVERLAP = 100     // Overlap between chunks
+const MAX_CHUNKS = 20         // Maximum chunks to process (increased for more context)
+const MAX_RETRIES = 3         // API retry attempts
+const BASE_DELAY_MS = 2000    // Base delay for exponential backoff
 
 interface ProcessRequest {
     documentId: string
@@ -69,6 +69,12 @@ serve(async (req) => {
 
         if (!geminiApiKey) {
             throw new Error('CONFIG_ERROR:AI service is not configured. Please contact support.')
+        }
+
+        // Get NLP Service URL for document text extraction
+        const nlpServiceUrl = Deno.env.get('NLP_SERVICE_URL')
+        if (!nlpServiceUrl) {
+            console.log('⚠️ NLP_SERVICE_URL not configured, falling back to basic text extraction')
         }
 
         // Initialize Supabase client with service role (bypasses RLS)
@@ -114,10 +120,20 @@ serve(async (req) => {
         // 3. Extract text based on file type
         console.log(`📝 Extracting text from ${document.file_type} file...`)
         let textContent: string
-        
-        if (document.file_type === 'pdf') {
-            textContent = await extractTextFromPdf(fileData)
+        let extractedKeywords: string[] = []
+        let importantSentences: string[] = []
+
+        if (nlpServiceUrl && (document.file_type === 'pdf' || document.file_type === 'docx')) {
+            // Use NLP service for proper extraction
+            const nlpResult = await extractWithNlpService(fileData, nlpServiceUrl, document.file_type)
+            textContent = nlpResult.text
+            extractedKeywords = nlpResult.keywords
+            importantSentences = nlpResult.importantSentences
+        } else if (document.file_type === 'pdf') {
+            // Fallback: basic PDF extraction (may not work well)
+            textContent = await extractTextFromPdfFallback(fileData)
         } else {
+            // Plain text files
             textContent = await fileData.text()
         }
 
@@ -126,6 +142,15 @@ serve(async (req) => {
         }
 
         console.log(`✅ Extracted ${textContent.length} characters from document`)
+        if (extractedKeywords.length > 0) {
+            console.log(`🔑 Extracted ${extractedKeywords.length} keywords from NLP service`)
+        }
+
+        // Save original text to database for caching/RAG
+        await supabase
+            .from('documents')
+            .update({ original_text: textContent })
+            .eq('id', documentId)
 
         // 4. Chunk the text
         const chunks = chunkText(textContent, CHUNK_SIZE, CHUNK_OVERLAP)
@@ -160,18 +185,18 @@ serve(async (req) => {
         // 6. Process with GEMINI to extract concepts
         console.log('🤖 Analyzing document with AI...')
         const geminiStart = Date.now()
-        
+
         // Use chunked processing for large documents, single pass for small ones
         const wasChunked = chunksToProcess.length > 1
         let geminiResult: GeminiResponse
-        
+
         if (wasChunked) {
             console.log('🔄 Using chunked processing for large document...')
             geminiResult = await processChunkedDocument(chunksToProcess, geminiApiKey)
         } else {
             geminiResult = await processSingleDocument(textContent, geminiApiKey)
         }
-        
+
         console.log(`⚡ AI analysis took: ${Date.now() - geminiStart}ms`)
         console.log(`🧠 Extracted ${geminiResult.concepts.length} concepts`)
 
@@ -202,9 +227,9 @@ serve(async (req) => {
         if (savedChunks && savedChunks.length > 0) {
             console.log('🔢 Generating embeddings for semantic search...')
             await generateAndSaveEmbeddings(
-                supabase, 
-                documentId, 
-                savedChunks, 
+                supabase,
+                documentId,
+                savedChunks,
                 geminiApiKey
             )
         }
@@ -228,8 +253,8 @@ serve(async (req) => {
         console.log(`✅ Document processed successfully in ${totalTime}ms`)
 
         return new Response(
-            JSON.stringify({ 
-                success: true, 
+            JSON.stringify({
+                success: true,
                 message: 'Document processed successfully',
                 conceptCount: geminiResult.concepts.length,
                 chunkCount: chunksToProcess.length,
@@ -259,12 +284,12 @@ serve(async (req) => {
                 const supabaseUrl = Deno.env.get('SUPABASE_URL')!
                 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
                 const supabase = createClient(supabaseUrl, supabaseServiceKey)
-                
+
                 await supabase
                     .from('documents')
-                    .update({ 
-                        status: 'error', 
-                        error_message: userMessage 
+                    .update({
+                        status: 'error',
+                        error_message: userMessage
                     })
                     .eq('id', documentId)
             } catch (e) {
@@ -273,39 +298,91 @@ serve(async (req) => {
         }
 
         return new Response(
-            JSON.stringify({ 
-                success: false, 
+            JSON.stringify({
+                success: false,
                 error: userMessage,
                 errorCode,
                 technicalDetails: errorMessage // For debugging
             }),
-            { 
-                status: 500, 
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+            {
+                status: 500,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' }
             }
         )
     }
 })
 
 /**
- * Extract text from PDF file
- * Note: This is a simplified version. For production, consider using a PDF parsing service
+ * Extract text from document using NLP Microservice (Tika + TextRank + KeyBERT)
+ * This is the proper way to extract text from PDF/DOCX files
  */
-async function extractTextFromPdf(blob: Blob): Promise<string> {
+interface NlpExtractionResult {
+    text: string
+    keywords: string[]
+    importantSentences: string[]
+}
+
+async function extractWithNlpService(
+    blob: Blob,
+    nlpServiceUrl: string,
+    fileType: string
+): Promise<NlpExtractionResult> {
+    console.log(`🔧 Calling NLP service at ${nlpServiceUrl}...`)
+
+    try {
+        // Create form data with the file
+        const formData = new FormData()
+        formData.append('file', blob, `document.${fileType}`)
+
+        const response = await fetch(`${nlpServiceUrl}/process`, {
+            method: 'POST',
+            body: formData,
+        })
+
+        if (!response.ok) {
+            const errorText = await response.text()
+            console.error('NLP service error:', errorText)
+            throw new Error(`NLP_SERVICE_ERROR:Failed to extract text. Status: ${response.status}`)
+        }
+
+        const result = await response.json()
+
+        if (!result.success) {
+            throw new Error(`NLP_SERVICE_ERROR:${result.error || 'Unknown error'}`)
+        }
+
+        console.log(`✅ NLP service extracted ${result.char_count} characters`)
+
+        return {
+            text: result.text,
+            keywords: result.keywords || [],
+            importantSentences: result.important_sentences || []
+        }
+    } catch (error) {
+        console.error('NLP service call failed:', (error as Error).message)
+        throw new Error(`NLP_SERVICE_ERROR:Could not connect to text extraction service. Please try again.`)
+    }
+}
+
+/**
+ * Fallback: Extract text from PDF file (basic approach - may not work well)
+ * Only used when NLP service is not available
+ */
+async function extractTextFromPdfFallback(blob: Blob): Promise<string> {
+    console.log('⚠️ Using fallback PDF extraction (may not work well)')
     const text = await blob.text()
-    
+
     // Try to extract readable text (basic approach)
-    // Remove binary content and keep printable characters
     const cleanedText = text
         .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
-    
+
     if (cleanedText.length > 100) {
         return cleanedText
     }
-    
-    throw new Error('PDF_ERROR:Could not extract text from PDF. Please try uploading a text file (.txt, .md) instead.')
+
+    throw new Error('PDF_ERROR:Could not extract text from PDF. Please ensure NLP service is running or upload a text file (.txt, .md) instead.')
 }
 
 /**
@@ -463,7 +540,7 @@ Rules:
 - Be concise but comprehensive`
 
     const content = await callGemini(prompt, apiKey, 2000)
-    
+
     try {
         const parsed = JSON.parse(content)
         return {
@@ -492,7 +569,7 @@ async function combineChunkResults(
     const allSummaries = chunkResults.map((r, i) => `Section ${i + 1}: ${r.summary}`).join('\n\n')
     const allKeyPoints = chunkResults.flatMap(r => r.keyPoints)
     const allConcepts = chunkResults.flatMap(r => r.concepts)
-    
+
     // Deduplicate concepts by name (keep the one with higher importance)
     const conceptMap = new Map<string, Concept>()
     for (const concept of allConcepts) {
@@ -670,11 +747,11 @@ async function generateAndSaveEmbeddings(
     const batchSize = 5
     let successCount = 0
     let failCount = 0
-    
+
     for (let i = 0; i < chunks.length; i += batchSize) {
         const batch = chunks.slice(i, i + batchSize)
-        console.log(`  🔢 Processing embedding batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(chunks.length/batchSize)}...`)
-        
+        console.log(`  🔢 Processing embedding batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(chunks.length / batchSize)}...`)
+
         const embeddingPromises = batch.map(async (chunk: ChunkRecord) => {
             try {
                 const embedding = await generateEmbedding(chunk.content, apiKey)

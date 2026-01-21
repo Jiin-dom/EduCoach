@@ -10,7 +10,7 @@ import { Eye, EyeOff, Loader2 } from "lucide-react"
 export function LoginForm() {
     const navigate = useNavigate()
     const location = useLocation()
-    const { signIn, profile } = useAuth()
+    const { signIn } = useAuth()
 
     const [showPassword, setShowPassword] = useState(false)
     const [email, setEmail] = useState("")
@@ -27,7 +27,7 @@ export function LoginForm() {
         setLoading(true)
 
         try {
-            const { error } = await signIn(email, password)
+            const { error, profile: freshProfile } = await signIn(email, password)
 
             if (error) {
                 setError(error.message)
@@ -35,7 +35,8 @@ export function LoginForm() {
             }
 
             // Check if profile is completed, redirect accordingly
-            if (profile?.has_completed_profiling) {
+            // Use the freshly fetched profile from signIn, NOT the stale context profile
+            if (freshProfile?.has_completed_profiling) {
                 navigate(from, { replace: true })
             } else {
                 navigate("/profiling", { replace: true })

@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  # Apache Tika - Document text extraction
+  tika:
+    image: apache/tika:latest
+    ports:
+      - "9998:9998"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9998/tika"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Python NLP Microservice - TextRank + KeyBERT
+  nlp-service:
+    build: ./nlp-service
+    ports:
+      - "5000:5000"
+    environment:
+      - TIKA_URL=http://tika:9998
+    depends_on:
+      tika:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

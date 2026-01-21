@@ -19,7 +19,7 @@ interface AuthContextType {
     profile: UserProfile | null
     session: Session | null
     loading: boolean
-    signIn: (email: string, password: string) => Promise<{ error: Error | null }>
+    signIn: (email: string, password: string) => Promise<{ error: Error | null; profile: UserProfile | null }>
     signUp: (email: string, password: string) => Promise<{ error: Error | null }>
     signOut: () => Promise<void>
     updateProfile: (updates: Partial<UserProfile>) => Promise<{ error: Error | null }>
@@ -83,8 +83,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, [])
 
     const signIn = async (email: string, password: string) => {
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
-        return { error: error as Error | null }
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+
+        if (error) {
+            return { error: error as Error | null, profile: null }
+        }
+
+        // Fetch the profile immediately so we can return it for redirect decisions
+        let userProfile: UserProfile | null = null
+        if (data.user) {
+            userProfile = await fetchProfile(data.user.id)
+            // Also update the local state
+            setProfile(userProfile)
+        }
+
+        return { error: null, profile: userProfile }
     }
 
     const signUp = async (email: string, password: string) => {
