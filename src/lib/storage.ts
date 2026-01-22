@@ -32,17 +32,29 @@ export const MAX_FILE_SIZE = 10 * 1024 * 1024
  * Returns an error message if invalid, null if valid
  */
 export function validateFile(file: File): string | null {
+    console.log('[Storage] 🔍 Validating file:', {
+        name: file.name,
+        size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
+        type: file.type,
+        maxSize: `${MAX_FILE_SIZE / (1024 * 1024)} MB`
+    })
+
     // Check file size
     if (file.size > MAX_FILE_SIZE) {
-        return `File too large. Maximum size is ${MAX_FILE_SIZE / (1024 * 1024)}MB`
+        const errorMsg = `File too large. Maximum size is ${MAX_FILE_SIZE / (1024 * 1024)}MB`
+        console.error('[Storage] ❌ Size check failed:', errorMsg)
+        return errorMsg
     }
 
     // Check file type
     if (!(file.type in ALLOWED_FILE_TYPES)) {
         const allowedTypes = Object.values(ALLOWED_FILE_TYPES).join(', ')
-        return `Invalid file type. Allowed types: ${allowedTypes}`
+        const errorMsg = `Invalid file type. Allowed types: ${allowedTypes}`
+        console.error('[Storage] ❌ Type check failed:', errorMsg, '| Got:', file.type)
+        return errorMsg
     }
 
+    console.log('[Storage] ✅ File validation passed')
     return null
 }
 
@@ -57,8 +69,10 @@ export function generateFilePath(userId: string, fileName: string): string {
         .replace(/[^a-zA-Z0-9._-]/g, '_')
         .replace(/\s+/g, '_')
         .toLowerCase()
-    
-    return `${userId}/${timestamp}_${sanitizedName}`
+
+    const path = `${userId}/${timestamp}_${sanitizedName}`
+    console.log('[Storage] 📂 Generated file path:', path)
+    return path
 }
 
 /**
@@ -69,16 +83,25 @@ export async function uploadFile(
     userId: string,
     file: File
 ): Promise<{ data: { path: string } | null; error: Error | null }> {
+    console.log('[Storage] 🚀 Starting file upload to Supabase Storage...', {
+        userId,
+        fileName: file.name,
+        fileSize: formatFileSize(file.size)
+    })
+
     // Validate the file first
     const validationError = validateFile(file)
     if (validationError) {
+        console.error('[Storage] ❌ Validation failed, aborting upload')
         return { data: null, error: new Error(validationError) }
     }
 
     // Generate unique path
     const filePath = generateFilePath(userId, file.name)
+    console.log('[Storage] 📤 Uploading to bucket:', DOCUMENTS_BUCKET, '| Path:', filePath)
 
     // Upload to Supabase Storage
+    const uploadStartTime = performance.now()
     const { data, error } = await supabase.storage
         .from(DOCUMENTS_BUCKET)
         .upload(filePath, file, {
@@ -86,10 +109,21 @@ export async function uploadFile(
             upsert: false, // Don't overwrite existing files
         })
 
+    const uploadDuration = (performance.now() - uploadStartTime).toFixed(2)
+
     if (error) {
-        console.error('Upload error:', error)
+        console.error('[Storage] ❌ Supabase upload failed:', {
+            error: error.message,
+            duration: `${uploadDuration}ms`
+        })
         return { data: null, error: new Error(error.message) }
     }
+
+    console.log('[Storage] ✅ Upload successful!', {
+        path: data.path,
+        duration: `${uploadDuration}ms`,
+        bucket: DOCUMENTS_BUCKET
+    })
 
     return { data: { path: data.path }, error: null }
 }

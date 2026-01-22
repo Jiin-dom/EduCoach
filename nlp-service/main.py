@@ -307,4 +307,11 @@ async def process_document(file: UploadFile = File(...)):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=5000)
+    from logging_config import LOGGING_CONFIG
+    
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=5000,
+        log_config=LOGGING_CONFIG
+    )

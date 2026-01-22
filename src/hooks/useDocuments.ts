@@ -46,8 +46,12 @@ export function useDocuments() {
         queryKey: documentKeys.lists(),
         queryFn: async (): Promise<Document[]> => {
             if (!user) {
+                console.log('[Documents] ⚠️ No user logged in, skipping document fetch')
                 return []
             }
+
+            console.log('[Documents] 📚 Fetching documents for user:', user.id)
+            const fetchStartTime = performance.now()
 
             const { data, error } = await supabase
                 .from('documents')
@@ -55,9 +59,26 @@ export function useDocuments() {
                 .eq('user_id', user.id)
                 .order('created_at', { ascending: false })
 
+            const fetchDuration = (performance.now() - fetchStartTime).toFixed(2)
+
             if (error) {
+                console.error('[Documents] ❌ Fetch failed:', {
+                    error: error.message,
+                    duration: `${fetchDuration}ms`
+                })
                 throw new Error(error.message)
             }
+
+            console.log('[Documents] ✅ Fetch successful:', {
+                count: data.length,
+                duration: `${fetchDuration}ms`,
+                documents: data.map(d => ({
+                    id: d.id,
+                    title: d.title,
+                    status: d.status,
+                    created_at: d.created_at
+                }))
+            })
 
             return data as Document[]
         },
@@ -131,7 +152,7 @@ export function useDeleteDocument() {
             queryClient.setQueryData<Document[]>(documentKeys.lists(), (old) =>
                 old?.filter((doc) => doc.id !== deletedId)
             )
-            
+
             // Invalidate to ensure fresh data
             queryClient.invalidateQueries({ queryKey: documentKeys.all })
         },
@@ -170,7 +191,7 @@ export function useUpdateDocument() {
             queryClient.setQueryData<Document[]>(documentKeys.lists(), (old) =>
                 old?.map((doc) => (doc.id === updatedDoc.id ? updatedDoc : doc))
             )
-            
+
             // Update detail cache
             queryClient.setQueryData(documentKeys.detail(updatedDoc.id), updatedDoc)
         },
@@ -186,32 +207,76 @@ export function useProcessDocument() {
 
     return useMutation({
         mutationFn: async (documentId: string) => {
+            console.log('[DocumentProcessing] 🔄 Starting document processing...', {
+                documentId,
+                timestamp: new Date().toISOString()
+            })
+
             // Update status to processing
-            await supabase
+            console.log('[DocumentProcessing] 📝 Updating document status to "processing"...')
+            const updateResult = await supabase
                 .from('documents')
                 .update({ status: 'processing' })
                 .eq('id', documentId)
 
+            if (updateResult.error) {
+                console.error('[DocumentProcessing] ❌ Failed to update status:', updateResult.error)
+            } else {
+                console.log('[DocumentProcessing] ✅ Status updated to "processing"')
+            }
+
             // Call the Edge Function
+            console.log('[DocumentProcessing] 🌐 Invoking Edge Function "process-document"...')
+            const edgeFunctionStartTime = performance.now()
+
             const { data, error } = await supabase.functions.invoke('process-document', {
                 body: { documentId },
             })
 
+            const edgeFunctionDuration = (performance.now() - edgeFunctionStartTime).toFixed(2)
+
             if (error) {
+                console.error('[DocumentProcessing] ❌ Edge Function failed:', {
+                    error: error.message,
+                    duration: `${edgeFunctionDuration}ms`,
+                    documentId
+                })
+
                 // Revert status on error
+                console.log('[DocumentProcessing] 🔄 Reverting document status to "error"...')
                 await supabase
                     .from('documents')
                     .update({ status: 'error', error_message: error.message })
                     .eq('id', documentId)
+
                 throw new Error(error.message)
             }
 
+            console.log('[DocumentProcessing] 🎉 Edge Function completed successfully!', {
+                duration: `${edgeFunctionDuration}ms`,
+                documentId,
+                response: data
+            })
+
             return data
         },
-        onSuccess: () => {
+        onSuccess: (data, documentId) => {
+            console.log('[DocumentProcessing] ✅ Processing mutation successful, refreshing cache...', {
+                documentId,
+                responseData: data
+            })
+
             // Invalidate documents to refresh status
             queryClient.invalidateQueries({ queryKey: documentKeys.all })
+
+            console.log('[DocumentProcessing] 🔄 Document cache invalidated')
         },
+        onError: (error, documentId) => {
+            console.error('[DocumentProcessing] 💥 Processing mutation failed:', {
+                error: error instanceof Error ? error.message : 'Unknown error',
+                documentId
+            })
+        }
     })
 }
 

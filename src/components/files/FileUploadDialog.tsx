@@ -19,7 +19,7 @@ type UploadStatus = 'idle' | 'uploading' | 'success' | 'error'
 
 export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplete }: FileUploadDialogProps) {
     const { user } = useAuth()
-    
+
     const [selectedFile, setSelectedFile] = useState<File | null>(null)
     const [title, setTitle] = useState("")
     const [dragActive, setDragActive] = useState(false)
@@ -42,18 +42,28 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
 
     // Handle file selection
     const handleFileSelect = (file: File) => {
+        console.log('[FileUpload] 📁 File selected:', {
+            name: file.name,
+            type: file.type,
+            size: formatFileSize(file.size),
+            timestamp: new Date().toISOString()
+        })
+
         const validationError = validateFile(file)
         if (validationError) {
+            console.error('[FileUpload] ❌ Validation failed:', validationError)
             setErrorMessage(validationError)
             return
         }
 
+        console.log('[FileUpload] ✅ File validation passed')
         setSelectedFile(file)
         setErrorMessage(null)
-        
+
         // Auto-fill title from filename (without extension)
         const nameWithoutExt = file.name.replace(/\.[^/.]+$/, "")
         setTitle(nameWithoutExt)
+        console.log('[FileUpload] 📝 Auto-filled title:', nameWithoutExt)
     }
 
     // Handle drag events
@@ -87,43 +97,85 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
 
     // Handle upload
     const handleUpload = async () => {
-        if (!selectedFile || !user) return
+        if (!selectedFile || !user) {
+            console.warn('[FileUpload] ⚠️ Upload cancelled - missing file or user')
+            return
+        }
+
+        console.log('[FileUpload] 🚀 Starting upload process...', {
+            fileName: selectedFile.name,
+            title: title.trim(),
+            fileSize: formatFileSize(selectedFile.size),
+            userId: user.id
+        })
 
         setStatus('uploading')
         setErrorMessage(null)
 
         try {
             // 1. Upload file to Supabase Storage
+            console.log('[FileUpload] ☁️ Step 1: Uploading to Supabase Storage...')
+            const uploadStartTime = performance.now()
+
             const { data: uploadData, error: uploadError } = await uploadFile(user.id, selectedFile)
-            
+
+            const uploadDuration = (performance.now() - uploadStartTime).toFixed(2)
+
             if (uploadError) {
+                console.error('[FileUpload] ❌ Storage upload failed:', uploadError)
                 throw uploadError
             }
 
             if (!uploadData) {
+                console.error('[FileUpload] ❌ Upload failed - no data returned')
                 throw new Error('Upload failed - no data returned')
             }
 
+            console.log('[FileUpload] ✅ Storage upload successful:', {
+                path: uploadData.path,
+                duration: `${uploadDuration}ms`
+            })
+
             // 2. Save document metadata to database
+            console.log('[FileUpload] 💾 Step 2: Saving metadata to database...')
+            const dbStartTime = performance.now()
+
+            const documentData = {
+                user_id: user.id,
+                title: title.trim() || selectedFile.name,
+                file_name: selectedFile.name,
+                file_path: uploadData.path,
+                file_type: getFileTypeFromMime(selectedFile.type),
+                file_size: selectedFile.size,
+                status: 'pending', // Will be processed by Edge Function
+            }
+
+            console.log('[FileUpload] 📋 Document data:', documentData)
+
             const { error: dbError } = await supabase
                 .from('documents')
-                .insert({
-                    user_id: user.id,
-                    title: title.trim() || selectedFile.name,
-                    file_name: selectedFile.name,
-                    file_path: uploadData.path,
-                    file_type: getFileTypeFromMime(selectedFile.type),
-                    file_size: selectedFile.size,
-                    status: 'pending', // Will be processed by Edge Function
-                })
+                .insert(documentData)
+
+            const dbDuration = (performance.now() - dbStartTime).toFixed(2)
 
             if (dbError) {
+                console.error('[FileUpload] ❌ Database insert failed:', dbError)
                 throw new Error(dbError.message)
             }
 
+            console.log('[FileUpload] ✅ Database insert successful:', {
+                duration: `${dbDuration}ms`
+            })
+
             // Success!
+            const totalDuration = (performance.now() - uploadStartTime).toFixed(2)
+            console.log('[FileUpload] 🎉 Upload complete!', {
+                totalDuration: `${totalDuration}ms`,
+                nextStep: 'Document will be processed by Edge Function'
+            })
+
             setStatus('success')
-            
+
             // Call legacy callback if provided
             if (onUpload) {
                 onUpload(selectedFile)
@@ -131,6 +183,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
 
             // Call new callback
             if (onUploadComplete) {
+                console.log('[FileUpload] 🔄 Triggering onUploadComplete callback')
                 onUploadComplete()
             }
 
@@ -140,7 +193,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
             }, 1500)
 
         } catch (err) {
-            console.error('Upload error:', err)
+            console.error('[FileUpload] 💥 Upload process failed:', err)
             setStatus('error')
             setErrorMessage(err instanceof Error ? err.message : 'Upload failed')
         }
@@ -172,8 +225,8 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                             className={`
                                 border-2 border-dashed rounded-lg p-8 text-center cursor-pointer
                                 transition-colors duration-200
-                                ${dragActive 
-                                    ? 'border-primary bg-primary/5' 
+                                ${dragActive
+                                    ? 'border-primary bg-primary/5'
                                     : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-accent/50'
                                 }
                             `}
