@@ -24,5 +24,6 @@ COPY . .
 EXPOSE 5000
 
 # Use custom logging config to filter health check spam
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5000", "--log-config", "logging_config.py"]
+# We need to start uvicorn with Python to import our config dict
+CMD ["python", "-c", "import uvicorn; from logging_config import LOGGING_CONFIG; uvicorn.run('main:app', host='0.0.0.0', port=5000, log_config=LOGGING_CONFIG)"]
 
