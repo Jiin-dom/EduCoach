@@ -46,12 +46,12 @@ LOGGING_CONFIG = {
     },
     "formatters": {
         "default": {
-            "format": "%(levelprefix)s %(asctime)s - %(message)s",
+            "format": "%(levelname)s:     %(asctime)s - %(message)s",
             "datefmt": "%Y-%m-%d %H:%M:%S",
         },
         "access": {
-            "format": '%(levelprefix)s %(asctime)s - %(client_addr)s - "%(request_line)s" %(status_code)s',
-            "datefmt": "%Y-%m-%d %H:%M:%S",
+            # Use standard logging fields instead of Uvicorn-specific ones
+            "format": "INFO:     %(message)s",
         },
     },
     "handlers": {
