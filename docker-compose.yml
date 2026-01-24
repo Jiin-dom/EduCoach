@@ -5,6 +5,11 @@ services:
     ports:
       - "9998:9998"
     restart: unless-stopped
+    environment:
+      # Keep JVM memory bounded on small machines (helps avoid OOM / stalls).
+      # Override via environment if you want different values:
+      #   TIKA_JAVA_TOOL_OPTIONS="-Xms256m -Xmx1536m"
+      JAVA_TOOL_OPTIONS: ${TIKA_JAVA_TOOL_OPTIONS:--Xms128m -Xmx768m}
     # Note: Tika image doesn't have curl, so we skip health check
     # The NLP service will retry connections automatically
 
@@ -15,6 +20,23 @@ services:
       - "5000:5000"
     environment:
       - TIKA_URL=http://tika:9998
+
+      # ---- Performance / determinism knobs ----
+      # These defaults are chosen to keep latency predictable on small droplets.
+      # Override any of these in your shell env / .env file used by docker compose.
+      - MAX_ANALYSIS_CHARS=${MAX_ANALYSIS_CHARS:-20000}
+      - KEYBERT_INPUT_MAX_CHARS=${KEYBERT_INPUT_MAX_CHARS:-3000}
+      - KEYBERT_NR_CANDIDATES=${KEYBERT_NR_CANDIDATES:-10}
+      - KEYBERT_TOP_N=${KEYBERT_TOP_N:-10}
+      - KEYBERT_USE_MAXSUM=${KEYBERT_USE_MAXSUM:-false}
+      - TEXTRANK_TOP_N=${TEXTRANK_TOP_N:-10}
+
+      # ---- Thread caps (important if sentence-transformers/PyTorch is used) ----
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
+      - MKL_NUM_THREADS=${MKL_NUM_THREADS:-1}
+      - OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-1}
+      - NUMEXPR_NUM_THREADS=${NUMEXPR_NUM_THREADS:-1}
+      - TORCH_NUM_THREADS=${TORCH_NUM_THREADS:-1}
     depends_on:
       - tika
     restart: unless-stopped
