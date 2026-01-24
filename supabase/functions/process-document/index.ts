@@ -615,11 +615,121 @@ function extractKeywordsFromText(text: string, limit: number): string[] {
 }
 
 function toTitleCase(value: string): string {
+    const ACRONYMS: Record<string, string> = {
+        rnn: 'RNN',
+        lstm: 'LSTM',
+        gru: 'GRU',
+        bptt: 'BPTT',
+        cnn: 'CNN',
+        rnnss: 'RNNs', // sometimes appears from tokenization
+    }
+
     return value
         .split(' ')
-        .map((word) => word ? word[0].toUpperCase() + word.slice(1) : '')
+        .map((word) => {
+            if (!word) {
+                return ''
+            }
+
+            const mapped = ACRONYMS[word.toLowerCase()]
+            if (mapped) {
+                return mapped
+            }
+
+            // Preserve acronyms / common technical tokens.
+            if (/^[A-Z0-9]{2,}$/.test(word)) {
+                return word
+            }
+
+            return word[0].toUpperCase() + word.slice(1)
+        })
         .join(' ')
         .trim()
+}
+
+function stripNoisyInlineContent(text: string): string {
+    return text
+        // URLs add a lot of noise to study concepts.
+        .replace(/https?:\/\/\S+/gi, ' ')
+        .replace(/www\.\S+/gi, ' ')
+        // Common slide/page markers from PDFs.
+        .replace(/\b(slide|page)\s*\d+\b/gi, ' ')
+        // Common mojibake from PDF extraction.
+        .replace(/â€™/g, "'")
+        .replace(/â€œ|â€�/g, '"')
+        .replace(/â€“|â€”/g, '-')
+        .replace(/â€¢/g, '-')
+        .replace(/â€¦/g, '...')
+        .replace(/\s+/g, ' ')
+        .trim()
+}
+
+function isStudyFriendlySentence(sentence: string): boolean {
+    const s = sentence.trim()
+    if (s.length < 40) return false
+    if (s.length > 400) return false
+    if (/https?:\/\/|www\./i.test(s)) return false
+    if (/\b(slide|page)\s*\d+\b/i.test(s)) return false
+
+    const letters = (s.match(/[a-z]/gi) || []).length
+    if (letters / Math.max(1, s.length) < 0.45) return false
+
+    return true
+}
+
+function normalizeForDedup(value: string): string {
+    return value
+        .toLowerCase()
+        .replace(/https?:\/\/\S+/gi, ' ')
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+}
+
+function filterKeywordsForStudy(keywords: string[]): string[] {
+    const filtered: string[] = []
+    const seen = new Set<string>()
+    const slidePageNumberRe = /\b(slide|page)\s*\d+\b/i
+
+    for (const raw of keywords) {
+        const phrase = stripNoisyInlineContent(raw || '')
+        if (!phrase) continue
+
+        const lower = phrase.toLowerCase()
+        if (seen.has(lower)) continue
+        if (lower.includes('http') || lower.includes('www')) continue
+        if (slidePageNumberRe.test(lower) || lower === 'slide' || lower === 'page') continue
+        if (phrase.length < 3) continue
+
+        seen.add(lower)
+        filtered.push(phrase)
+    }
+
+    return filtered
+}
+
+function findBestSupportingSentence(
+    phrase: string,
+    sentences: string[]
+): { sentence: string; index: number } | null {
+    const lowerPhrase = phrase.toLowerCase()
+    let best: { sentence: string; index: number; score: number } | null = null
+
+    for (let i = 0; i < sentences.length; i++) {
+        const s = sentences[i]
+        const lower = s.toLowerCase()
+        if (!lower.includes(lowerPhrase)) {
+            continue
+        }
+
+        // Prefer earlier (higher-ranked) sentences and tighter matches.
+        const score = (sentences.length - i) + Math.min(10, lowerPhrase.length / 6)
+        if (!best || score > best.score) {
+            best = { sentence: s, index: i, score }
+        }
+    }
+
+    return best ? { sentence: best.sentence, index: best.index } : null
 }
 
 function extractKeyTerms(sentence: string): string[] {
@@ -662,17 +772,78 @@ function buildPureNlpResult(
     keywords: string[],
     importantSentences: string[]
 ): GeminiResponse {
-    const sentences = importantSentences.length > 0 ? importantSentences : splitSentences(text)
-    const topSentences = sentences.slice(0, 10)
-    const summary = topSentences.slice(0, 3).join(' ').trim()
-    const concepts = topSentences.map((sentence, index) => ({
-        name: deriveConceptName(sentence, keywords),
-        description: sentence,
-        category: DEFAULT_CONCEPT_CATEGORY,
-        importance: Math.max(1, 10 - index),
-        difficulty_level: DEFAULT_DIFFICULTY,
-        keywords: deriveKeywordsForSentence(sentence, keywords).slice(0, 3),
-    }))
+    const cleanedText = stripNoisyInlineContent(text)
+    const baseSentences = importantSentences.length > 0 ? importantSentences : splitSentences(cleanedText)
+
+    const sentencePool: string[] = []
+    const seenSentences = new Set<string>()
+    for (const s of baseSentences) {
+        const cleaned = stripNoisyInlineContent(s)
+        if (!isStudyFriendlySentence(cleaned)) continue
+
+        const key = normalizeForDedup(cleaned)
+        if (!key || seenSentences.has(key)) continue
+        seenSentences.add(key)
+        sentencePool.push(cleaned)
+        if (sentencePool.length >= 20) break
+    }
+
+    const summary = sentencePool.slice(0, 3).join(' ').trim() || cleanedText.substring(0, 300).trim()
+
+    // Prefer NLP service keywords, but filter them. If they are weak, fall back to simple frequency keywords.
+    const keywordPool = filterKeywordsForStudy(
+        keywords.length > 0 ? keywords : extractKeywordsFromText(cleanedText, 25)
+    )
+
+    // Build concepts around keyphrases and attach a supporting sentence.
+    const concepts: Concept[] = []
+    const conceptNames = new Set<string>()
+
+    for (const phrase of keywordPool) {
+        if (concepts.length >= 12) break
+
+        // Avoid overly-generic single-word concepts.
+        const normalized = normalizeForDedup(phrase)
+        if (!normalized) continue
+        if (!phrase.includes(' ') && (STOPWORDS.has(normalized) || normalized.length <= 4)) continue
+
+        const support = findBestSupportingSentence(phrase, sentencePool)
+        if (!support) continue
+
+        const name = toTitleCase(phrase)
+        if (!name || conceptNames.has(name)) continue
+        conceptNames.add(name)
+
+        concepts.push({
+            name,
+            description: support.sentence,
+            category: DEFAULT_CONCEPT_CATEGORY,
+            importance: Math.max(1, 10 - support.index),
+            difficulty_level: DEFAULT_DIFFICULTY,
+            keywords: deriveKeywordsForSentence(support.sentence, keywordPool).slice(0, 3),
+        })
+    }
+
+    // Fallback: if keyword-based concepting produced too few, fall back to sentence-based concepts.
+    if (concepts.length < 5) {
+        for (let i = 0; i < Math.min(10, sentencePool.length); i++) {
+            const sentence = sentencePool[i]
+            const name = deriveConceptName(sentence, keywordPool)
+            if (!name || conceptNames.has(name)) continue
+            conceptNames.add(name)
+
+            concepts.push({
+                name,
+                description: sentence,
+                category: DEFAULT_CONCEPT_CATEGORY,
+                importance: Math.max(1, 10 - i),
+                difficulty_level: DEFAULT_DIFFICULTY,
+                keywords: deriveKeywordsForSentence(sentence, keywordPool).slice(0, 3),
+            })
+
+            if (concepts.length >= 12) break
+        }
+    }
 
     const conceptMap = new Map<string, Concept>()
     for (const concept of concepts) {
@@ -683,7 +854,7 @@ function buildPureNlpResult(
     }
 
     return {
-        summary: summary || text.substring(0, 300).trim(),
+        summary,
         concepts: Array.from(conceptMap.values()),
     }
 }

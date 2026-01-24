@@ -8,6 +8,7 @@ and keyword extraction (KeyBERT) for the document processing pipeline.
 import os
 import io
 import time
+import re
 import requests
 import spacy
 import pytextrank
@@ -51,6 +52,131 @@ nlp.add_pipe("textrank")
 
 # Load KeyBERT model
 kw_model = KeyBERT()
+
+# ============================================
+# Text Cleaning / Filtering Helpers
+# ============================================
+
+_URL_RE = re.compile(r"(https?://\S+|www\.\S+)", re.IGNORECASE)
+_SLIDE_RE = re.compile(r"\b(slide|page)\s*\d+\b", re.IGNORECASE)
+_MULTISPACE_RE = re.compile(r"\s+")
+_NON_LETTER_RE = re.compile(r"[^a-zA-Z]+")
+
+_MOJIBAKE_REPLACEMENTS = {
+    "â€™": "'",
+    "â€œ": "\"",
+    "â€�": "\"",
+    "â€“": "-",
+    "â€”": "-",
+    "â€¢": "-",
+    "â€¦": "...",
+}
+
+def _normalize_mojibake(text: str) -> str:
+    for bad, good in _MOJIBAKE_REPLACEMENTS.items():
+        text = text.replace(bad, good)
+    return text
+
+def _is_noise_line(line: str) -> bool:
+    if not line:
+        return True
+
+    l = line.strip()
+    if not l:
+        return True
+
+    # Lines that are basically URLs / slide markers / navigation junk.
+    if _URL_RE.search(l) and len(_NON_LETTER_RE.sub("", l)) < 8:
+        return True
+    if _SLIDE_RE.fullmatch(l.strip().lower()):
+        return True
+
+    # Heuristic: if the line is very short and mostly non-letters, it is likely noise.
+    letters = len(_NON_LETTER_RE.sub("", l))
+    if len(l) <= 12 and letters <= 3:
+        return True
+
+    return False
+
+def clean_extracted_text(text: str) -> str:
+    """
+    Make Tika output more study-friendly:
+    - remove URLs and obvious slide/page markers
+    - reduce PDF mojibake artifacts
+    - collapse whitespace while keeping sentence boundaries mostly intact
+    """
+    if not text:
+        return ""
+
+    text = _normalize_mojibake(text)
+
+    # Work line-by-line to drop obvious junk early.
+    lines = [ln.strip() for ln in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    kept = []
+    seen = set()
+
+    for ln in lines:
+        if _is_noise_line(ln):
+            continue
+
+        # Remove inline URLs and slide/page tokens but keep the rest of the line.
+        ln = _URL_RE.sub("", ln)
+        ln = _SLIDE_RE.sub("", ln)
+        ln = ln.strip(" -\t")
+        ln = _MULTISPACE_RE.sub(" ", ln).strip()
+
+        if not ln:
+            continue
+
+        key = ln.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(ln)
+
+    cleaned = " ".join(kept)
+    cleaned = _MULTISPACE_RE.sub(" ", cleaned).strip()
+    return cleaned
+
+def is_good_sentence(sentence: str) -> bool:
+    s = sentence.strip()
+    if len(s) < 40:
+        return False
+    if len(s) > 400:
+        return False
+
+    # Drop sentences that are basically links or "slide" navigation.
+    if _URL_RE.search(s):
+        return False
+    if "slide" in s.lower() and re.search(r"\bslide\s*\d+\b", s.lower()):
+        return False
+
+    # Require a reasonable amount of letters to avoid garbage spans.
+    letters = len(_NON_LETTER_RE.sub("", s))
+    if letters / max(1, len(s)) < 0.45:
+        return False
+
+    return True
+
+def filter_keywords(phrases: list) -> list:
+    filtered = []
+    seen = set()
+    for p in phrases:
+        phrase = (p or "").strip()
+        if not phrase:
+            continue
+        low = phrase.lower()
+        if low in seen:
+            continue
+        if _URL_RE.search(low) or "http" in low or "www" in low:
+            continue
+        if _SLIDE_RE.search(low) or low in ("slide", "page"):
+            continue
+        if len(phrase) < 3:
+            continue
+        seen.add(low)
+        filtered.append(phrase)
+    return filtered
 
 # ============================================
 # Request/Response Models
@@ -124,7 +250,8 @@ def extract_text(file: UploadFile = File(...)):
                 detail=f"Tika extraction failed: {response.status_code}"
             )
         
-        text = response.text.strip()
+        raw = response.text.strip()
+        text = clean_extracted_text(raw)
         
         return ExtractResponse(
             success=True,
@@ -205,10 +332,11 @@ def extract_keywords(input: TextInput):
             nr_candidates=min(50, max(10, KEYBERT_NR_CANDIDATES))
         )
         
-        result = [
-            {"keyword": kw[0], "score": float(kw[1])}
-            for kw in keywords
-        ]
+        result = []
+        for kw in keywords:
+            phrase = kw[0]
+            if phrase in filter_keywords([phrase]):
+                result.append({"keyword": phrase, "score": float(kw[1])})
         
         return KeywordResponse(
             success=True,
@@ -266,8 +394,13 @@ def process_document(file: UploadFile = File(...)):
                 error=f"Tika extraction failed: {response.status_code}"
             )
         
-        text = response.text.strip()
-        print(f"[nlp-service] tika done seconds={(time.time() - start):.2f} text_chars={len(text)}", flush=True)
+        raw_text = response.text.strip()
+        text = clean_extracted_text(raw_text)
+        print(
+            f"[nlp-service] tika done seconds={(time.time() - start):.2f} "
+            f"text_chars={len(text)} raw_chars={len(raw_text)}",
+            flush=True
+        )
         
         if not text or len(text) < 50:
             return ProcessResponse(
@@ -289,8 +422,19 @@ def process_document(file: UploadFile = File(...)):
         doc = nlp(analysis_text)
         important_sentences = []
         
-        for sent in doc._.textrank.summary(limit_sentences=TEXTRANK_TOP_N):
-            important_sentences.append(str(sent).strip())
+        # Ask for extra candidates, then filter for "study-friendly" sentences.
+        candidates = [str(sent).strip() for sent in doc._.textrank.summary(limit_sentences=min(30, TEXTRANK_TOP_N * 3))]
+        seen_sent = set()
+        for s in candidates:
+            if not is_good_sentence(s):
+                continue
+            key = s.lower()
+            if key in seen_sent:
+                continue
+            seen_sent.add(key)
+            important_sentences.append(s)
+            if len(important_sentences) >= TEXTRANK_TOP_N:
+                break
         print(f"[nlp-service] textrank done seconds={(time.time() - textrank_start):.2f} sentences={len(important_sentences)}", flush=True)
         
         # Step 3: KeyBERT - Extract keywords
@@ -308,7 +452,7 @@ def process_document(file: UploadFile = File(...)):
             nr_candidates=min(50, max(10, KEYBERT_NR_CANDIDATES))
         )
         
-        keywords = [kw[0] for kw in keywords_raw]
+        keywords = filter_keywords([kw[0] for kw in keywords_raw])
         print(f"[nlp-service] keybert done seconds={(time.time() - keybert_start):.2f} keywords={len(keywords)}", flush=True)
         print(f"[nlp-service] /process done total_seconds={(time.time() - start):.2f}", flush=True)
         
