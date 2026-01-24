@@ -36,11 +36,32 @@ export function FileViewer() {
     // Handle document processing
     const handleProcess = () => {
         if (id) {
+            console.log('[FileViewer] ▶️ Processing requested', {
+                documentId: id,
+                processor: 'pure_nlp'
+            })
             processDocument.mutate(id, {
                 onSuccess: () => {
                     refetchDoc()
                 }
             })
+        }
+    }
+
+    const handleRefineWithGemini = () => {
+        if (id) {
+            console.log('[FileViewer] ✨ Gemini refinement requested', {
+                documentId: id,
+                processor: 'gemini'
+            })
+            processDocument.mutate(
+                { documentId: id, processor: 'gemini' },
+                {
+                    onSuccess: () => {
+                        refetchDoc()
+                    }
+                }
+            )
         }
     }
 
@@ -204,10 +225,25 @@ export function FileViewer() {
                         </Button>
                     )}
                     {document.status === 'ready' && (
-                        <Button className="gap-2">
-                            <Sparkles className="w-4 h-4" />
-                            Generate Quiz
-                        </Button>
+                        <>
+                            <Button
+                                variant="outline"
+                                className="gap-2"
+                                onClick={handleRefineWithGemini}
+                                disabled={processDocument.isPending}
+                            >
+                                {processDocument.isPending ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <Brain className="w-4 h-4" />
+                                )}
+                                Refine with Gemini
+                            </Button>
+                            <Button className="gap-2">
+                                <Sparkles className="w-4 h-4" />
+                                Generate Quiz
+                            </Button>
+                        </>
                     )}
                 </div>
             </div>

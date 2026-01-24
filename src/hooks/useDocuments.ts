@@ -23,9 +23,19 @@ export interface Document {
     error_message: string | null
     summary: string | null
     concept_count: number
+    processed_by?: 'pure_nlp' | 'gemini' | null
     created_at: string
     updated_at: string
 }
+
+export type DocumentProcessor = 'pure_nlp' | 'gemini'
+
+export type ProcessDocumentInput =
+    | string
+    | {
+        documentId: string
+        processor?: DocumentProcessor
+    }
 
 // Query keys for cache management
 export const documentKeys = {
@@ -201,14 +211,18 @@ export function useUpdateDocument() {
 /**
  * Hook to trigger document processing
  * Calls the Edge Function to process a document
+ * Optionally accepts a processor override (pure_nlp or gemini)
  */
 export function useProcessDocument() {
     const queryClient = useQueryClient()
 
     return useMutation({
-        mutationFn: async (documentId: string) => {
+        mutationFn: async (input: ProcessDocumentInput) => {
+            const payload = typeof input === 'string' ? { documentId: input } : input
+            const { documentId, processor } = payload
             console.log('[DocumentProcessing] 🔄 Starting document processing...', {
                 documentId,
+                processor,
                 timestamp: new Date().toISOString()
             })
 
@@ -229,8 +243,12 @@ export function useProcessDocument() {
             console.log('[DocumentProcessing] 🌐 Invoking Edge Function "process-document"...')
             const edgeFunctionStartTime = performance.now()
 
+            console.log('[DocumentProcessing] 🧠 NLP extraction started (server-side)')
             const { data, error } = await supabase.functions.invoke('process-document', {
-                body: { documentId },
+                body: {
+                    documentId,
+                    ...(processor ? { processor } : {}),
+                },
             })
 
             const edgeFunctionDuration = (performance.now() - edgeFunctionStartTime).toFixed(2)
@@ -256,6 +274,12 @@ export function useProcessDocument() {
                 duration: `${edgeFunctionDuration}ms`,
                 documentId,
                 response: data
+            })
+
+            console.log('[DocumentProcessing] ✅ NLP extraction finished (response received)', {
+                documentId,
+                processingTimeMs: data?.processingTimeMs,
+                conceptCount: data?.conceptCount
             })
 
             return data

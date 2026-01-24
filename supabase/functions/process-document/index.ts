@@ -5,8 +5,8 @@
  * 1. Downloads the file from Supabase Storage
  * 2. Extracts text content
  * 3. Chunks the text into segments
- * 4. Sends chunks to GEMINI to extract concepts
- * 5. Generates embeddings for semantic search
+ * 4. Uses Pure NLP (default) or Gemini to extract concepts
+ * 5. Generates embeddings for semantic search (optional)
  * 6. Saves everything to the database
  * 
  * Features:
@@ -30,9 +30,64 @@ const CHUNK_OVERLAP = 100     // Overlap between chunks
 const MAX_CHUNKS = 20         // Maximum chunks to process (increased for more context)
 const MAX_RETRIES = 3         // API retry attempts
 const BASE_DELAY_MS = 2000    // Base delay for exponential backoff
+const DEFAULT_PROCESSOR = 'pure_nlp'
+const DEFAULT_CONCEPT_CATEGORY = 'General Study'
+const DEFAULT_DIFFICULTY = 'intermediate'
+
+const STOPWORDS = new Set([
+    'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'has', 'he',
+    'in', 'is', 'it', 'its', 'of', 'on', 'that', 'the', 'to', 'was', 'were', 'will',
+    'with', 'this', 'these', 'those', 'you', 'your', 'we', 'our', 'they', 'their',
+    'or', 'if', 'then', 'than', 'but', 'not', 'can', 'could', 'should', 'would',
+    'about', 'into', 'within', 'without', 'over', 'under', 'between', 'during'
+])
+
+let processedByColumnCache: boolean | null = null
+
+function normalizeProcessor(value?: string | null): 'pure_nlp' | 'gemini' | null {
+    if (!value) {
+        return null
+    }
+
+    const normalized = value.toLowerCase().trim()
+    if (normalized === 'pure_nlp' || normalized === 'gemini') {
+        return normalized
+    }
+
+    return null
+}
+
+function parseTimeoutMs(value: string | null, fallbackMs: number): number {
+    if (!value) {
+        return fallbackMs
+    }
+
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return fallbackMs
+    }
+
+    return parsed
+}
+
+async function fetchWithTimeout(
+    url: string,
+    options: RequestInit,
+    timeoutMs: number
+): Promise<Response> {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+    try {
+        return await fetch(url, { ...options, signal: controller.signal })
+    } finally {
+        clearTimeout(timeoutId)
+    }
+}
 
 interface ProcessRequest {
     documentId: string
+    processor?: string
 }
 
 interface Concept {
@@ -65,10 +120,21 @@ serve(async (req) => {
         // Get environment variables
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-        const geminiApiKey = Deno.env.get('GEMINI_API_KEY')
+        const geminiApiKey = Deno.env.get('GEMINI_API_KEY') || null
+        const defaultProcessorRaw = Deno.env.get('DEFAULT_PROCESSOR')
+        const normalizedProcessor = defaultProcessorRaw ? defaultProcessorRaw.toLowerCase() : null
+        const resolvedProcessor =
+            normalizedProcessor === 'pure_nlp' || normalizedProcessor === 'gemini'
+                ? normalizedProcessor
+                : null
+        const envUsePureNlp = Deno.env.get('USE_PURE_NLP')
+        const baseUsePureNlp = resolvedProcessor
+            ? resolvedProcessor === 'pure_nlp'
+            : (envUsePureNlp === null ? DEFAULT_PROCESSOR === 'pure_nlp' : envUsePureNlp !== 'false')
+        const canUseGemini = Boolean(geminiApiKey)
 
-        if (!geminiApiKey) {
-            throw new Error('CONFIG_ERROR:AI service is not configured. Please contact support.')
+        if (normalizedProcessor && normalizedProcessor !== 'pure_nlp' && normalizedProcessor !== 'gemini') {
+            console.log(`⚠️ DEFAULT_PROCESSOR="${defaultProcessorRaw}" is invalid, falling back to ${DEFAULT_PROCESSOR}`)
         }
 
         // Get NLP Service URL for document text extraction
@@ -83,6 +149,23 @@ serve(async (req) => {
         // Parse request body
         const body: ProcessRequest = await req.json()
         documentId = body.documentId
+        const requestedProcessor = normalizeProcessor(body.processor)
+        const usePureNlp = requestedProcessor ? requestedProcessor === 'pure_nlp' : baseUsePureNlp
+        const isProcessorOverride = Boolean(requestedProcessor)
+
+        if (body.processor && !requestedProcessor) {
+            console.log(`⚠️ Invalid processor override "${body.processor}", ignoring`)
+        }
+
+        if (requestedProcessor === 'gemini' && !canUseGemini) {
+            throw new Error('CONFIG_ERROR:AI service is not configured. Please contact support.')
+        }
+
+        if (!usePureNlp && !canUseGemini) {
+            throw new Error('CONFIG_ERROR:AI service is not configured. Please contact support.')
+        }
+
+        console.log(`🧭 Processing mode: ${usePureNlp ? 'pure_nlp' : 'gemini'}${requestedProcessor ? ' (override)' : ' (default)'}`)
 
         if (!documentId) {
             throw new Error('INVALID_REQUEST:Document ID is required.')
@@ -118,22 +201,32 @@ serve(async (req) => {
         }
 
         // 3. Extract text based on file type
-        console.log(`📝 Extracting text from ${document.file_type} file...`)
+        console.log(`📝 Starting NLP extraction for ${document.file_type} file...`)
         let textContent: string
         let extractedKeywords: string[] = []
         let importantSentences: string[] = []
 
-        if (nlpServiceUrl && (document.file_type === 'pdf' || document.file_type === 'docx')) {
-            // Use NLP service for proper extraction
+        if (nlpServiceUrl) {
+            // Use NLP service for extraction + keywords + ranked sentences
+            const nlpStartTime = Date.now()
+            console.log('🧠 NLP service extraction started')
             const nlpResult = await extractWithNlpService(fileData, nlpServiceUrl, document.file_type)
             textContent = nlpResult.text
             extractedKeywords = nlpResult.keywords
             importantSentences = nlpResult.importantSentences
+            console.log('✅ NLP service extraction finished', {
+                durationMs: Date.now() - nlpStartTime,
+                charCount: textContent.length,
+                keywordCount: extractedKeywords.length,
+                sentenceCount: importantSentences.length
+            })
         } else if (document.file_type === 'pdf') {
             // Fallback: basic PDF extraction (may not work well)
+            console.log('🧠 NLP service unavailable, using PDF fallback extraction')
             textContent = await extractTextFromPdfFallback(fileData)
         } else {
             // Plain text files
+            console.log('🧠 NLP service unavailable, using raw text extraction')
             textContent = await fileData.text()
         }
 
@@ -164,7 +257,11 @@ serve(async (req) => {
             console.log(`⚠️ Document too large, processing only first ${MAX_CHUNKS} chunks`)
         }
 
-        // 5. Save chunks to database
+        // 5. Clear previous derived data (chunks, concepts, embeddings)
+        console.log('🧹 Clearing previous derived data...')
+        await clearDerivedData(supabase, documentId)
+
+        // 6. Save chunks to database
         console.log('💾 Saving chunks to database...')
         const chunkRecords = chunksToProcess.map((content, index) => ({
             document_id: documentId,
@@ -182,28 +279,57 @@ serve(async (req) => {
             throw new Error(`DB_ERROR:Failed to save document chunks. ${chunkError.message}`)
         }
 
-        // 6. Process with GEMINI to extract concepts
-        console.log('🤖 Analyzing document with AI...')
-        const geminiStart = Date.now()
+        // 7. Analyze document (Pure NLP default, Gemini optional)
+        const derivedKeywords = extractedKeywords.length > 0
+            ? extractedKeywords
+            : extractKeywordsFromText(textContent, 15)
+        const derivedImportantSentences = importantSentences.length > 0
+            ? importantSentences
+            : splitSentences(textContent).slice(0, 10)
 
-        // Use chunked processing for large documents, single pass for small ones
-        const wasChunked = chunksToProcess.length > 1
-        let geminiResult: GeminiResponse
+        const pureNlpResult = buildPureNlpResult(textContent, derivedKeywords, derivedImportantSentences)
 
-        if (wasChunked) {
-            console.log('🔄 Using chunked processing for large document...')
-            geminiResult = await processChunkedDocument(chunksToProcess, geminiApiKey)
-        } else {
-            geminiResult = await processSingleDocument(textContent, geminiApiKey)
+        const runGeminiAnalysis = async (): Promise<GeminiResponse> => {
+            if (!geminiApiKey) {
+                throw new Error('CONFIG_ERROR:AI service is not configured. Please contact support.')
+            }
+
+            const apiKey = geminiApiKey
+            console.log('🤖 Analyzing document with Gemini...')
+            const geminiStart = Date.now()
+            const wasChunked = chunksToProcess.length > 1
+            const result = wasChunked
+                ? await processChunkedDocument(chunksToProcess, apiKey)
+                : await processSingleDocument(textContent, apiKey)
+            console.log(`⚡ Gemini analysis took: ${Date.now() - geminiStart}ms`)
+            return result
         }
 
-        console.log(`⚡ AI analysis took: ${Date.now() - geminiStart}ms`)
-        console.log(`🧠 Extracted ${geminiResult.concepts.length} concepts`)
+        let analysisResult: GeminiResponse = pureNlpResult
+        let processedBy = 'pure_nlp'
 
-        // 7. Save concepts to database
-        if (geminiResult.concepts.length > 0) {
+        if (usePureNlp) {
+            console.log(`🧠 Using Pure NLP analysis${isProcessorOverride ? ' (override)' : ' (default)'}`)
+            if (!isProcessorOverride && (analysisResult.concepts.length === 0 || analysisResult.summary.trim().length === 0)) {
+                if (canUseGemini) {
+                    console.log('⚠️ Pure NLP returned limited results, falling back to Gemini...')
+                    analysisResult = await runGeminiAnalysis()
+                    processedBy = 'gemini'
+                } else {
+                    console.log('⚠️ Pure NLP results limited and Gemini unavailable; continuing with NLP output')
+                }
+            }
+        } else {
+            analysisResult = await runGeminiAnalysis()
+            processedBy = 'gemini'
+        }
+
+        console.log(`🧠 Extracted ${analysisResult.concepts.length} concepts`)
+
+        // 8. Save concepts to database
+        if (analysisResult.concepts.length > 0) {
             console.log('💾 Saving concepts to database...')
-            const conceptRecords = geminiResult.concepts.map((concept) => ({
+            const conceptRecords = analysisResult.concepts.map((concept) => ({
                 document_id: documentId,
                 name: concept.name,
                 description: concept.description,
@@ -223,26 +349,36 @@ serve(async (req) => {
             }
         }
 
-        // 8. Generate embeddings for each chunk
+        // 9. Generate embeddings for each chunk
         if (savedChunks && savedChunks.length > 0) {
-            console.log('🔢 Generating embeddings for semantic search...')
-            await generateAndSaveEmbeddings(
-                supabase,
-                documentId,
-                savedChunks,
-                geminiApiKey
-            )
+            if (canUseGemini) {
+                console.log('🔢 Generating embeddings for semantic search...')
+                await generateAndSaveEmbeddings(
+                    supabase,
+                    documentId,
+                    savedChunks,
+                    geminiApiKey as string
+                )
+            } else {
+                console.log('ℹ️ Skipping embeddings (GEMINI_API_KEY not configured)')
+            }
         }
 
-        // 9. Update document with summary and concept count
+        // 10. Update document with summary and concept count
+        const updatePayload: Record<string, unknown> = {
+            status: 'ready',
+            summary: analysisResult.summary,
+            concept_count: analysisResult.concepts.length,
+            error_message: null,
+        }
+
+        if (await hasProcessedByColumn(supabase)) {
+            updatePayload.processed_by = processedBy
+        }
+
         const { error: updateError } = await supabase
             .from('documents')
-            .update({
-                status: 'ready',
-                summary: geminiResult.summary,
-                concept_count: geminiResult.concepts.length,
-                error_message: null,
-            })
+            .update(updatePayload)
             .eq('id', documentId)
 
         if (updateError) {
@@ -256,7 +392,7 @@ serve(async (req) => {
             JSON.stringify({
                 success: true,
                 message: 'Document processed successfully',
-                conceptCount: geminiResult.concepts.length,
+                conceptCount: analysisResult.concepts.length,
                 chunkCount: chunksToProcess.length,
                 wasTruncated,
                 processingTimeMs: totalTime,
@@ -334,10 +470,15 @@ async function extractWithNlpService(
         const formData = new FormData()
         formData.append('file', blob, `document.${fileType}`)
 
-        const response = await fetch(`${nlpServiceUrl}/process`, {
-            method: 'POST',
-            body: formData,
-        })
+        const timeoutMs = parseTimeoutMs(Deno.env.get('NLP_SERVICE_TIMEOUT_MS'), 60000)
+        const response = await fetchWithTimeout(
+            `${nlpServiceUrl}/process`,
+            {
+                method: 'POST',
+                body: formData,
+            },
+            timeoutMs
+        )
 
         if (!response.ok) {
             const errorText = await response.text()
@@ -359,8 +500,14 @@ async function extractWithNlpService(
             importantSentences: result.important_sentences || []
         }
     } catch (error) {
-        console.error('NLP service call failed:', (error as Error).message)
-        throw new Error(`NLP_SERVICE_ERROR:Could not connect to text extraction service. Please try again.`)
+        const err = error as Error
+        console.error('NLP service call failed:', err.message)
+
+        if (err.name === 'AbortError') {
+            throw new Error('NLP_SERVICE_TIMEOUT:Text extraction service timed out. Please try again.')
+        }
+
+        throw new Error('NLP_SERVICE_ERROR:Could not connect to text extraction service. Please try again.')
     }
 }
 
@@ -425,6 +572,137 @@ function chunkText(text: string, chunkSize: number, overlap: number): string[] {
     }
 
     return chunks.filter(chunk => chunk.length > 50) // Remove tiny chunks
+}
+
+/**
+ * Split text into sentences (best-effort)
+ */
+function splitSentences(text: string): string[] {
+    const normalized = text.replace(/\s+/g, ' ').trim()
+    if (!normalized) {
+        return []
+    }
+
+    const matches = normalized.match(/[^.!?]+[.!?]+/g) || []
+    const remainder = normalized.replace(/[^.!?]+[.!?]+/g, '').trim()
+
+    if (remainder) {
+        matches.push(remainder)
+    }
+
+    return matches.map((s) => s.trim()).filter(Boolean)
+}
+
+/**
+ * Extract keywords from text using simple frequency analysis
+ */
+function extractKeywordsFromText(text: string, limit: number): string[] {
+    const counts = new Map<string, number>()
+    const words = text
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter((word) => word.length > 3 && !STOPWORDS.has(word))
+
+    for (const word of words) {
+        counts.set(word, (counts.get(word) || 0) + 1)
+    }
+
+    return Array.from(counts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, limit)
+        .map(([word]) => word)
+}
+
+function toTitleCase(value: string): string {
+    return value
+        .split(' ')
+        .map((word) => word ? word[0].toUpperCase() + word.slice(1) : '')
+        .join(' ')
+        .trim()
+}
+
+function extractKeyTerms(sentence: string): string[] {
+    return sentence
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter((word) => word.length > 3 && !STOPWORDS.has(word))
+}
+
+function deriveConceptName(sentence: string, keywords: string[]): string {
+    const lowerSentence = sentence.toLowerCase()
+    const keywordMatch = keywords.find((keyword) => lowerSentence.includes(keyword.toLowerCase()))
+
+    if (keywordMatch) {
+        return toTitleCase(keywordMatch)
+    }
+
+    const terms = extractKeyTerms(sentence)
+    if (terms.length === 0) {
+        return 'Key Concept'
+    }
+
+    return toTitleCase(terms.slice(0, 4).join(' '))
+}
+
+function deriveKeywordsForSentence(sentence: string, keywords: string[]): string[] {
+    const lowerSentence = sentence.toLowerCase()
+    const matched = keywords.filter((keyword) => lowerSentence.includes(keyword.toLowerCase()))
+
+    if (matched.length > 0) {
+        return matched.slice(0, 5)
+    }
+
+    return extractKeyTerms(sentence).slice(0, 5)
+}
+
+function buildPureNlpResult(
+    text: string,
+    keywords: string[],
+    importantSentences: string[]
+): GeminiResponse {
+    const sentences = importantSentences.length > 0 ? importantSentences : splitSentences(text)
+    const topSentences = sentences.slice(0, 10)
+    const summary = topSentences.slice(0, 3).join(' ').trim()
+    const concepts = topSentences.map((sentence, index) => ({
+        name: deriveConceptName(sentence, keywords),
+        description: sentence,
+        category: DEFAULT_CONCEPT_CATEGORY,
+        importance: Math.max(1, 10 - index),
+        difficulty_level: DEFAULT_DIFFICULTY,
+        keywords: deriveKeywordsForSentence(sentence, keywords).slice(0, 3),
+    }))
+
+    const conceptMap = new Map<string, Concept>()
+    for (const concept of concepts) {
+        const existing = conceptMap.get(concept.name)
+        if (!existing || concept.importance > existing.importance) {
+            conceptMap.set(concept.name, concept)
+        }
+    }
+
+    return {
+        summary: summary || text.substring(0, 300).trim(),
+        concepts: Array.from(conceptMap.values()),
+    }
+}
+
+async function clearDerivedData(
+    supabase: ReturnType<typeof createClient>,
+    documentId: string
+): Promise<void> {
+    const targets = ['document_embeddings', 'concepts', 'chunks']
+    for (const table of targets) {
+        const { error } = await supabase
+            .from(table)
+            .delete()
+            .eq('document_id', documentId)
+
+        if (error) {
+            console.error(`⚠️ Failed to clear ${table} for document ${documentId}:`, error.message)
+        }
+    }
 }
 
 /**
@@ -639,6 +917,33 @@ function parseGeminiResponse(content: string): GeminiResponse {
             concepts: [],
         }
     }
+}
+
+async function hasProcessedByColumn(
+    supabase: ReturnType<typeof createClient>
+): Promise<boolean> {
+    if (processedByColumnCache !== null) {
+        return processedByColumnCache
+    }
+
+    const { error } = await supabase
+        .from('documents')
+        .select('processed_by')
+        .limit(1)
+
+    if (error) {
+        const message = error.message || ''
+        if (message.toLowerCase().includes('processed_by') || message.toLowerCase().includes('column')) {
+            console.log('ℹ️ processed_by column not found; skipping processor tracking')
+        } else {
+            console.log('⚠️ Unable to verify processed_by column:', message)
+        }
+        processedByColumnCache = false
+        return false
+    }
+
+    processedByColumnCache = true
+    return true
 }
 
 /**

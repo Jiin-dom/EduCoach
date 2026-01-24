@@ -104,6 +104,11 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
             return
         }
 
+        console.log('[FileUpload] ▶️ User initiated upload', {
+            fileName: selectedFile.name,
+            userId: user.id
+        })
+
         console.log('[FileUpload] 🚀 Starting upload process...', {
             fileName: selectedFile.name,
             title: title.trim(),
@@ -182,9 +187,10 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
             const processingStartTime = performance.now()
 
             try {
+                console.log('[FileUpload] 🧠 NLP extraction requested (server-side processing begins)')
                 await processDocument.mutateAsync(insertedDoc.id)
                 const processingDuration = (performance.now() - processingStartTime).toFixed(2)
-                console.log('[FileUpload] ✅ Document processing triggered successfully:', {
+                console.log('[FileUpload] ✅ NLP extraction finished (Edge Function response received):', {
                     duration: `${processingDuration}ms`
                 })
             } catch (processingError) {

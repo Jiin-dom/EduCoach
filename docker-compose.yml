@@ -19,7 +19,8 @@ services:
       - tika
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      # Use IPv4 loopback explicitly to avoid occasional IPv6 localhost connection refusals.
+      test: ["CMD", "curl", "-fsS", "--max-time", "5", "http://127.0.0.1:5000/health"]
       interval: 30s
       timeout: 10s
       retries: 5
