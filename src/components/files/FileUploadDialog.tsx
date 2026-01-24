@@ -7,6 +7,7 @@ import { Upload, FileText, X, Loader2, CheckCircle2, AlertCircle } from "lucide-
 import { useAuth } from "@/contexts/AuthContext"
 import { uploadFile, validateFile, formatFileSize, getFileTypeFromMime, ALLOWED_FILE_TYPES } from "@/lib/storage"
 import { supabase } from "@/lib/supabase"
+import { useProcessDocument } from "@/hooks/useDocuments"
 
 interface FileUploadDialogProps {
     open: boolean
@@ -19,6 +20,7 @@ type UploadStatus = 'idle' | 'uploading' | 'success' | 'error'
 
 export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplete }: FileUploadDialogProps) {
     const { user } = useAuth()
+    const processDocument = useProcessDocument()
 
     const [selectedFile, setSelectedFile] = useState<File | null>(null)
     const [title, setTitle] = useState("")
@@ -147,14 +149,16 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                 file_path: uploadData.path,
                 file_type: getFileTypeFromMime(selectedFile.type),
                 file_size: selectedFile.size,
-                status: 'pending', // Will be processed by Edge Function
+                status: 'pending', // Will be changed to processing by Edge Function
             }
 
             console.log('[FileUpload] 📋 Document data:', documentData)
 
-            const { error: dbError } = await supabase
+            const { data: insertedDoc, error: dbError } = await supabase
                 .from('documents')
                 .insert(documentData)
+                .select()
+                .single()
 
             const dbDuration = (performance.now() - dbStartTime).toFixed(2)
 
@@ -163,15 +167,38 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                 throw new Error(dbError.message)
             }
 
+            if (!insertedDoc) {
+                console.error('[FileUpload] ❌ Database insert failed - no document returned')
+                throw new Error('Database insert failed - no document returned')
+            }
+
             console.log('[FileUpload] ✅ Database insert successful:', {
-                duration: `${dbDuration}ms`
+                duration: `${dbDuration}ms`,
+                documentId: insertedDoc.id
             })
+
+            // 3. Trigger Edge Function to process the document
+            console.log('[FileUpload] 🚀 Step 3: Triggering Edge Function to process document...')
+            const processingStartTime = performance.now()
+
+            try {
+                await processDocument.mutateAsync(insertedDoc.id)
+                const processingDuration = (performance.now() - processingStartTime).toFixed(2)
+                console.log('[FileUpload] ✅ Document processing triggered successfully:', {
+                    duration: `${processingDuration}ms`
+                })
+            } catch (processingError) {
+                // Log the error but don't fail the upload - the user can retry processing manually
+                console.error('[FileUpload] ⚠️ Failed to trigger processing:', processingError)
+                console.log('[FileUpload] ℹ️ Document uploaded successfully but processing failed to start. User can retry manually.')
+            }
 
             // Success!
             const totalDuration = (performance.now() - uploadStartTime).toFixed(2)
             console.log('[FileUpload] 🎉 Upload complete!', {
                 totalDuration: `${totalDuration}ms`,
-                nextStep: 'Document will be processed by Edge Function'
+                documentId: insertedDoc.id,
+                status: 'Processing started'
             })
 
             setStatus('success')

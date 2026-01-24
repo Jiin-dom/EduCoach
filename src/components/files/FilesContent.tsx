@@ -231,6 +231,27 @@ export function FilesContent() {
                                             </TooltipProvider>
                                         )}
 
+                                        {file.status === 'error' && (
+                                            <TooltipProvider>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="text-orange-600 hover:text-orange-700"
+                                                            onClick={() => handleProcess(file)}
+                                                            disabled={processDocument.isPending}
+                                                        >
+                                                            <RefreshCw className={`w-4 h-4 ${processDocument.isPending ? 'animate-spin' : ''}`} />
+                                                        </Button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>
+                                                        <p>Retry processing (wait a few minutes if rate limited)</p>
+                                                    </TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
+                                        )}
+
                                         {file.status === 'ready' && (
                                             <TooltipProvider>
                                                 <Tooltip>

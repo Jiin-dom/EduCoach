@@ -11,7 +11,7 @@ import { MotivationalCard } from "@/components/dashboard/MotivationalCard"
 import { AiTutorChat } from "@/components/shared/AiTutorChat"
 import { Link } from "react-router-dom"
 import { useAuth } from "@/contexts/AuthContext"
-import { useDocuments, useDeleteDocument, type Document } from "@/hooks/useDocuments"
+import { useDocuments, useDeleteDocument, useProcessDocument, type Document } from "@/hooks/useDocuments"
 import { formatFileSize } from "@/lib/storage"
 import { Badge } from "@/components/ui/badge"
 
@@ -22,6 +22,7 @@ export function DashboardContent() {
     // Use real document data
     const { data: documents, isLoading, refetch } = useDocuments()
     const deleteDocument = useDeleteDocument()
+    const processDocument = useProcessDocument()
 
     // Get recent files (last 5)
     const recentFiles = documents?.slice(0, 5) || []
@@ -34,6 +35,10 @@ export function DashboardContent() {
         if (window.confirm(`Delete "${doc.title}"?`)) {
             deleteDocument.mutate(doc)
         }
+    }
+
+    const handleRetryProcessing = (doc: Document) => {
+        processDocument.mutate(doc.id)
     }
 
     const handleGenerateQuiz = (fileName: string) => {
@@ -177,6 +182,18 @@ export function DashboardContent() {
                                                         <Eye className="w-4 h-4" />
                                                     </Button>
                                                 </Link>
+                                                {file.status === 'error' && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 text-orange-600 hover:text-orange-700"
+                                                        onClick={() => handleRetryProcessing(file)}
+                                                        disabled={processDocument.isPending}
+                                                        title="Retry processing (wait a few minutes if rate limited)"
+                                                    >
+                                                        <RefreshCw className={`w-4 h-4 ${processDocument.isPending ? 'animate-spin' : ''}`} />
+                                                    </Button>
+                                                )}
                                                 {file.status === 'ready' && (
                                                     <Button
                                                         variant="ghost"
