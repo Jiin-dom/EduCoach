@@ -48,12 +48,13 @@ function splitIntoSentences(text: string): string[] {
     const normalized = cleanDisplayText(text)
     if (!normalized) return []
 
-    const matches = normalized.match(/[^.!?]+[.!?]+/g) || []
+    const matches = normalized.match(/[^.!?]+[.!?]+/g)
+    const sentences = matches ? [...matches] : []
     const remainder = normalized.replace(/[^.!?]+[.!?]+/g, "").trim()
     if (remainder) {
-        matches.push(remainder)
+        sentences.push(remainder)
     }
-    return matches.map((s) => s.trim()).filter(Boolean)
+    return sentences.map((s) => s.trim()).filter(Boolean)
 }
 
 function buildKeywordPool(concepts: Concept[] | undefined): string[] {
