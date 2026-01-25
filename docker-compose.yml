@@ -25,18 +25,18 @@ services:
       # These defaults are chosen to keep latency predictable on small droplets.
       # Override any of these in your shell env / .env file used by docker compose.
       - MAX_ANALYSIS_CHARS=${MAX_ANALYSIS_CHARS:-60000}
-      - KEYBERT_INPUT_MAX_CHARS=${KEYBERT_INPUT_MAX_CHARS:-10000}
-      - KEYBERT_NR_CANDIDATES=${KEYBERT_NR_CANDIDATES:-25}
-      - KEYBERT_TOP_N=${KEYBERT_TOP_N:-15}
-      - KEYBERT_USE_MAXSUM=${KEYBERT_USE_MAXSUM:-true}
-      - TEXTRANK_TOP_N=${TEXTRANK_TOP_N:-15}
+      - KEYBERT_INPUT_MAX_CHARS=${KEYBERT_INPUT_MAX_CHARS:-8000}
+      - KEYBERT_NR_CANDIDATES=${KEYBERT_NR_CANDIDATES:-18}
+      - KEYBERT_TOP_N=${KEYBERT_TOP_N:-12}
+      - KEYBERT_USE_MAXSUM=${KEYBERT_USE_MAXSUM:-false}
+      - TEXTRANK_TOP_N=${TEXTRANK_TOP_N:-12}
 
       # ---- Thread caps (important if sentence-transformers/PyTorch is used) ----
-      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
-      - MKL_NUM_THREADS=${MKL_NUM_THREADS:-1}
-      - OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-1}
-      - NUMEXPR_NUM_THREADS=${NUMEXPR_NUM_THREADS:-1}
-      - TORCH_NUM_THREADS=${TORCH_NUM_THREADS:-1}
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-2}
+      - MKL_NUM_THREADS=${MKL_NUM_THREADS:-2}
+      - OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-2}
+      - NUMEXPR_NUM_THREADS=${NUMEXPR_NUM_THREADS:-2}
+      - TORCH_NUM_THREADS=${TORCH_NUM_THREADS:-2}
     depends_on:
       - tika
     restart: unless-stopped

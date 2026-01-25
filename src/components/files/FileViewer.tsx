@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -22,16 +22,116 @@ import { useDocument, useProcessDocument } from "@/hooks/useDocuments"
 import { useDocumentConcepts, getDifficultyColor, getImportanceColor, type Concept } from "@/hooks/useConcepts"
 import { getFileUrl, formatFileSize } from "@/lib/storage"
 
+const MOJIBAKE_REPLACEMENTS: Record<string, string> = {
+    "â€™": "'",
+    "â€œ": "\"",
+    "â€�": "\"",
+    "â€“": "-",
+    "â€”": "-",
+    "â€¢": "-",
+    "â€¦": "...",
+}
+
+function cleanDisplayText(value: string): string {
+    let text = value || ""
+    Object.entries(MOJIBAKE_REPLACEMENTS).forEach(([bad, good]) => {
+        text = text.replaceAll(bad, good)
+    })
+    return text.replace(/\s+/g, " ").trim()
+}
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function splitIntoSentences(text: string): string[] {
+    const normalized = cleanDisplayText(text)
+    if (!normalized) return []
+
+    const matches = normalized.match(/[^.!?]+[.!?]+/g) || []
+    const remainder = normalized.replace(/[^.!?]+[.!?]+/g, "").trim()
+    if (remainder) {
+        matches.push(remainder)
+    }
+    return matches.map((s) => s.trim()).filter(Boolean)
+}
+
+function buildKeywordPool(concepts: Concept[] | undefined): string[] {
+    if (!concepts || concepts.length === 0) return []
+
+    const seen = new Set<string>()
+    const pool: string[] = []
+
+    for (const concept of concepts) {
+        const candidates = [concept.name, ...(concept.keywords || [])]
+        for (const raw of candidates) {
+            const cleaned = cleanDisplayText(raw || "")
+            if (!cleaned || cleaned.length < 3) continue
+            const lower = cleaned.toLowerCase()
+            if (lower.includes("http") || lower.includes("www")) continue
+            if (seen.has(lower)) continue
+            seen.add(lower)
+            pool.push(cleaned)
+            if (pool.length >= 15) return pool
+        }
+    }
+
+    return pool
+}
+
 export function FileViewer() {
     const { id } = useParams<{ id: string }>()
     const [expandedConcepts, setExpandedConcepts] = useState<Set<string>>(new Set())
     const [_fileUrl, setFileUrl] = useState<string | null>(null)
     const [downloadingUrl, setDownloadingUrl] = useState(false)
+    const [highlightKeywords, setHighlightKeywords] = useState(true)
+    const [summaryView, setSummaryView] = useState<"paragraph" | "bullets">("paragraph")
 
     // Fetch document and concepts
     const { data: document, isLoading: docLoading, error: docError, refetch: refetchDoc } = useDocument(id)
     const { data: concepts, isLoading: conceptsLoading } = useDocumentConcepts(id)
     const processDocument = useProcessDocument()
+
+    const keywordPool = useMemo(() => buildKeywordPool(concepts), [concepts])
+    const sortedKeywords = useMemo(
+        () => [...keywordPool].sort((a, b) => b.length - a.length),
+        [keywordPool]
+    )
+
+    const renderTextWithHighlights = (text: string) => {
+        const cleaned = cleanDisplayText(text)
+        if (!highlightKeywords || sortedKeywords.length === 0) {
+            return <span>{cleaned}</span>
+        }
+
+        let result = cleaned
+        sortedKeywords.forEach((keyword) => {
+            const escaped = escapeRegExp(keyword)
+            const regex = new RegExp(`(${escaped})`, "gi")
+            result = result.replace(regex, "|||$1|||")
+        })
+
+        const parts = result.split("|||")
+        return (
+            <>
+                {parts.map((part, i) => {
+                    const isKeyword = sortedKeywords.some(
+                        (k) => k.toLowerCase() === part.toLowerCase()
+                    )
+                    return isKeyword ? (
+                        <span
+                            key={i}
+                            className="bg-primary/15 text-primary px-1 rounded font-medium"
+                        >
+                            {part}
+                        </span>
+                    ) : (
+                        <span key={i}>{part}</span>
+                    )
+                })}
+            </>
+        )
+    }
 
     // Handle document processing
     const handleProcess = () => {
@@ -274,14 +374,77 @@ export function FileViewer() {
             {/* Summary Section */}
             {document.summary && (
                 <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <BookOpen className="w-5 h-5 text-primary" />
-                            Document Summary
-                        </CardTitle>
+                    <CardHeader className="space-y-3">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <CardTitle className="flex items-center gap-2">
+                                <BookOpen className="w-5 h-5 text-primary" />
+                                Document Summary
+                            </CardTitle>
+                            <div className="flex flex-wrap gap-2">
+                                <Button
+                                    variant={summaryView === "paragraph" ? "default" : "outline"}
+                                    size="sm"
+                                    onClick={() => setSummaryView("paragraph")}
+                                    className="h-8"
+                                >
+                                    Paragraph
+                                </Button>
+                                <Button
+                                    variant={summaryView === "bullets" ? "default" : "outline"}
+                                    size="sm"
+                                    onClick={() => setSummaryView("bullets")}
+                                    className="h-8"
+                                >
+                                    Bullets
+                                </Button>
+                                <Button
+                                    variant={highlightKeywords ? "default" : "outline"}
+                                    size="sm"
+                                    onClick={() => setHighlightKeywords((prev) => !prev)}
+                                    className="h-8"
+                                >
+                                    Highlight Terms
+                                </Button>
+                            </div>
+                        </div>
+                        <CardDescription>
+                            Cleaned and formatted for study readability.
+                        </CardDescription>
                     </CardHeader>
-                    <CardContent>
-                        <p className="text-muted-foreground leading-relaxed">{document.summary}</p>
+                    <CardContent className="space-y-4">
+                        {summaryView === "bullets" ? (
+                            <ul className="list-disc pl-5 space-y-2 text-muted-foreground">
+                                {splitIntoSentences(document.summary).map((sentence, idx) => (
+                                    <li key={idx} className="leading-relaxed">
+                                        {renderTextWithHighlights(sentence)}
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : (
+                            <div className="space-y-3 text-muted-foreground leading-relaxed">
+                                {cleanDisplayText(document.summary)
+                                    .split(/\n\n+/)
+                                    .filter(Boolean)
+                                    .map((para, idx) => (
+                                        <p key={idx}>{renderTextWithHighlights(para)}</p>
+                                    ))}
+                            </div>
+                        )}
+
+                        {keywordPool.length > 0 && (
+                            <div className="pt-2 border-t">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                                    Key Terms
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {keywordPool.map((keyword) => (
+                                        <Badge key={keyword} variant="secondary" className="text-xs">
+                                            {keyword}
+                                        </Badge>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
             )}
@@ -422,6 +585,9 @@ function ConceptCard({
     isExpanded: boolean
     onToggle: () => void
 }) {
+    const safeName = cleanDisplayText(concept.name)
+    const safeDescription = cleanDisplayText(concept.description || "")
+
     return (
         <div
             className="border rounded-lg p-4 hover:bg-accent/50 transition-colors cursor-pointer"
@@ -435,7 +601,7 @@ function ConceptCard({
                             className={`w-2 h-2 rounded-full ${getImportanceColor(concept.importance)}`}
                             title={`Importance: ${concept.importance}/10`}
                         />
-                        <h4 className="font-semibold">{concept.name}</h4>
+                        <h4 className="font-semibold">{safeName}</h4>
                         {concept.difficulty_level && (
                             <Badge
                                 variant="outline"
@@ -460,16 +626,19 @@ function ConceptCard({
 
             {isExpanded && (
                 <div className="mt-3 pt-3 border-t space-y-3">
-                    {concept.description && (
-                        <p className="text-sm text-muted-foreground">{concept.description}</p>
+                    {safeDescription && (
+                        <p className="text-sm text-muted-foreground">{safeDescription}</p>
                     )}
                     {concept.keywords && concept.keywords.length > 0 && (
                         <div className="flex flex-wrap gap-1">
-                            {concept.keywords.map((keyword, idx) => (
-                                <Badge key={idx} variant="secondary" className="text-xs">
-                                    {keyword}
-                                </Badge>
-                            ))}
+                            {concept.keywords
+                                .map((keyword) => cleanDisplayText(keyword))
+                                .filter(Boolean)
+                                .map((keyword, idx) => (
+                                    <Badge key={`${keyword}-${idx}`} variant="secondary" className="text-xs">
+                                        {keyword}
+                                    </Badge>
+                                ))}
                         </div>
                     )}
                 </div>
