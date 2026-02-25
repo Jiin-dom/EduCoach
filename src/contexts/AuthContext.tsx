@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import type { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 
@@ -49,6 +50,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     // Initialize auth state
+    const queryClient = useQueryClient()
+
     useEffect(() => {
         // Get initial session
         supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
@@ -56,7 +59,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(initialSession?.user ?? null)
 
             if (initialSession?.user) {
+                const expiresAt = initialSession.expires_at
+                    ? new Date(initialSession.expires_at * 1000)
+                    : null
+                console.log('[Auth] 🔑 Session loaded on init', {
+                    userId: initialSession.user.id.slice(0, 8) + '...',
+                    expiresAt: expiresAt?.toLocaleTimeString() ?? 'unknown',
+                })
                 fetchProfile(initialSession.user.id).then(setProfile)
+            } else {
+                console.log('[Auth] 🚪 No session on init')
             }
 
             setLoading(false)
@@ -64,7 +76,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Listen for auth changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            async (_event: AuthChangeEvent, newSession: Session | null) => {
+            async (event: AuthChangeEvent, newSession: Session | null) => {
+                console.log(`[Auth] 🔄 Auth state change: ${event}`, {
+                    hasSession: !!newSession,
+                    userId: newSession?.user?.id?.slice(0, 8) ?? 'none',
+                    expiresAt: newSession?.expires_at
+                        ? new Date(newSession.expires_at * 1000).toLocaleTimeString()
+                        : 'n/a',
+                })
+
                 setSession(newSession)
                 setUser(newSession?.user ?? null)
 
@@ -75,12 +95,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     setProfile(null)
                 }
 
+                // When the token is refreshed, invalidate all React Query caches
+                // so that subsequent fetches use the fresh access token.
+                if (event === 'TOKEN_REFRESHED') {
+                    console.log('[Auth] ♻️ Token refreshed — invalidating query caches')
+                    queryClient.invalidateQueries()
+                }
+
                 setLoading(false)
             }
         )
 
         return () => subscription.unsubscribe()
-    }, [])
+    }, [queryClient])
 
     const signIn = async (email: string, password: string) => {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password })

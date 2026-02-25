@@ -76,8 +76,68 @@ export function generateFilePath(userId: string, fileName: string): string {
 }
 
 /**
+ * Ensures we have a fresh/valid Supabase session before critical operations.
+ *
+ * WHY: When the browser tab is backgrounded, idle HTTP connections get killed.
+ * Calling getSession() forces the Supabase client to make a fresh network
+ * request, which (a) refreshes the token if needed, and (b) re-establishes
+ * the underlying HTTP connection so the next API call doesn't hang on a
+ * dead socket.
+ */
+async function ensureFreshSession(): Promise<void> {
+    console.log('[Storage] 🔄 Ensuring fresh session before upload...')
+    const { data: { session }, error } = await supabase.auth.getSession()
+
+    if (error) {
+        console.warn('[Storage] ⚠️ Session refresh failed:', error.message)
+        throw new Error('Your session has expired. Please log in again.')
+    }
+
+    if (!session) {
+        console.error('[Storage] ❌ No active session')
+        throw new Error('You are not logged in. Please sign in and try again.')
+    }
+
+    const expiresAt = session.expires_at
+        ? new Date(session.expires_at * 1000)
+        : null
+    console.log('[Storage] ✅ Session is fresh', {
+        expiresAt: expiresAt?.toLocaleTimeString() ?? 'unknown',
+    })
+}
+
+/**
+ * Upload with a timeout — prevents the upload from hanging forever on a
+ * stale HTTP connection. Returns the same shape as supabase.storage.upload().
+ */
+const UPLOAD_TIMEOUT_MS = 30_000 // 30 seconds
+
+async function uploadWithTimeout(
+    bucket: string,
+    filePath: string,
+    file: File,
+    options: { cacheControl: string; upsert: boolean }
+) {
+    return Promise.race([
+        supabase.storage.from(bucket).upload(filePath, file, options),
+        new Promise<never>((_, reject) =>
+            setTimeout(
+                () => reject(new Error('UPLOAD_TIMEOUT')),
+                UPLOAD_TIMEOUT_MS
+            )
+        ),
+    ])
+}
+
+/**
  * Uploads a file to Supabase Storage
  * Returns the file path on success, or an error object
+ *
+ * Flow:
+ *  1. Validate the file
+ *  2. Ensure we have a fresh session (warms the HTTP connection)
+ *  3. Upload with a 30s timeout
+ *  4. If the upload times out → refresh session → retry once
  */
 export async function uploadFile(
     userId: string,
@@ -96,18 +156,65 @@ export async function uploadFile(
         return { data: null, error: new Error(validationError) }
     }
 
+    // Ensure we have a fresh session (also warms the HTTP connection)
+    try {
+        await ensureFreshSession()
+    } catch (sessionError) {
+        return { data: null, error: sessionError as Error }
+    }
+
     // Generate unique path
     const filePath = generateFilePath(userId, file.name)
     console.log('[Storage] 📤 Uploading to bucket:', DOCUMENTS_BUCKET, '| Path:', filePath)
 
-    // Upload to Supabase Storage
+    // Upload with timeout + 1 retry on timeout
+    const uploadOptions = { cacheControl: '3600', upsert: false }
     const uploadStartTime = performance.now()
-    const { data, error } = await supabase.storage
-        .from(DOCUMENTS_BUCKET)
-        .upload(filePath, file, {
-            cacheControl: '3600', // 1 hour cache
-            upsert: false, // Don't overwrite existing files
-        })
+
+    let data: { path: string } | null = null
+    let error: { message: string } | null = null
+
+    try {
+        const result = await uploadWithTimeout(
+            DOCUMENTS_BUCKET,
+            filePath,
+            file,
+            uploadOptions
+        )
+        data = result.data
+        error = result.error
+    } catch (err) {
+        if (err instanceof Error && err.message === 'UPLOAD_TIMEOUT') {
+            console.warn('[Storage] ⏰ Upload timed out after ' +
+                UPLOAD_TIMEOUT_MS / 1000 + 's — refreshing session and retrying...')
+
+            // Refresh session (re-establish connection) and retry once
+            try {
+                await ensureFreshSession()
+                const retryResult = await uploadWithTimeout(
+                    DOCUMENTS_BUCKET,
+                    filePath,
+                    file,
+                    uploadOptions
+                )
+                data = retryResult.data
+                error = retryResult.error
+            } catch (retryErr) {
+                const msg = retryErr instanceof Error ? retryErr.message : 'Unknown error'
+                console.error('[Storage] ❌ Retry also failed:', msg)
+                return {
+                    data: null,
+                    error: new Error(
+                        msg === 'UPLOAD_TIMEOUT'
+                            ? 'Upload timed out. Please check your connection and try again.'
+                            : msg
+                    ),
+                }
+            }
+        } else {
+            return { data: null, error: err as Error }
+        }
+    }
 
     const uploadDuration = (performance.now() - uploadStartTime).toFixed(2)
 
@@ -120,12 +227,12 @@ export async function uploadFile(
     }
 
     console.log('[Storage] ✅ Upload successful!', {
-        path: data.path,
+        path: data!.path,
         duration: `${uploadDuration}ms`,
         bucket: DOCUMENTS_BUCKET
     })
 
-    return { data: { path: data.path }, error: null }
+    return { data: { path: data!.path }, error: null }
 }
 
 /**
