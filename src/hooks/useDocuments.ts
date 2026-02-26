@@ -54,7 +54,7 @@ export function useDocuments() {
 
     return useQuery({
         queryKey: documentKeys.lists(),
-        queryFn: async (): Promise<Document[]> => {
+        queryFn: async ({ signal }): Promise<Document[]> => {
             if (!user) {
                 console.log('[Documents] ⚠️ No user logged in, skipping document fetch')
                 return []
@@ -68,6 +68,7 @@ export function useDocuments() {
                 .select('*')
                 .eq('user_id', user.id)
                 .order('created_at', { ascending: false })
+                .abortSignal(signal)
 
             const fetchDuration = (performance.now() - fetchStartTime).toFixed(2)
 
@@ -104,7 +105,7 @@ export function useDocument(documentId: string | undefined) {
 
     return useQuery({
         queryKey: documentKeys.detail(documentId ?? ''),
-        queryFn: async (): Promise<Document | null> => {
+        queryFn: async ({ signal }): Promise<Document | null> => {
             if (!documentId || !user) {
                 return null
             }
@@ -114,6 +115,7 @@ export function useDocument(documentId: string | undefined) {
                 .select('*')
                 .eq('id', documentId)
                 .eq('user_id', user.id) // Ensure user owns document
+                .abortSignal(signal)
                 .single()
 
             if (error) {

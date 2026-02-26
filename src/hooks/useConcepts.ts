@@ -42,7 +42,7 @@ export function useDocumentConcepts(documentId: string | undefined) {
 
     return useQuery({
         queryKey: conceptKeys.listByDocument(documentId ?? ''),
-        queryFn: async (): Promise<Concept[]> => {
+        queryFn: async ({ signal }): Promise<Concept[]> => {
             if (!documentId || !user) {
                 return []
             }
@@ -52,6 +52,7 @@ export function useDocumentConcepts(documentId: string | undefined) {
                 .select('*')
                 .eq('document_id', documentId)
                 .order('importance', { ascending: false })
+                .abortSignal(signal)
 
             if (error) {
                 throw new Error(error.message)
@@ -71,7 +72,7 @@ export function useAllConcepts() {
 
     return useQuery({
         queryKey: conceptKeys.lists(),
-        queryFn: async (): Promise<Concept[]> => {
+        queryFn: async ({ signal }): Promise<Concept[]> => {
             if (!user) {
                 return []
             }
@@ -81,6 +82,7 @@ export function useAllConcepts() {
                 .from('documents')
                 .select('id')
                 .eq('user_id', user.id)
+                .abortSignal(signal)
 
             if (docError) {
                 throw new Error(docError.message)
@@ -98,6 +100,7 @@ export function useAllConcepts() {
                 .select('*')
                 .in('document_id', documentIds)
                 .order('importance', { ascending: false })
+                .abortSignal(signal)
 
             if (error) {
                 throw new Error(error.message)

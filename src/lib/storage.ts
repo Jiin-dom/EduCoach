@@ -76,39 +76,81 @@ export function generateFilePath(userId: string, fileName: string): string {
 }
 
 /**
- * Ensures we have a fresh/valid Supabase session before critical operations.
+ * Warms the HTTP connection to Supabase before a critical operation.
  *
- * WHY: When the browser tab is backgrounded, idle HTTP connections get killed.
- * Calling getSession() forces the Supabase client to make a fresh network
- * request, which (a) refreshes the token if needed, and (b) re-establishes
- * the underlying HTTP connection so the next API call doesn't hang on a
- * dead socket.
+ * WHY: When the browser tab has been backgrounded, idle HTTP/2 connections
+ * get killed by the OS. The browser doesn't realise the socket is dead,
+ * so the next fetch() reuses it and hangs forever.
+ *
+ * This lightweight HEAD request forces the browser to test the socket.
+ * If it's dead → the browser tears it down and creates a fresh one.
+ * If it's alive → the ping completes instantly and we proceed.
+ *
+ * IMPORTANT: We do NOT call getSession() here. Supabase's auth client
+ * uses the browser Web Locks API internally, and aborting an auth fetch
+ * corrupts the lock, causing all subsequent getSession() calls to deadlock.
  */
-async function ensureFreshSession(): Promise<void> {
-    console.log('[Storage] 🔄 Ensuring fresh session before upload...')
-    const { data: { session }, error } = await supabase.auth.getSession()
+async function warmConnection(): Promise<void> {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-    if (error) {
-        console.warn('[Storage] ⚠️ Session refresh failed:', error.message)
-        throw new Error('Your session has expired. Please log in again.')
+    try {
+        await fetch(`${supabaseUrl}/rest/v1/`, {
+            method: 'HEAD',
+            headers: { apikey: supabaseKey },
+            signal: AbortSignal.timeout(5000),
+        })
+        console.log('[Storage] 🏓 REST connection is alive')
+    } catch {
+        console.log('[Storage] 🏓 REST stale socket detected, browser will use fresh connection')
     }
 
-    if (!session) {
-        console.error('[Storage] ❌ No active session')
-        throw new Error('You are not logged in. Please sign in and try again.')
+    try {
+        await fetch(`${supabaseUrl}/storage/v1/`, {
+            method: 'HEAD',
+            headers: { apikey: supabaseKey },
+            signal: AbortSignal.timeout(5000),
+        })
+        console.log('[Storage] 🏓 Storage connection is alive')
+    } catch {
+        console.log('[Storage] 🏓 Storage stale socket detected, browser will use fresh connection')
     }
-
-    const expiresAt = session.expires_at
-        ? new Date(session.expires_at * 1000)
-        : null
-    console.log('[Storage] ✅ Session is fresh', {
-        expiresAt: expiresAt?.toLocaleTimeString() ?? 'unknown',
-    })
 }
 
 /**
- * Upload with a timeout — prevents the upload from hanging forever on a
- * stale HTTP connection. Returns the same shape as supabase.storage.upload().
+ * Reads the Supabase access token directly from localStorage.
+ *
+ * WHY: Supabase's getSession() uses the Web Locks API internally.
+ * When the browser tab has been backgrounded, a zombie token-refresh
+ * can hold the lock forever, causing getSession() (and therefore
+ * supabase.storage.upload()) to deadlock. Reading from localStorage
+ * bypasses the lock entirely — the token there is always the most
+ * recently persisted one and is perfectly fine for authorising an upload.
+ */
+function getAccessTokenDirect(): string {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+    try {
+        const projectRef = new URL(supabaseUrl).hostname.split('.')[0]
+        const storageKey = `sb-${projectRef}-auth-token`
+        const stored = localStorage.getItem(storageKey)
+        if (stored) {
+            const parsed = JSON.parse(stored)
+            if (parsed?.access_token) {
+                return parsed.access_token
+            }
+        }
+    } catch { /* fall through to anon key */ }
+    return supabaseKey
+}
+
+/**
+ * Upload via raw fetch — completely bypasses the Supabase JS client
+ * (and its internal getSession() Web Lock) to avoid deadlocks after
+ * the tab has been backgrounded.
+ *
+ * Uses AbortSignal.timeout() so the fetch is genuinely cancelled when
+ * the timeout fires (unlike Promise.race which leaves orphaned requests).
  */
 const UPLOAD_TIMEOUT_MS = 30_000 // 30 seconds
 
@@ -117,16 +159,45 @@ async function uploadWithTimeout(
     filePath: string,
     file: File,
     options: { cacheControl: string; upsert: boolean }
-) {
-    return Promise.race([
-        supabase.storage.from(bucket).upload(filePath, file, options),
-        new Promise<never>((_, reject) =>
-            setTimeout(
-                () => reject(new Error('UPLOAD_TIMEOUT')),
-                UPLOAD_TIMEOUT_MS
-            )
-        ),
-    ])
+): Promise<{ data: { path: string } | null; error: { message: string } | null }> {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+    const accessToken = getAccessTokenDirect()
+
+    try {
+        const response = await fetch(
+            `${supabaseUrl}/storage/v1/object/${bucket}/${filePath}`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'apikey': supabaseKey,
+                    'cache-control': options.cacheControl,
+                    'x-upsert': String(options.upsert),
+                },
+                body: file,
+                signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+            }
+        )
+
+        if (!response.ok) {
+            const body = await response.json().catch(() => ({ message: response.statusText }))
+            return { data: null, error: { message: body.message || body.error || response.statusText } }
+        }
+
+        const body = await response.json()
+        const returnedKey: string = body.Key ?? ''
+        const path = returnedKey.startsWith(`${bucket}/`)
+            ? returnedKey.slice(bucket.length + 1)
+            : returnedKey
+
+        return { data: { path }, error: null }
+    } catch (err) {
+        if (err instanceof DOMException && err.name === 'TimeoutError') {
+            throw new Error('UPLOAD_TIMEOUT')
+        }
+        throw err
+    }
 }
 
 /**
@@ -135,9 +206,9 @@ async function uploadWithTimeout(
  *
  * Flow:
  *  1. Validate the file
- *  2. Ensure we have a fresh session (warms the HTTP connection)
+ *  2. Warm the HTTP connection (detect dead sockets)
  *  3. Upload with a 30s timeout
- *  4. If the upload times out → refresh session → retry once
+ *  4. If the upload times out → warm connection again → retry once
  */
 export async function uploadFile(
     userId: string,
@@ -156,12 +227,8 @@ export async function uploadFile(
         return { data: null, error: new Error(validationError) }
     }
 
-    // Ensure we have a fresh session (also warms the HTTP connection)
-    try {
-        await ensureFreshSession()
-    } catch (sessionError) {
-        return { data: null, error: sessionError as Error }
-    }
+    // Warm the HTTP connection (detect dead sockets without touching auth locks)
+    await warmConnection()
 
     // Generate unique path
     const filePath = generateFilePath(userId, file.name)
@@ -186,11 +253,11 @@ export async function uploadFile(
     } catch (err) {
         if (err instanceof Error && err.message === 'UPLOAD_TIMEOUT') {
             console.warn('[Storage] ⏰ Upload timed out after ' +
-                UPLOAD_TIMEOUT_MS / 1000 + 's — refreshing session and retrying...')
+                UPLOAD_TIMEOUT_MS / 1000 + 's — warming connection and retrying...')
 
-            // Refresh session (re-establish connection) and retry once
+            await warmConnection()
+
             try {
-                await ensureFreshSession()
                 const retryResult = await uploadWithTimeout(
                     DOCUMENTS_BUCKET,
                     filePath,
@@ -202,6 +269,7 @@ export async function uploadFile(
             } catch (retryErr) {
                 const msg = retryErr instanceof Error ? retryErr.message : 'Unknown error'
                 console.error('[Storage] ❌ Retry also failed:', msg)
+
                 return {
                     data: null,
                     error: new Error(
