@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from '@/contexts/AuthContext'
-import { supabase } from '@/lib/supabase'
+import { ensureFreshSession } from '@/lib/supabase'
 import './index.css'
 import App from './App.tsx'
 
@@ -44,19 +44,25 @@ const queryClient = new QueryClient({
 // Global query error handler.
 //
 // If ANY React Query fetch fails with an auth error (expired JWT, missing
-// session, etc.), we proactively call getSession() which refreshes the token
-// behind the scenes.  React Query's built-in retry will then re-run the
-// failed query with the fresh token — no manual page refresh needed.
+// session, etc.), we call ensureFreshSession() which deduplicates concurrent
+// refresh calls (only ONE getSession() runs at a time — Nuzzle pattern).
+// On success the Supabase client fires TOKEN_REFRESHED, AuthContext
+// invalidates caches, and React Query's built-in retry re-runs with the
+// fresh token.  On failure we dispatch a DOM event so AuthContext can
+// perform a full logout + redirect to login.
 // ---------------------------------------------------------------------------
 queryClient.getQueryCache().config.onError = (error, query) => {
   if (isAuthError(error)) {
     console.warn(
-      '[QueryClient] 🔑 Auth error detected, refreshing session...',
+      '[QueryClient] Auth error detected, refreshing session...',
       { queryKey: query.queryKey, error: (error as Error).message }
     )
-    // Fire-and-forget: getSession() will trigger onAuthStateChange with
-    // TOKEN_REFRESHED, which in turn invalidates all caches (see AuthContext).
-    supabase.auth.getSession()
+    ensureFreshSession().then((session) => {
+      if (!session) {
+        console.warn('[QueryClient] Session refresh failed — dispatching session-expired event')
+        window.dispatchEvent(new Event('educoach-session-expired'))
+      }
+    })
   }
 }
 

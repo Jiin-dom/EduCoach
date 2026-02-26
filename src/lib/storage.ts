@@ -10,7 +10,7 @@
  *       └── {timestamp}_{filename}
  */
 
-import { supabase } from './supabase'
+import { supabase, getSupabaseStorageKey, isTokenExpired, ensureFreshSession } from './supabase'
 
 const DOCUMENTS_BUCKET = 'documents'
 
@@ -119,20 +119,12 @@ async function warmConnection(): Promise<void> {
 
 /**
  * Reads the Supabase access token directly from localStorage.
- *
- * WHY: Supabase's getSession() uses the Web Locks API internally.
- * When the browser tab has been backgrounded, a zombie token-refresh
- * can hold the lock forever, causing getSession() (and therefore
- * supabase.storage.upload()) to deadlock. Reading from localStorage
- * bypasses the lock entirely — the token there is always the most
- * recently persisted one and is perfectly fine for authorising an upload.
+ * Returns null if no token is found (instead of silently falling back
+ * to the anon key, which RLS would reject with a confusing error).
  */
-function getAccessTokenDirect(): string {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+function getAccessTokenDirect(): string | null {
     try {
-        const projectRef = new URL(supabaseUrl).hostname.split('.')[0]
-        const storageKey = `sb-${projectRef}-auth-token`
+        const storageKey = getSupabaseStorageKey()
         const stored = localStorage.getItem(storageKey)
         if (stored) {
             const parsed = JSON.parse(stored)
@@ -140,8 +132,35 @@ function getAccessTokenDirect(): string {
                 return parsed.access_token
             }
         }
-    } catch { /* fall through to anon key */ }
-    return supabaseKey
+    } catch { /* localStorage unavailable or corrupt */ }
+    return null
+}
+
+/**
+ * Returns a valid (non-expired) access token for raw fetch uploads.
+ * If the localStorage token is expired, triggers a deduplicated session
+ * refresh via ensureFreshSession(), then re-reads. Throws if no valid
+ * token can be obtained — the caller should surface a "please log in" error.
+ */
+async function getValidAccessToken(): Promise<string> {
+    let token = getAccessTokenDirect()
+
+    if (token && !isTokenExpired(token)) {
+        return token
+    }
+
+    console.log('[Storage] Token expired or missing — refreshing session before upload')
+    const session = await ensureFreshSession()
+    if (session) {
+        return session.access_token
+    }
+
+    token = getAccessTokenDirect()
+    if (token && !isTokenExpired(token)) {
+        return token
+    }
+
+    throw new Error('Your session has expired — please log in again')
 }
 
 /**
@@ -158,11 +177,11 @@ async function uploadWithTimeout(
     bucket: string,
     filePath: string,
     file: File,
+    accessToken: string,
     options: { cacheControl: string; upsert: boolean }
 ): Promise<{ data: { path: string } | null; error: { message: string } | null }> {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
     const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-    const accessToken = getAccessTokenDirect()
 
     try {
         const response = await fetch(
@@ -227,12 +246,20 @@ export async function uploadFile(
         return { data: null, error: new Error(validationError) }
     }
 
+    // Pre-flight: get a valid (non-expired) access token before touching storage
+    let accessToken: string
+    try {
+        accessToken = await getValidAccessToken()
+    } catch (authErr) {
+        return { data: null, error: authErr as Error }
+    }
+
     // Warm the HTTP connection (detect dead sockets without touching auth locks)
     await warmConnection()
 
     // Generate unique path
     const filePath = generateFilePath(userId, file.name)
-    console.log('[Storage] 📤 Uploading to bucket:', DOCUMENTS_BUCKET, '| Path:', filePath)
+    console.log('[Storage] Uploading to bucket:', DOCUMENTS_BUCKET, '| Path:', filePath)
 
     // Upload with timeout + 1 retry on timeout
     const uploadOptions = { cacheControl: '3600', upsert: false }
@@ -246,13 +273,14 @@ export async function uploadFile(
             DOCUMENTS_BUCKET,
             filePath,
             file,
+            accessToken,
             uploadOptions
         )
         data = result.data
         error = result.error
     } catch (err) {
         if (err instanceof Error && err.message === 'UPLOAD_TIMEOUT') {
-            console.warn('[Storage] ⏰ Upload timed out after ' +
+            console.warn('[Storage] Upload timed out after ' +
                 UPLOAD_TIMEOUT_MS / 1000 + 's — warming connection and retrying...')
 
             await warmConnection()
@@ -262,13 +290,14 @@ export async function uploadFile(
                     DOCUMENTS_BUCKET,
                     filePath,
                     file,
+                    accessToken,
                     uploadOptions
                 )
                 data = retryResult.data
                 error = retryResult.error
             } catch (retryErr) {
                 const msg = retryErr instanceof Error ? retryErr.message : 'Unknown error'
-                console.error('[Storage] ❌ Retry also failed:', msg)
+                console.error('[Storage] Retry also failed:', msg)
 
                 return {
                     data: null,

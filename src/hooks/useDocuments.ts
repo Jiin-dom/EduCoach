@@ -6,7 +6,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { supabase } from '@/lib/supabase'
+import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { deleteFile } from '@/lib/storage'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -222,14 +222,21 @@ export function useProcessDocument() {
         mutationFn: async (input: ProcessDocumentInput) => {
             const payload = typeof input === 'string' ? { documentId: input } : input
             const { documentId, processor } = payload
-            console.log('[DocumentProcessing] 🔄 Starting document processing...', {
+            console.log('[DocumentProcessing] Starting document processing...', {
                 documentId,
                 processor,
                 timestamp: new Date().toISOString()
             })
 
-            // Update status to processing
-            console.log('[DocumentProcessing] 📝 Updating document status to "processing"...')
+            // Pre-flight: ensure we have a valid session BEFORE changing any
+            // document state. This prevents the "stuck in processing" scenario
+            // where the status update succeeds but the Edge Function 401s.
+            const session = await ensureFreshSession()
+            if (!session) {
+                throw new Error('Your session has expired — please log in again')
+            }
+
+            console.log('[DocumentProcessing] Updating document status to "processing"...')
             const updateResult = await supabase
                 .from('documents')
                 .update({ status: 'processing' })

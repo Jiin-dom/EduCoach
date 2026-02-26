@@ -1,6 +1,6 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useRef, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { supabase } from '@/lib/supabase'
+import { supabase, clearStaleSession, getSupabaseStorageKey } from '@/lib/supabase'
 import type { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 
 interface UserProfile {
@@ -49,35 +49,66 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return data as UserProfile
     }
 
-    // Initialize auth state
     const queryClient = useQueryClient()
+    const initHandledRef = useRef(false)
 
     useEffect(() => {
-        // Get initial session
-        supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
-            setSession(initialSession)
-            setUser(initialSession?.user ?? null)
+        // -----------------------------------------------------------------
+        // 1. Initial session restoration — with .catch() so we never freeze
+        //    on the loading screen if getSession() rejects.
+        // -----------------------------------------------------------------
+        supabase.auth.getSession()
+            .then(({ data: { session: initialSession } }) => {
+                setSession(initialSession)
+                setUser(initialSession?.user ?? null)
 
-            if (initialSession?.user) {
-                const expiresAt = initialSession.expires_at
-                    ? new Date(initialSession.expires_at * 1000)
-                    : null
-                console.log('[Auth] 🔑 Session loaded on init', {
-                    userId: initialSession.user.id.slice(0, 8) + '...',
-                    expiresAt: expiresAt?.toLocaleTimeString() ?? 'unknown',
-                })
-                fetchProfile(initialSession.user.id).then(setProfile)
-            } else {
-                console.log('[Auth] 🚪 No session on init')
-            }
+                if (initialSession?.user) {
+                    const expiresAt = initialSession.expires_at
+                        ? new Date(initialSession.expires_at * 1000)
+                        : null
+                    console.log('[Auth] Session loaded on init', {
+                        userId: initialSession.user.id.slice(0, 8) + '...',
+                        expiresAt: expiresAt?.toLocaleTimeString() ?? 'unknown',
+                    })
+                    fetchProfile(initialSession.user.id).then(setProfile)
+                } else {
+                    console.log('[Auth] No session on init')
+                    // If localStorage still has auth data but Supabase returned
+                    // null, the refresh token is dead — clear the stale entry so
+                    // the next load doesn't re-attempt with garbage tokens.
+                    try {
+                        const key = getSupabaseStorageKey()
+                        if (localStorage.getItem(key)) {
+                            clearStaleSession()
+                        }
+                    } catch { /* localStorage unavailable */ }
+                }
 
-            setLoading(false)
-        })
+                initHandledRef.current = true
+                setLoading(false)
+            })
+            .catch((err) => {
+                console.error('[Auth] getSession() failed on init:', err)
+                clearStaleSession()
+                setSession(null)
+                setUser(null)
+                setProfile(null)
+                initHandledRef.current = true
+                setLoading(false)
+            })
 
-        // Listen for auth changes
+        // -----------------------------------------------------------------
+        // 2. Auth state change listener — handles SIGNED_IN, TOKEN_REFRESHED,
+        //    SIGNED_OUT, etc. We skip INITIAL_SESSION because getSession()
+        //    above already handled init (prevents double fetchProfile).
+        // -----------------------------------------------------------------
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
             async (event: AuthChangeEvent, newSession: Session | null) => {
-                console.log(`[Auth] 🔄 Auth state change: ${event}`, {
+                if (event === 'INITIAL_SESSION') {
+                    return
+                }
+
+                console.log(`[Auth] Auth state change: ${event}`, {
                     hasSession: !!newSession,
                     userId: newSession?.user?.id?.slice(0, 8) ?? 'none',
                     expiresAt: newSession?.expires_at
@@ -95,18 +126,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     setProfile(null)
                 }
 
-                // When the token is refreshed, invalidate all React Query caches
-                // so that subsequent fetches use the fresh access token.
                 if (event === 'TOKEN_REFRESHED') {
-                    console.log('[Auth] ♻️ Token refreshed — invalidating query caches')
+                    console.log('[Auth] Token refreshed — invalidating query caches')
                     queryClient.invalidateQueries()
+                }
+
+                if (event === 'SIGNED_OUT') {
+                    console.log('[Auth] Signed out — clearing all cached data')
+                    queryClient.clear()
+                    clearStaleSession()
                 }
 
                 setLoading(false)
             }
         )
 
-        return () => subscription.unsubscribe()
+        // -----------------------------------------------------------------
+        // 3. Session-expired event listener — dispatched by main.tsx when
+        //    ensureFreshSession() fails. Triggers full local logout so the
+        //    user is sent back to the login screen cleanly.
+        //    (Adapted from Nuzzle's 'auth-expired' DOM event pattern.)
+        // -----------------------------------------------------------------
+        const handleSessionExpired = () => {
+            console.log('[Auth] Session expired event received — performing full logout')
+            supabase.auth.signOut().catch(() => {})
+            setUser(null)
+            setProfile(null)
+            setSession(null)
+            queryClient.clear()
+            clearStaleSession()
+        }
+        window.addEventListener('educoach-session-expired', handleSessionExpired)
+
+        return () => {
+            subscription.unsubscribe()
+            window.removeEventListener('educoach-session-expired', handleSessionExpired)
+        }
     }, [queryClient])
 
     const signIn = async (email: string, password: string) => {
@@ -133,10 +188,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const signOut = async () => {
-        await supabase.auth.signOut()
+        // Nuzzle-style comprehensive cleanup: clear everything so no stale
+        // tokens survive in localStorage to haunt the next login.
+        try {
+            await supabase.auth.signOut()
+        } catch (err) {
+            console.warn('[Auth] supabase.auth.signOut() failed (proceeding with local cleanup):', err)
+        }
         setUser(null)
         setProfile(null)
         setSession(null)
+        queryClient.clear()
+        clearStaleSession()
     }
 
     const updateProfile = async (updates: Partial<UserProfile>) => {

@@ -1,10 +1,37 @@
 import { createClient } from '@supabase/supabase-js'
+import type { Session } from '@supabase/supabase-js'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error('Missing Supabase environment variables. Check your .env.local file.')
+}
+
+// ---------------------------------------------------------------------------
+// JWT / localStorage helpers — token validation and stale session cleanup.
+// ---------------------------------------------------------------------------
+
+/** Computes the localStorage key Supabase uses to persist the auth session. */
+export function getSupabaseStorageKey(): string {
+    const projectRef = new URL(supabaseUrl).hostname.split('.')[0]
+    return `sb-${projectRef}-auth-token`
+}
+
+/**
+ * Decodes a JWT and checks whether it has expired.
+ * Returns true if expired or unparseable. Uses a 60-second buffer so tokens
+ * expiring within the next minute are treated as already expired.
+ */
+export function isTokenExpired(jwt: string): boolean {
+    try {
+        const payload = JSON.parse(atob(jwt.split('.')[1]))
+        const exp = payload.exp
+        if (typeof exp !== 'number') return true
+        return Date.now() >= (exp - 60) * 1000
+    } catch {
+        return true
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +193,68 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
         fetch: resilientFetch,
     },
 })
+
+// ---------------------------------------------------------------------------
+// Session management helpers.
+// ---------------------------------------------------------------------------
+
+/**
+ * Removes stale Supabase auth data from localStorage.
+ * Call this when the session is unrecoverable (expired refresh token,
+ * corrupt storage, etc.) so the next app load starts clean.
+ */
+export function clearStaleSession(): void {
+    try {
+        const key = getSupabaseStorageKey()
+        const stored = localStorage.getItem(key)
+        if (stored) {
+            console.log('[Auth] Clearing stale session from localStorage')
+            localStorage.removeItem(key)
+        }
+    } catch (err) {
+        console.warn('[Auth] Failed to clear stale session:', err)
+    }
+}
+
+/**
+ * Deduplicated session refresh — adapted from Nuzzle's isRefreshing + failedQueue
+ * pattern. Only ONE getSession() call runs at a time; concurrent callers await
+ * the same promise. Returns the session on success, null on failure.
+ */
+let _refreshPromise: Promise<Session | null> | null = null
+
+export async function ensureFreshSession(): Promise<Session | null> {
+    if (_refreshPromise) {
+        return _refreshPromise
+    }
+
+    _refreshPromise = (async () => {
+        try {
+            const { data: { session }, error } = await supabase.auth.getSession()
+            if (error) {
+                console.error('[Auth] Session refresh failed:', error.message)
+                return null
+            }
+            if (!session) {
+                console.warn('[Auth] No session after refresh attempt')
+                return null
+            }
+            if (isTokenExpired(session.access_token)) {
+                console.warn('[Auth] Access token still expired after getSession() — session unrecoverable')
+                clearStaleSession()
+                return null
+            }
+            return session
+        } catch (err) {
+            console.error('[Auth] ensureFreshSession threw:', err)
+            return null
+        } finally {
+            _refreshPromise = null
+        }
+    })()
+
+    return _refreshPromise
+}
 
 // ---------------------------------------------------------------------------
 // Connection warmer when the browser tab regains focus.
