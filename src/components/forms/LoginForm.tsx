@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { useAuth } from "@/contexts/AuthContext"
 import { Button } from "@/components/ui/button"
@@ -10,7 +10,7 @@ import { Eye, EyeOff, Loader2 } from "lucide-react"
 export function LoginForm() {
     const navigate = useNavigate()
     const location = useLocation()
-    const { signIn } = useAuth()
+    const { signIn, user, profile, loading: authLoading } = useAuth()
 
     const [showPassword, setShowPassword] = useState(false)
     const [email, setEmail] = useState("")
@@ -20,6 +20,18 @@ export function LoginForm() {
 
     // Get the intended destination from state, or default to dashboard
     const from = (location.state as { from?: { pathname: string } })?.from?.pathname || "/dashboard"
+
+    // Redirect if the user is already authenticated. This covers:
+    //  - Stale tokens from browser history that TOKEN_REFRESHED restored
+    //  - signIn succeeded but fetchProfile timed out (onAuthStateChange set profile)
+    useEffect(() => {
+        if (authLoading || !user) return
+        if (profile?.has_completed_profiling) {
+            navigate(from, { replace: true })
+        } else if (profile) {
+            navigate("/profiling", { replace: true })
+        }
+    }, [user, profile, authLoading, navigate, from])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -34,8 +46,6 @@ export function LoginForm() {
                 return
             }
 
-            // Check if profile is completed, redirect accordingly
-            // Use the freshly fetched profile from signIn, NOT the stale context profile
             if (freshProfile?.has_completed_profiling) {
                 navigate(from, { replace: true })
             } else {

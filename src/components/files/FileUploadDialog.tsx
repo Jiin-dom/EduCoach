@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label"
 import { Upload, FileText, X, Loader2, CheckCircle2, AlertCircle } from "lucide-react"
 import { useAuth } from "@/contexts/AuthContext"
 import { uploadFile, validateFile, formatFileSize, getFileTypeFromMime, ALLOWED_FILE_TYPES } from "@/lib/storage"
-import { supabase } from "@/lib/supabase"
+import { supabase, ensureFreshSession } from "@/lib/supabase"
 import { useProcessDocument } from "@/hooks/useDocuments"
 
 interface FileUploadDialogProps {
@@ -144,7 +144,17 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
             })
 
             // 2. Save document metadata to database
-            console.log('[FileUpload] 💾 Step 2: Saving metadata to database...')
+            // Best-effort session refresh before the DB insert. We race against
+            // a 3-second timeout so the upload never hangs here — the Supabase
+            // client handles auth internally as a fallback.
+            try {
+                await Promise.race([
+                    ensureFreshSession(),
+                    new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+                ])
+            } catch { /* proceed with the insert regardless */ }
+
+            console.log('[FileUpload] Step 2: Saving metadata to database...')
             const dbStartTime = performance.now()
 
             const documentData = {

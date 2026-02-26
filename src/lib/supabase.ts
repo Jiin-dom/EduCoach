@@ -121,7 +121,7 @@ async function warmConnection(): Promise<void> {
 // takes longer than SUPABASE_FETCH_TIMEOUT_MS, it aborts, warms the
 // connection to force the browser to create a fresh socket, and retries.
 // ---------------------------------------------------------------------------
-const SUPABASE_FETCH_TIMEOUT_MS = 15_000
+const SUPABASE_FETCH_TIMEOUT_MS = 10_000
 
 async function resilientFetch(
     input: RequestInfo | URL,
@@ -222,6 +222,7 @@ export function clearStaleSession(): void {
  * the same promise. Returns the session on success, null on failure.
  */
 let _refreshPromise: Promise<Session | null> | null = null
+const ENSURE_SESSION_TIMEOUT_MS = 5_000
 
 export async function ensureFreshSession(): Promise<Session | null> {
     if (_refreshPromise) {
@@ -230,7 +231,15 @@ export async function ensureFreshSession(): Promise<Session | null> {
 
     _refreshPromise = (async () => {
         try {
-            const { data: { session }, error } = await supabase.auth.getSession()
+            // Race getSession against a hard timeout. After idle, the Web Lock
+            // or a dead TCP connection can cause getSession to hang for 15-30s.
+            // A 5-second ceiling keeps the UI responsive.
+            const { data: { session }, error } = await Promise.race([
+                supabase.auth.getSession(),
+                new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error('ensureFreshSession timeout')), ENSURE_SESSION_TIMEOUT_MS)
+                ),
+            ])
             if (error) {
                 console.error('[Auth] Session refresh failed:', error.message)
                 return null
@@ -246,7 +255,7 @@ export async function ensureFreshSession(): Promise<Session | null> {
             }
             return session
         } catch (err) {
-            console.error('[Auth] ensureFreshSession threw:', err)
+            console.warn('[Auth] ensureFreshSession did not complete in time:', (err as Error).message)
             return null
         } finally {
             _refreshPromise = null

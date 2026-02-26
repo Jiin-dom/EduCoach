@@ -1,6 +1,7 @@
 import { BarChart3, LogOut, User, FileQuestion, Calendar, FolderOpen, Bell } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
 import { useState } from "react"
+import { useAuth } from "@/contexts/AuthContext"
 import { Button } from "@/components/ui/button"
 import {
     DropdownMenu,
@@ -15,6 +16,7 @@ import { Badge } from "@/components/ui/badge"
 
 export function DashboardHeader() {
     const navigate = useNavigate()
+    const { signOut } = useAuth()
     const [notifications, setNotifications] = useState([
         { id: 1, title: "Quiz Completed", message: "You scored 85% on Physics Quiz", time: "2 hours ago", read: false },
         {
@@ -31,8 +33,8 @@ export function DashboardHeader() {
     const unreadCount = notifications.filter((n) => !n.read).length
 
     const handleLogout = () => {
-        localStorage.removeItem("userProfile")
-        navigate("/login")
+        signOut()
+        navigate("/login", { replace: true })
     }
 
     const handleMarkAllRead = () => {

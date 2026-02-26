@@ -51,13 +51,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const queryClient = useQueryClient()
     const initHandledRef = useRef(false)
+    const fetchProfileInFlightRef = useRef(false)
 
     useEffect(() => {
         // -----------------------------------------------------------------
-        // 1. Initial session restoration — with .catch() so we never freeze
-        //    on the loading screen if getSession() rejects.
+        // 1. Initial session restoration — with .catch() and a hard timeout
+        //    so the loading screen never hangs. After idle or on a dead
+        //    connection, getSession() can wait for the Web Lock + HTTP
+        //    retry for up to 30s. The 10s ceiling keeps the UX responsive.
         // -----------------------------------------------------------------
-        supabase.auth.getSession()
+        const INIT_TIMEOUT_MS = 10_000
+
+        Promise.race([
+            supabase.auth.getSession(),
+            new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Initial getSession timeout')), INIT_TIMEOUT_MS)
+            ),
+        ])
             .then(({ data: { session: initialSession } }) => {
                 setSession(initialSession)
                 setUser(initialSession?.user ?? null)
@@ -73,9 +83,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     fetchProfile(initialSession.user.id).then(setProfile)
                 } else {
                     console.log('[Auth] No session on init')
-                    // If localStorage still has auth data but Supabase returned
-                    // null, the refresh token is dead — clear the stale entry so
-                    // the next load doesn't re-attempt with garbage tokens.
                     try {
                         const key = getSupabaseStorageKey()
                         if (localStorage.getItem(key)) {
@@ -101,7 +108,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // 2. Auth state change listener — handles SIGNED_IN, TOKEN_REFRESHED,
         //    SIGNED_OUT, etc. We skip INITIAL_SESSION because getSession()
         //    above already handled init (prevents double fetchProfile).
+        //
+        //    fetchProfile is protected with:
+        //    - A 5s timeout (dead connections can hang for 15-30s)
+        //    - A dedup guard (visibility change fires SIGNED_IN 2+ times)
         // -----------------------------------------------------------------
+        const PROFILE_FETCH_TIMEOUT_MS = 5_000
+
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
             async (event: AuthChangeEvent, newSession: Session | null) => {
                 if (event === 'INITIAL_SESSION') {
@@ -120,8 +133,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 setUser(newSession?.user ?? null)
 
                 if (newSession?.user) {
-                    const userProfile = await fetchProfile(newSession.user.id)
-                    setProfile(userProfile)
+                    if (!fetchProfileInFlightRef.current) {
+                        fetchProfileInFlightRef.current = true
+                        try {
+                            const userProfile = await Promise.race([
+                                fetchProfile(newSession.user.id),
+                                new Promise<null>((resolve) =>
+                                    setTimeout(() => resolve(null), PROFILE_FETCH_TIMEOUT_MS)
+                                ),
+                            ])
+                            if (userProfile) setProfile(userProfile)
+                        } catch {
+                            // Non-critical: profile will be fetched on next event
+                        } finally {
+                            fetchProfileInFlightRef.current = false
+                        }
+                    }
                 } else {
                     setProfile(null)
                 }
@@ -171,12 +198,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return { error: error as Error | null, profile: null }
         }
 
-        // Fetch the profile immediately so we can return it for redirect decisions
+        // Fetch profile with a 5-second timeout. The onAuthStateChange handler
+        // (SIGNED_IN) also fetches the profile concurrently, so if this times
+        // out the context will still get the profile shortly after. Without this
+        // timeout, Web Lock contention from the concurrent TOKEN_REFRESHED
+        // handler can cause fetchProfile to hang, freezing the login button.
         let userProfile: UserProfile | null = null
         if (data.user) {
-            userProfile = await fetchProfile(data.user.id)
-            // Also update the local state
-            setProfile(userProfile)
+            try {
+                userProfile = await Promise.race([
+                    fetchProfile(data.user.id),
+                    new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+                ])
+            } catch {
+                // onAuthStateChange handler will set profile as a fallback
+            }
+            if (userProfile) setProfile(userProfile)
         }
 
         return { error: null, profile: userProfile }
@@ -188,18 +225,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const signOut = async () => {
-        // Nuzzle-style comprehensive cleanup: clear everything so no stale
-        // tokens survive in localStorage to haunt the next login.
-        try {
-            await supabase.auth.signOut()
-        } catch (err) {
-            console.warn('[Auth] supabase.auth.signOut() failed (proceeding with local cleanup):', err)
-        }
+        // Clear local state FIRST so the UI updates instantly. The server-side
+        // signout (token revocation) runs in the background. If we awaited
+        // supabase.auth.signOut() first, a dead TCP connection could freeze the
+        // logout button for 15+ seconds.
         setUser(null)
         setProfile(null)
         setSession(null)
         queryClient.clear()
         clearStaleSession()
+
+        supabase.auth.signOut().catch((err) => {
+            console.warn('[Auth] Server-side signOut failed (local state already cleared):', err)
+        })
     }
 
     const updateProfile = async (updates: Partial<UserProfile>) => {
