@@ -54,15 +54,6 @@ async function lockWithTimeout<R>(
 }
 
 // ---------------------------------------------------------------------------
-// Supabase client — configured with our custom lock to prevent deadlocks.
-// ---------------------------------------------------------------------------
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: {
-        lock: lockWithTimeout,
-    },
-})
-
-// ---------------------------------------------------------------------------
 // Connection warmer — detects and tears down dead TCP sockets.
 //
 // WHY: When a tab is backgrounded, the OS kills idle HTTP/2 connections.
@@ -73,22 +64,108 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 // ---------------------------------------------------------------------------
 async function warmConnection(): Promise<void> {
     try {
-        // A simple HEAD request to the PostgREST health-check endpoint.
-        // We don't care about the response — we just need the browser to
-        // either confirm the socket is alive or detect it's dead.
         await fetch(`${supabaseUrl}/rest/v1/`, {
             method: 'HEAD',
             headers: { apikey: supabaseAnonKey },
-            signal: AbortSignal.timeout(5000), // 5 seconds max
+            signal: AbortSignal.timeout(5000),
         })
         console.log('[Auth] 🏓 Connection warmer: socket is alive')
     } catch {
-        // Timeout or network error — this is expected on a dead connection.
-        // The important thing: the browser now knows the socket is dead
-        // and will create a fresh one for all subsequent requests.
         console.log('[Auth] 🏓 Connection warmer: stale socket detected, browser will use fresh connection')
     }
 }
+
+// ---------------------------------------------------------------------------
+// Resilient fetch wrapper — adds timeout + automatic retry to ALL Supabase
+// client HTTP requests.
+//
+// WHY: The Supabase JS client's internal fetch() has NO timeout. After the
+// browser tab is backgrounded for >5 minutes, the OS kills idle HTTP/2
+// connections. The browser doesn't know the socket is dead, so fetch()
+// hangs FOREVER — getSession() doesn't even get called because the client
+// caches the access token. This means the Web Lock timeout is irrelevant;
+// the raw HTTP request is what hangs.
+//
+// React Query's refetchOnWindowFocus fires at the same time as our
+// visibilitychange warm-up (within ~10ms), so the refetch request is
+// already in-flight on the dead socket before the warm-up can fix it.
+//
+// This wrapper catches the hang at the source: if ANY Supabase request
+// takes longer than SUPABASE_FETCH_TIMEOUT_MS, it aborts, warms the
+// connection to force the browser to create a fresh socket, and retries.
+// ---------------------------------------------------------------------------
+const SUPABASE_FETCH_TIMEOUT_MS = 15_000
+
+async function resilientFetch(
+    input: RequestInfo | URL,
+    init?: RequestInit
+): Promise<Response> {
+    const attempt = async (signal: AbortSignal): Promise<Response> => {
+        return globalThis.fetch(input, { ...init, signal })
+    }
+
+    const makeTimeoutController = (): { controller: AbortController; cleanup: () => void } => {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), SUPABASE_FETCH_TIMEOUT_MS)
+
+        if (init?.signal) {
+            const onCallerAbort = () => controller.abort()
+            init.signal.addEventListener('abort', onCallerAbort, { once: true })
+            return {
+                controller,
+                cleanup: () => {
+                    clearTimeout(timeoutId)
+                    init.signal?.removeEventListener('abort', onCallerAbort)
+                },
+            }
+        }
+
+        return { controller, cleanup: () => clearTimeout(timeoutId) }
+    }
+
+    const first = makeTimeoutController()
+    try {
+        const response = await attempt(first.controller.signal)
+        first.cleanup()
+        return response
+    } catch (err) {
+        first.cleanup()
+
+        if (init?.signal?.aborted) throw err
+
+        if (err instanceof DOMException && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
+            console.warn('[Supabase] ⏰ Request timed out after', SUPABASE_FETCH_TIMEOUT_MS / 1000, 's — warming connection and retrying…')
+            await warmConnection()
+
+            const retry = makeTimeoutController()
+            try {
+                const response = await attempt(retry.controller.signal)
+                retry.cleanup()
+                console.log('[Supabase] ✅ Retry succeeded')
+                return response
+            } catch (retryErr) {
+                retry.cleanup()
+                throw retryErr
+            }
+        }
+
+        throw err
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Supabase client — configured with:
+//   1. Custom Web Lock timeout (prevents getSession deadlocks)
+//   2. Resilient global fetch (prevents dead-socket hangs on ALL operations)
+// ---------------------------------------------------------------------------
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+        lock: lockWithTimeout,
+    },
+    global: {
+        fetch: resilientFetch,
+    },
+})
 
 // ---------------------------------------------------------------------------
 // Connection warmer when the browser tab regains focus.

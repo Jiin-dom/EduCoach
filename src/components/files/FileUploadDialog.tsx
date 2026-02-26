@@ -154,7 +154,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                 file_path: uploadData.path,
                 file_type: getFileTypeFromMime(selectedFile.type),
                 file_size: selectedFile.size,
-                status: 'pending', // Will be changed to processing by Edge Function
+                status: 'pending',
             }
 
             console.log('[FileUpload] 📋 Document data:', documentData)
