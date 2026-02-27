@@ -17,10 +17,11 @@ import {
     ChevronUp
 } from "lucide-react"
 import { AiTutorChat } from "@/components/shared/AiTutorChat"
-import { Link, useParams } from "react-router-dom"
+import { Link, useParams, useNavigate } from "react-router-dom"
 import { useDocument, useProcessDocument } from "@/hooks/useDocuments"
 import { useDocumentConcepts, getDifficultyColor, getImportanceColor, type Concept } from "@/hooks/useConcepts"
 import { getFileUrl, formatFileSize } from "@/lib/storage"
+import { useGenerateQuiz } from "@/hooks/useQuizzes"
 
 const MOJIBAKE_REPLACEMENTS: Record<string, string> = {
     "â€™": "'",
@@ -82,6 +83,7 @@ function buildKeywordPool(concepts: Concept[] | undefined): string[] {
 
 export function FileViewer() {
     const { id } = useParams<{ id: string }>()
+    const navigate = useNavigate()
     const [expandedConcepts, setExpandedConcepts] = useState<Set<string>>(new Set())
     const [_fileUrl, setFileUrl] = useState<string | null>(null)
     const [downloadingUrl, setDownloadingUrl] = useState(false)
@@ -92,6 +94,7 @@ export function FileViewer() {
     const { data: document, isLoading: docLoading, error: docError, refetch: refetchDoc } = useDocument(id)
     const { data: concepts, isLoading: conceptsLoading } = useDocumentConcepts(id)
     const processDocument = useProcessDocument()
+    const generateQuiz = useGenerateQuiz()
 
     const keywordPool = useMemo(() => buildKeywordPool(concepts), [concepts])
     const sortedKeywords = useMemo(
@@ -161,6 +164,23 @@ export function FileViewer() {
                     onSuccess: () => {
                         refetchDoc()
                     }
+                }
+            )
+        }
+    }
+
+    const handleGenerateQuiz = () => {
+        if (id) {
+            generateQuiz.mutate(
+                { documentId: id, questionCount: 10, enhanceWithLlm: true },
+                {
+                    onSuccess: (data) => {
+                        if (data?.quizId) {
+                            navigate(`/quizzes/${data.quizId}`)
+                        } else {
+                            navigate('/quizzes')
+                        }
+                    },
                 }
             )
         }
@@ -340,8 +360,16 @@ export function FileViewer() {
                                 )}
                                 Refine with Gemini
                             </Button>
-                            <Button className="gap-2">
-                                <Sparkles className="w-4 h-4" />
+                            <Button
+                                className="gap-2"
+                                onClick={handleGenerateQuiz}
+                                disabled={generateQuiz.isPending}
+                            >
+                                {generateQuiz.isPending ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <Sparkles className="w-4 h-4" />
+                                )}
                                 Generate Quiz
                             </Button>
                         </>
@@ -556,8 +584,17 @@ export function FileViewer() {
                                 <CardTitle className="text-lg">Quick Actions</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-2">
-                                <Button className="w-full gap-2" variant="default">
-                                    <Sparkles className="w-4 h-4" />
+                                <Button
+                                    className="w-full gap-2"
+                                    variant="default"
+                                    onClick={handleGenerateQuiz}
+                                    disabled={generateQuiz.isPending}
+                                >
+                                    {generateQuiz.isPending ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                        <Sparkles className="w-4 h-4" />
+                                    )}
                                     Generate Quiz
                                 </Button>
                                 <Button className="w-full gap-2" variant="outline">

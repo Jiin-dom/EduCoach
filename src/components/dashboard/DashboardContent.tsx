@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Upload, FileText, Brain, Clock, TrendingUp, Eye, Trash2, Sparkles, Loader2, RefreshCw } from "lucide-react"
@@ -9,20 +9,42 @@ import { TodaysStudyPlan } from "@/components/dashboard/TodaysStudyPlan"
 import { WeakTopicsPanel } from "@/components/dashboard/WeakTopicsPanel"
 import { MotivationalCard } from "@/components/dashboard/MotivationalCard"
 import { AiTutorChat } from "@/components/shared/AiTutorChat"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { useAuth } from "@/contexts/AuthContext"
 import { useDocuments, useDeleteDocument, useProcessDocument, type Document } from "@/hooks/useDocuments"
 import { formatFileSize } from "@/lib/storage"
 import { Badge } from "@/components/ui/badge"
+import { useQuizzes, useUserAttempts, useGenerateQuiz } from "@/hooks/useQuizzes"
 
 export function DashboardContent() {
     const { profile } = useAuth()
+    const navigate = useNavigate()
     const [showUploadDialog, setShowUploadDialog] = useState(false)
 
     // Use real document data
     const { data: documents, isLoading, refetch } = useDocuments()
     const deleteDocument = useDeleteDocument()
     const processDocument = useProcessDocument()
+
+    // Use real quiz data
+    const { data: quizzes } = useQuizzes()
+    const { data: attempts } = useUserAttempts()
+    const generateQuiz = useGenerateQuiz()
+
+    const recentQuizzes = useMemo(() => {
+        return (quizzes || []).filter((q) => q.status === 'ready' || q.status === 'generating').slice(0, 3)
+    }, [quizzes])
+
+    const lastScoreByQuiz = useMemo(() => {
+        const map = new Map<string, number>()
+        if (!attempts) return map
+        for (const a of attempts) {
+            if (a.completed_at && a.score !== null && !map.has(a.quiz_id)) {
+                map.set(a.quiz_id, a.score)
+            }
+        }
+        return map
+    }, [attempts])
 
     // Get recent files (last 5)
     const recentFiles = documents?.slice(0, 5) || []
@@ -41,8 +63,19 @@ export function DashboardContent() {
         processDocument.mutate(doc.id)
     }
 
-    const handleGenerateQuiz = (fileName: string) => {
-        alert(`Generating quiz from ${fileName}...`)
+    const handleGenerateQuiz = (doc: Document) => {
+        generateQuiz.mutate(
+            { documentId: doc.id, questionCount: 10, enhanceWithLlm: true },
+            {
+                onSuccess: (data) => {
+                    if (data?.quizId) {
+                        navigate(`/quizzes/${data.quizId}`)
+                    } else {
+                        navigate('/quizzes')
+                    }
+                },
+            }
+        )
     }
 
     const getStatusColor = (status: string) => {
@@ -199,9 +232,14 @@ export function DashboardContent() {
                                                         variant="ghost"
                                                         size="icon"
                                                         className="h-8 w-8 text-primary hover:text-primary"
-                                                        onClick={() => handleGenerateQuiz(file.title)}
+                                                        onClick={() => handleGenerateQuiz(file)}
+                                                        disabled={generateQuiz.isPending}
                                                     >
-                                                        <Sparkles className="w-4 h-4" />
+                                                        {generateQuiz.isPending ? (
+                                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                                        ) : (
+                                                            <Sparkles className="w-4 h-4" />
+                                                        )}
                                                     </Button>
                                                 )}
                                                 <Button
@@ -247,33 +285,24 @@ export function DashboardContent() {
                         </Link>
                     </CardHeader>
                     <CardContent>
-                        <div className="space-y-3">
-                            <QuizCard
-                                id="1"
-                                title="Introduction to Algorithms"
-                                questions={15}
-                                duration="20 min"
-                                difficulty="Medium"
-                                status="available"
-                            />
-                            <QuizCard
-                                id="2"
-                                title="Data Structures Fundamentals"
-                                questions={20}
-                                duration="30 min"
-                                difficulty="Hard"
-                                status="available"
-                            />
-                            <QuizCard
-                                id="3"
-                                title="Object-Oriented Programming"
-                                questions={12}
-                                duration="15 min"
-                                difficulty="Easy"
-                                status="completed"
-                                score={92}
-                            />
-                        </div>
+                        {recentQuizzes.length === 0 ? (
+                            <div className="text-center py-8">
+                                <Brain className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+                                <p className="text-sm text-muted-foreground">
+                                    No quizzes yet. Generate one from your study materials!
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {recentQuizzes.map((quiz) => (
+                                    <QuizCard
+                                        key={quiz.id}
+                                        quiz={quiz}
+                                        lastScore={lastScoreByQuiz.get(quiz.id) ?? null}
+                                    />
+                                ))}
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
 

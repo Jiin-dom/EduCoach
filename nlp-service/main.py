@@ -9,6 +9,7 @@ import os
 import io
 import time
 import re
+import random
 import requests
 import spacy
 import pytextrank
@@ -486,6 +487,340 @@ def process_document(file: UploadFile = File(...)):
         try:
             if 'acquired' in locals() and acquired:
                 PROCESS_LOCK.release()
+        except Exception:
+            pass
+
+
+# ============================================
+# Automatic Question Generation (AQG)
+# Template-driven, grounded in source text.
+# Per Obj3 sections 6-8.
+# ============================================
+
+AQG_LOCK = Lock()
+_AMBIGUOUS_QUALIFIERS = re.compile(
+    r"\b(sometimes|often|usually|may|might|could|perhaps|occasionally|rarely|"
+    r"probably|generally|typically|possibly|approximately|almost|nearly)\b",
+    re.IGNORECASE,
+)
+
+class ChunkInput(BaseModel):
+    chunk_id: str
+    text: str
+    keyphrases: List[str] = []
+    important_sentences: List[str] = []
+
+class GenerateQuestionsInput(BaseModel):
+    chunks: List[ChunkInput]
+    all_keyphrases: List[str] = []
+    question_types: List[str] = ["identification", "true_false", "multiple_choice", "fill_in_blank"]
+    max_questions_per_chunk: int = 3
+    max_total_questions: int = 15
+
+class GeneratedQuestion(BaseModel):
+    chunk_id: str
+    question_type: str
+    question_text: str
+    options: Optional[List[str]] = None
+    correct_answer: str
+    difficulty_label: str = "intermediate"
+
+class GenerateQuestionsResponse(BaseModel):
+    success: bool
+    questions: List[GeneratedQuestion] = []
+    stats: Optional[dict] = None
+    error: Optional[str] = None
+
+
+def _get_sentences(text: str) -> List:
+    """Parse text with spaCy and return sentence spans."""
+    doc = nlp(text[:MAX_ANALYSIS_CHARS])
+    return list(doc.sents)
+
+
+def _find_keyphrase_in_sentence(sentence_text: str, keyphrases: List[str]) -> Optional[str]:
+    """Return the first keyphrase found inside the sentence (case-insensitive)."""
+    lower = sentence_text.lower()
+    for kp in keyphrases:
+        if kp.lower() in lower:
+            return kp
+    return None
+
+
+def _pick_distractors(correct: str, chunk_keyphrases: List[str],
+                      all_keyphrases: List[str], count: int = 3) -> List[str]:
+    """
+    Build MCQ distractors per Obj3 section 7:
+    - Primary: other keyphrases from the same chunk
+    - Fallback: keyphrases from the full document pool
+    - Filters: unique, not the correct answer, similar length
+    """
+    correct_lower = correct.lower().strip()
+    correct_len = len(correct)
+    candidates = []
+    seen = {correct_lower}
+
+    def _try_add(phrase: str):
+        p = phrase.strip()
+        low = p.lower()
+        if low in seen or not p:
+            return
+        if len(p) < 2:
+            return
+        seen.add(low)
+        candidates.append(p)
+
+    for kp in chunk_keyphrases:
+        _try_add(kp)
+    for kp in all_keyphrases:
+        _try_add(kp)
+        if len(candidates) >= count * 3:
+            break
+
+    # Rank by similarity in length to the correct answer
+    candidates.sort(key=lambda c: abs(len(c) - correct_len))
+    return candidates[:count]
+
+
+def _generate_identification(sentence_text: str, keyphrase: str,
+                             chunk_id: str) -> Optional[GeneratedQuestion]:
+    """Template: 'What is [keyphrase]?' / 'Define [keyphrase].'"""
+    answer = sentence_text.strip()
+    if len(answer) < 20:
+        return None
+    templates = [
+        f"What is {keyphrase}?",
+        f"Define {keyphrase}.",
+        f"Explain {keyphrase}.",
+    ]
+    q_text = random.choice(templates)
+    return GeneratedQuestion(
+        chunk_id=chunk_id,
+        question_type="identification",
+        question_text=q_text,
+        correct_answer=answer,
+        difficulty_label="intermediate",
+    )
+
+
+def _generate_true_false(sentence_text: str, chunk_id: str) -> Optional[GeneratedQuestion]:
+    """
+    Present a key sentence as True, or negate it for False.
+    Reject ambiguous sentences (Obj3 section 8).
+    """
+    if _AMBIGUOUS_QUALIFIERS.search(sentence_text):
+        return None
+
+    make_false = random.random() < 0.5
+
+    if not make_false:
+        return GeneratedQuestion(
+            chunk_id=chunk_id,
+            question_type="true_false",
+            question_text=sentence_text.strip(),
+            correct_answer="true",
+            difficulty_label="beginner",
+        )
+
+    # Negate by inserting "not" after the main verb using spaCy
+    doc = nlp(sentence_text)
+    negated = None
+    for token in doc:
+        if token.pos_ in ("AUX", "VERB") and token.dep_ in ("ROOT", "aux"):
+            before = sentence_text[:token.idx + len(token.text)]
+            after = sentence_text[token.idx + len(token.text):]
+            negated = f"{before} not{after}"
+            break
+
+    if not negated:
+        return None
+
+    return GeneratedQuestion(
+        chunk_id=chunk_id,
+        question_type="true_false",
+        question_text=negated.strip(),
+        correct_answer="false",
+        difficulty_label="beginner",
+    )
+
+
+def _generate_mcq(sentence_text: str, keyphrase: str, chunk_keyphrases: List[str],
+                   all_keyphrases: List[str], chunk_id: str) -> Optional[GeneratedQuestion]:
+    """
+    Blank the keyphrase in the sentence to form the stem, use other keyphrases
+    as distractors (Obj3 section 7).
+    """
+    pattern = re.compile(re.escape(keyphrase), re.IGNORECASE)
+    if not pattern.search(sentence_text):
+        return None
+
+    stem = pattern.sub("__________", sentence_text, count=1).strip()
+    distractors = _pick_distractors(keyphrase, chunk_keyphrases, all_keyphrases, count=3)
+    if len(distractors) < 2:
+        return None
+
+    options = distractors[:3] + [keyphrase]
+    random.shuffle(options)
+
+    return GeneratedQuestion(
+        chunk_id=chunk_id,
+        question_type="multiple_choice",
+        question_text=stem,
+        options=options,
+        correct_answer=keyphrase,
+        difficulty_label="intermediate",
+    )
+
+
+def _generate_fill_in_blank(sentence_text: str, keyphrase: str,
+                            chunk_id: str) -> Optional[GeneratedQuestion]:
+    """Remove a keyphrase from the sentence to create a blank."""
+    pattern = re.compile(re.escape(keyphrase), re.IGNORECASE)
+    if not pattern.search(sentence_text):
+        return None
+
+    blanked = pattern.sub("__________", sentence_text, count=1).strip()
+    return GeneratedQuestion(
+        chunk_id=chunk_id,
+        question_type="fill_in_blank",
+        question_text=blanked,
+        correct_answer=keyphrase,
+        difficulty_label="intermediate",
+    )
+
+
+def _deduplicate_questions(questions: List[GeneratedQuestion]) -> List[GeneratedQuestion]:
+    """Remove near-duplicate questions based on normalized question text."""
+    seen = set()
+    result = []
+    for q in questions:
+        key = re.sub(r"[^a-z0-9 ]", "", q.question_text.lower()).strip()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(q)
+    return result
+
+
+@app.post("/generate-questions", response_model=GenerateQuestionsResponse)
+def generate_questions(input: GenerateQuestionsInput):
+    """
+    Template-driven Automatic Question Generation (AQG).
+    Generates grounded questions from chunk text using spaCy NLP.
+    This is the core of Obj3 -- no free LLM generation.
+    """
+    try:
+        start = time.time()
+        AQG_LOCK.acquire()
+        acquired = True
+
+        print(f"[nlp-service] /generate-questions start chunks={len(input.chunks)} "
+              f"types={input.question_types} max_total={input.max_total_questions}", flush=True)
+
+        all_questions: List[GeneratedQuestion] = []
+        type_set = set(input.question_types)
+
+        for chunk in input.chunks:
+            if len(all_questions) >= input.max_total_questions:
+                break
+
+            chunk_questions: List[GeneratedQuestion] = []
+            text = chunk.text.strip()
+            if len(text) < 50:
+                continue
+
+            # Get sentences via spaCy
+            sentences = _get_sentences(text)
+            good_sentences = [
+                str(s).strip() for s in sentences if is_good_sentence(str(s))
+            ]
+
+            # Resolve keyphrases: use provided ones, or re-extract with KeyBERT
+            keyphrases = filter_keywords(chunk.keyphrases) if chunk.keyphrases else []
+            if not keyphrases:
+                try:
+                    kw_text = text[:KEYBERT_INPUT_MAX_CHARS]
+                    raw = kw_model.extract_keywords(
+                        kw_text,
+                        keyphrase_ngram_range=(1, 3),
+                        stop_words="english",
+                        top_n=8,
+                        use_maxsum=True,
+                        nr_candidates=20,
+                    )
+                    keyphrases = filter_keywords([k[0] for k in raw])
+                except Exception:
+                    keyphrases = []
+
+            # Resolve important sentences: use provided or derive from good_sentences
+            imp_sentences = chunk.important_sentences if chunk.important_sentences else good_sentences[:5]
+
+            # --- Generate each question type ---
+
+            for sent in imp_sentences:
+                if len(chunk_questions) >= input.max_questions_per_chunk:
+                    break
+
+                kp = _find_keyphrase_in_sentence(sent, keyphrases)
+
+                # Identification
+                if "identification" in type_set and kp and len(chunk_questions) < input.max_questions_per_chunk:
+                    q = _generate_identification(sent, kp, chunk.chunk_id)
+                    if q:
+                        chunk_questions.append(q)
+
+                # True/False
+                if "true_false" in type_set and len(chunk_questions) < input.max_questions_per_chunk:
+                    q = _generate_true_false(sent, chunk.chunk_id)
+                    if q:
+                        chunk_questions.append(q)
+
+                # MCQ
+                if "multiple_choice" in type_set and kp and len(chunk_questions) < input.max_questions_per_chunk:
+                    q = _generate_mcq(sent, kp, keyphrases, input.all_keyphrases, chunk.chunk_id)
+                    if q:
+                        chunk_questions.append(q)
+
+                # Fill-in-the-Blank
+                if "fill_in_blank" in type_set and kp and len(chunk_questions) < input.max_questions_per_chunk:
+                    q = _generate_fill_in_blank(sent, kp, chunk.chunk_id)
+                    if q:
+                        chunk_questions.append(q)
+
+            all_questions.extend(chunk_questions)
+
+        # Validation: dedup, cap at max_total_questions
+        all_questions = _deduplicate_questions(all_questions)
+        if len(all_questions) > input.max_total_questions:
+            random.shuffle(all_questions)
+            all_questions = all_questions[:input.max_total_questions]
+
+        # Compute stats
+        by_type: dict = {}
+        for q in all_questions:
+            by_type[q.question_type] = by_type.get(q.question_type, 0) + 1
+
+        elapsed = time.time() - start
+        print(f"[nlp-service] /generate-questions done seconds={elapsed:.2f} "
+              f"total={len(all_questions)} by_type={by_type}", flush=True)
+
+        return GenerateQuestionsResponse(
+            success=True,
+            questions=all_questions,
+            stats={"total": len(all_questions), "by_type": by_type},
+        )
+
+    except Exception as e:
+        print(f"[nlp-service] /generate-questions error: {e}", flush=True)
+        return GenerateQuestionsResponse(
+            success=False,
+            questions=[],
+            error=str(e),
+        )
+    finally:
+        try:
+            if 'acquired' in locals() and acquired:
+                AQG_LOCK.release()
         except Exception:
             pass
 

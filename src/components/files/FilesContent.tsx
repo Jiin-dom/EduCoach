@@ -3,19 +3,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { FolderOpen, Upload, Trash2, Sparkles, FileText, File, Loader2, RefreshCw, AlertCircle, Clock, CheckCircle2, Brain } from "lucide-react"
 import { FileUploadDialog } from "@/components/files/FileUploadDialog"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
 import { useDocuments, useDeleteDocument, useProcessDocument, type Document } from "@/hooks/useDocuments"
 import { formatFileSize } from "@/lib/storage"
+import { useGenerateQuiz } from "@/hooks/useQuizzes"
 
 export function FilesContent() {
     const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
+    const navigate = useNavigate()
 
     // React Query hooks
     const { data: documents, isLoading, error, refetch } = useDocuments()
     const deleteDocument = useDeleteDocument()
     const processDocument = useProcessDocument()
+    const generateQuiz = useGenerateQuiz()
 
     const handleUploadComplete = () => {
         // Refetch documents after successful upload
@@ -44,6 +47,21 @@ export function FilesContent() {
             processor: 'gemini'
         })
         processDocument.mutate({ documentId: doc.id, processor: 'gemini' })
+    }
+
+    const handleGenerateQuiz = (doc: Document) => {
+        generateQuiz.mutate(
+            { documentId: doc.id, questionCount: 10, enhanceWithLlm: true },
+            {
+                onSuccess: (data) => {
+                    if (data?.quizId) {
+                        navigate(`/quizzes/${data.quizId}`)
+                    } else {
+                        navigate('/quizzes')
+                    }
+                },
+            }
+        )
     }
 
     const getFileIcon = (type: string) => {
@@ -289,8 +307,18 @@ export function FilesContent() {
                                                 <TooltipProvider>
                                                     <Tooltip>
                                                         <TooltipTrigger asChild>
-                                                            <Button variant="ghost" size="icon" className="text-primary hover:text-primary">
-                                                                <Sparkles className="w-4 h-4" />
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="text-primary hover:text-primary"
+                                                                onClick={() => handleGenerateQuiz(file)}
+                                                                disabled={generateQuiz.isPending}
+                                                            >
+                                                                {generateQuiz.isPending ? (
+                                                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                                                ) : (
+                                                                    <Sparkles className="w-4 h-4" />
+                                                                )}
                                                             </Button>
                                                         </TooltipTrigger>
                                                         <TooltipContent>
