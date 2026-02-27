@@ -13,6 +13,7 @@ import {
 import { useNavigate, useParams, Link } from "react-router-dom"
 import { useQuiz, useQuizQuestions, useSubmitAttempt } from "@/hooks/useQuizzes"
 import type { QuizQuestion, AttemptAnswer } from "@/hooks/useQuizzes"
+import { useProcessQuizResults } from "@/hooks/useLearning"
 
 function questionTypeLabel(type: QuizQuestion['question_type']): string {
     switch (type) {
@@ -47,6 +48,7 @@ export function QuizView() {
     const { data: quiz, isLoading: quizLoading, error: quizError } = useQuiz(id)
     const { data: questions, isLoading: questionsLoading } = useQuizQuestions(id)
     const submitAttempt = useSubmitAttempt()
+    const processQuizResults = useProcessQuizResults()
 
     const [currentQuestion, setCurrentQuestion] = useState(0)
     const [answers, setAnswers] = useState<Record<string, string>>({})
@@ -169,14 +171,27 @@ export function QuizView() {
         const correctCount = attemptAnswers.filter((a) => a.is_correct).length
         const score = Math.round((correctCount / questions.length) * 100 * 100) / 100
 
-        submitAttempt.mutate({
-            quizId: quiz.id,
-            answers: attemptAnswers,
-            totalQuestions: questions.length,
-            correctAnswers: correctCount,
-            score,
-            startedAt: startedAtRef.current,
-        })
+        submitAttempt.mutate(
+            {
+                quizId: quiz.id,
+                answers: attemptAnswers,
+                totalQuestions: questions.length,
+                correctAnswers: correctCount,
+                score,
+                startedAt: startedAtRef.current,
+            },
+            {
+                onSuccess: (attempt) => {
+                    processQuizResults.mutate({
+                        attemptId: attempt.id,
+                        quizId: quiz.id,
+                        answers: attemptAnswers,
+                        questions,
+                        documentId: quiz.document_id,
+                    })
+                },
+            },
+        )
 
         setShowResults(true)
     }

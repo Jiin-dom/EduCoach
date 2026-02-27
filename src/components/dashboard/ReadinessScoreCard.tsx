@@ -1,10 +1,13 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TrendingUp } from "lucide-react"
+import { useLearningStats } from "@/hooks/useLearning"
 
 export function ReadinessScoreCard() {
-    const readinessScore = 78
+    const { data: stats } = useLearningStats()
+
+    const readinessScore = stats?.averageMastery ?? 0
     const readinessLevel = readinessScore >= 80 ? "High" : readinessScore >= 60 ? "Medium" : "Low"
-    const forecast = 4
+    const tracked = stats?.totalConcepts ?? 0
 
     return (
         <Card>
@@ -15,10 +18,9 @@ export function ReadinessScoreCard() {
             <CardContent>
                 <div className="text-2xl font-bold">{readinessScore}%</div>
                 <p className="text-xs text-muted-foreground mb-2">{readinessLevel}</p>
-                <div className="flex items-center gap-1 text-xs text-primary">
-                    <TrendingUp className="w-3 h-3" />
-                    <span>+{forecast}% forecast</span>
-                </div>
+                <p className="text-xs text-muted-foreground">
+                    {tracked > 0 ? `${tracked} concepts tracked` : "Take a quiz to start tracking"}
+                </p>
             </CardContent>
         </Card>
     )

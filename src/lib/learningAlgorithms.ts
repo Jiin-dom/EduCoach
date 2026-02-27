@@ -1,0 +1,302 @@
+/**
+ * Learning Algorithms — Pure Functions
+ *
+ * Contains WMS (Weighted Mastery Score), SM-2 (Spaced Repetition),
+ * and Global Scheduler (Priority Score) calculations.
+ *
+ * Zero side effects, zero DB calls — just math.
+ */
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+export type DifficultyLevel = 'beginner' | 'intermediate' | 'advanced'
+export type MasteryLevel = 'needs_review' | 'developing' | 'mastered'
+
+export interface AttemptLogEntry {
+    is_correct: boolean
+    question_difficulty: DifficultyLevel | null
+    time_spent_seconds: number | null
+    attempted_at: string
+}
+
+export interface SM2Input {
+    quality: number
+    repetition: number
+    interval: number
+    easeFactor: number
+}
+
+export interface SM2Result {
+    repetition: number
+    interval: number
+    easeFactor: number
+    dueDate: string
+}
+
+export interface MasteryResult {
+    masteryScore: number
+    confidence: number
+    finalMastery: number
+    masteryLevel: MasteryLevel
+}
+
+export interface PriorityResult {
+    priorityScore: number
+    deadlinePressure: number
+    lowPracticePenalty: number
+}
+
+// ─── WMS: Difficulty Weights ────────────────────────────────────────────────
+
+const DIFFICULTY_WEIGHTS: Record<DifficultyLevel, number> = {
+    beginner: 1.0,
+    intermediate: 1.1,
+    advanced: 1.2,
+}
+
+// ─── WMS: Recency Weights (last 3 attempts) ────────────────────────────────
+
+const RECENCY_WEIGHTS = [1.0, 0.85, 0.70]
+
+// ─── WMS Step 1: Attempt Score ──────────────────────────────────────────────
+
+/**
+ * Score a single question attempt (0–1).
+ *
+ * AttemptScore = Correct × DiffWeight × TimeWeight
+ *
+ * Correct answers on harder questions yield higher scores.
+ * Time weight is optional — defaults to 1.0 when not tracked.
+ */
+export function calculateAttemptScore(
+    isCorrect: boolean,
+    difficulty: DifficultyLevel | null,
+    _timeSpentSeconds?: number | null,
+): number {
+    if (!isCorrect) return 0
+
+    const diffWeight = DIFFICULTY_WEIGHTS[difficulty ?? 'intermediate']
+    const timeWeight = 1.0
+
+    return Math.min(1, diffWeight * timeWeight)
+}
+
+// ─── WMS Step 2+3: Topic Mastery (0–100) ────────────────────────────────────
+
+/**
+ * Compute raw topic mastery from the most recent attempts.
+ *
+ * Takes up to 3 most-recent attempt log entries (already sorted newest-first),
+ * applies recency weights, and returns a 0–100 score.
+ *
+ * Formula:
+ *   Mastery = 100 × Σ(AttemptScore_i × RecencyWeight_i) / Σ(RecencyWeight_i)
+ */
+export function calculateTopicMastery(attempts: AttemptLogEntry[]): number {
+    if (attempts.length === 0) return 0
+
+    const recent = attempts.slice(0, 3)
+    let weightedSum = 0
+    let weightSum = 0
+
+    for (let i = 0; i < recent.length; i++) {
+        const score = calculateAttemptScore(
+            recent[i].is_correct,
+            recent[i].question_difficulty,
+            recent[i].time_spent_seconds,
+        )
+        const w = RECENCY_WEIGHTS[i] ?? 0.70
+        weightedSum += score * w
+        weightSum += w
+    }
+
+    if (weightSum === 0) return 0
+    return Math.round((100 * weightedSum) / weightSum * 100) / 100
+}
+
+// ─── WMS Step 4: Confidence ─────────────────────────────────────────────────
+
+/**
+ * Confidence rises with more attempts.
+ *   1 attempt  → 0.33
+ *   2 attempts → 0.67
+ *   3+ attempts → 1.00
+ */
+export function calculateConfidence(attemptCount: number, k = 3): number {
+    return Math.min(1, attemptCount / k)
+}
+
+// ─── WMS Step 5: Final Mastery (blended with baseline) ─────────────────────
+
+/**
+ * Blend raw mastery with a neutral baseline (50) using confidence.
+ *
+ * FinalMastery = confidence × rawMastery + (1 − confidence) × 50
+ *
+ * This prevents one lucky correct answer from claiming "mastered".
+ */
+export function calculateFinalMastery(
+    rawMastery: number,
+    confidence: number,
+    baseline = 50,
+): number {
+    const fm = confidence * rawMastery + (1 - confidence) * baseline
+    return Math.round(fm * 100) / 100
+}
+
+// ─── WMS Step 6: Mastery Level ──────────────────────────────────────────────
+
+/**
+ * Convert numeric mastery + confidence into a human-readable level.
+ *
+ * Mastered:     finalMastery >= 80 AND confidence >= 0.67
+ * Developing:   finalMastery 60–79
+ * Needs Review: finalMastery < 60
+ */
+export function getMasteryLevel(
+    finalMastery: number,
+    confidence: number,
+    thresholds = { mastered: 80, developing: 60, confRequired: 0.67 },
+): MasteryLevel {
+    if (finalMastery >= thresholds.mastered && confidence >= thresholds.confRequired) {
+        return 'mastered'
+    }
+    if (finalMastery >= thresholds.developing) {
+        return 'developing'
+    }
+    return 'needs_review'
+}
+
+// ─── WMS: Full Pipeline ─────────────────────────────────────────────────────
+
+/**
+ * Run the complete WMS pipeline on a set of attempt log entries.
+ * Entries should be sorted newest-first.
+ */
+export function computeMastery(attempts: AttemptLogEntry[]): MasteryResult {
+    const rawMastery = calculateTopicMastery(attempts)
+    const confidence = calculateConfidence(attempts.length)
+    const finalMastery = calculateFinalMastery(rawMastery, confidence)
+    const masteryLevel = getMasteryLevel(finalMastery, confidence)
+
+    return { masteryScore: rawMastery, confidence, finalMastery, masteryLevel }
+}
+
+// ─── SM-2: Quality Mapping ──────────────────────────────────────────────────
+
+/**
+ * Map a quiz score percentage (0–100) to an SM-2 quality rating (0–5).
+ *
+ *   >= 90 → 5   (perfect)
+ *   80–89 → 4
+ *   65–79 → 3
+ *   50–64 → 2
+ *   30–49 → 1
+ *    < 30 → 0   (blackout)
+ */
+export function mapScoreToQuality(
+    scorePercent: number,
+    thresholds = [90, 80, 65, 50, 30],
+): number {
+    if (scorePercent >= thresholds[0]) return 5
+    if (scorePercent >= thresholds[1]) return 4
+    if (scorePercent >= thresholds[2]) return 3
+    if (scorePercent >= thresholds[3]) return 2
+    if (scorePercent >= thresholds[4]) return 1
+    return 0
+}
+
+// ─── SM-2: Schedule Calculation ─────────────────────────────────────────────
+
+/**
+ * Standard SM-2 algorithm.
+ *
+ * quality >= 3  → advance the schedule (longer intervals)
+ * quality  < 3  → reset (go back to day 1)
+ *
+ * EF update: EF' = EF + (0.1 - (5-q)(0.08 + (5-q)*0.02))
+ * Minimum EF: 1.3
+ */
+export function calculateSM2(input: SM2Input): SM2Result {
+    const q = Math.max(0, Math.min(5, input.quality))
+    let rep = input.repetition
+    let interval = input.interval
+    let ef = input.easeFactor
+
+    if (q >= 3) {
+        if (rep === 0) {
+            interval = 1
+        } else if (rep === 1) {
+            interval = 6
+        } else {
+            interval = Math.round(interval * ef)
+        }
+        rep += 1
+    } else {
+        rep = 0
+        interval = 1
+    }
+
+    ef = ef + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02))
+    ef = Math.max(1.3, Math.round(ef * 100) / 100)
+
+    const due = new Date()
+    due.setDate(due.getDate() + interval)
+    const dueDate = due.toISOString().split('T')[0]
+
+    return { repetition: rep, interval, easeFactor: ef, dueDate }
+}
+
+// ─── Global Scheduler: Priority Score ───────────────────────────────────────
+
+/**
+ * Compute how urgently a topic should be studied.
+ *
+ * Priority = w1*(1 − mastery/100) + w2*deadlinePressure + w3*lowPracticePenalty
+ *
+ * Higher = study sooner.
+ */
+export function calculatePriorityScore(
+    finalMastery: number,
+    dueDateStr: string,
+    confidence: number,
+    weights = { weakness: 0.65, deadline: 0.25, practice: 0.10 },
+): PriorityResult {
+    const weaknessComponent = 1 - finalMastery / 100
+
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const dueDate = new Date(dueDateStr + 'T00:00:00')
+    const daysUntilDue = Math.floor(
+        (dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+    )
+    const deadlinePressure = Math.max(0, Math.min(1, 1 - daysUntilDue / 14))
+
+    const lowPracticePenalty = 1 - confidence
+
+    const priority =
+        weights.weakness * weaknessComponent +
+        weights.deadline * deadlinePressure +
+        weights.practice * lowPracticePenalty
+
+    return {
+        priorityScore: Math.round(Math.max(0, Math.min(1, priority)) * 10000) / 10000,
+        deadlinePressure,
+        lowPracticePenalty,
+    }
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Compute per-concept score from a set of question attempt logs
+ * for SM-2 quality mapping. Returns the accuracy percentage for
+ * this concept within the quiz.
+ */
+export function conceptAccuracyPercent(
+    logs: { is_correct: boolean }[],
+): number {
+    if (logs.length === 0) return 0
+    const correct = logs.filter((l) => l.is_correct).length
+    return Math.round((correct / logs.length) * 100)
+}

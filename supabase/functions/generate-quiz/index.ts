@@ -125,7 +125,7 @@ serve(async (req) => {
         // 3. Fetch concepts (for keyphrases)
         const { data: concepts, error: conceptError } = await supabase
             .from('concepts')
-            .select('id, name, description, keywords, importance')
+            .select('id, name, description, keywords, importance, chunk_id')
             .eq('document_id', documentId)
             .order('importance', { ascending: false })
 
@@ -267,19 +267,40 @@ serve(async (req) => {
             throw new Error('NO_QUESTIONS:Could not generate questions from this document. Try processing the document again or uploading a more content-rich file.')
         }
 
-        // 8. Save questions to DB
+        // 8. Build chunk -> concept mapping for linking questions to concepts
+        const chunkConceptMap = new Map<string, string>()
+        for (const c of conceptList) {
+            // concepts have chunk_id from Phase 3 processing
+            if ((c as Record<string, unknown>).chunk_id) {
+                const cid = (c as Record<string, unknown>).chunk_id as string
+                if (!chunkConceptMap.has(cid)) {
+                    chunkConceptMap.set(cid, c.id)
+                }
+            }
+        }
+        // Fallback: if no chunk-level mapping, use the first concept from the document
+        const fallbackConceptId = conceptList.length > 0 ? conceptList[0].id : null
+
+        // 9. Save questions to DB
         console.log(`💾 Saving ${questions.length} questions to database...`)
-        const questionRecords = questions.map((q, index) => ({
-            quiz_id: quizId,
-            source_chunk_id: q.chunk_id || null,
-            question_type: q.question_type,
-            question_text: q.question_text,
-            options: q.options || null,
-            correct_answer: q.correct_answer,
-            explanation: (q as Record<string, unknown>).explanation || null,
-            difficulty_level: q.difficulty_label || 'intermediate',
-            order_index: index,
-        }))
+        const questionRecords = questions.map((q, index) => {
+            const chunkId = q.chunk_id || null
+            const resolvedConceptId = chunkId
+                ? (chunkConceptMap.get(chunkId) || fallbackConceptId)
+                : fallbackConceptId
+            return {
+                quiz_id: quizId,
+                concept_id: resolvedConceptId,
+                source_chunk_id: chunkId,
+                question_type: q.question_type,
+                question_text: q.question_text,
+                options: q.options || null,
+                correct_answer: q.correct_answer,
+                explanation: (q as Record<string, unknown>).explanation || null,
+                difficulty_level: q.difficulty_label || 'intermediate',
+                order_index: index,
+            }
+        })
 
         const { error: insertError } = await supabase
             .from('quiz_questions')
@@ -289,7 +310,7 @@ serve(async (req) => {
             throw new Error(`DB_ERROR:Failed to save quiz questions. ${insertError.message}`)
         }
 
-        // 9. Update quiz status
+        // 10. Update quiz status
         await supabase
             .from('quizzes')
             .update({

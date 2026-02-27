@@ -15,6 +15,7 @@ import { useDocuments, useDeleteDocument, useProcessDocument, type Document } fr
 import { formatFileSize } from "@/lib/storage"
 import { Badge } from "@/components/ui/badge"
 import { useQuizzes, useUserAttempts, useGenerateQuiz } from "@/hooks/useQuizzes"
+import { useLearningStats } from "@/hooks/useLearning"
 
 export function DashboardContent() {
     const { profile } = useAuth()
@@ -30,6 +31,7 @@ export function DashboardContent() {
     const { data: quizzes } = useQuizzes()
     const { data: attempts } = useUserAttempts()
     const generateQuiz = useGenerateQuiz()
+    const { data: learningStats } = useLearningStats()
 
     const recentQuizzes = useMemo(() => {
         return (quizzes || []).filter((q) => q.status === 'ready' || q.status === 'generating').slice(0, 3)
@@ -110,12 +112,12 @@ export function DashboardContent() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium">Study Time</CardTitle>
+                        <CardTitle className="text-sm font-medium">Study Streak</CardTitle>
                         <Clock className="w-4 h-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">12.5 hrs</div>
-                        <p className="text-xs text-muted-foreground">This week</p>
+                        <div className="text-2xl font-bold">{learningStats?.studyStreak ?? 0} days</div>
+                        <p className="text-xs text-muted-foreground">Consecutive days</p>
                     </CardContent>
                 </Card>
 
@@ -125,8 +127,8 @@ export function DashboardContent() {
                         <Brain className="w-4 h-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">24</div>
-                        <p className="text-xs text-muted-foreground">+3 from last week</p>
+                        <div className="text-2xl font-bold">{learningStats?.quizzesCompleted ?? 0}</div>
+                        <p className="text-xs text-muted-foreground">Total attempts</p>
                     </CardContent>
                 </Card>
 
@@ -136,8 +138,8 @@ export function DashboardContent() {
                         <TrendingUp className="w-4 h-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">87%</div>
-                        <p className="text-xs text-muted-foreground">+5% improvement</p>
+                        <div className="text-2xl font-bold">{learningStats?.averageScore ?? 0}%</div>
+                        <p className="text-xs text-muted-foreground">Across all quizzes</p>
                     </CardContent>
                 </Card>
 
