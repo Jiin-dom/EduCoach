@@ -5,7 +5,6 @@ import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import {
     TrendingUp,
-    Clock,
     Target,
     Brain,
     Calendar,
@@ -321,13 +320,12 @@ export function AnalyticsContent() {
                                                         </div>
                                                     </div>
                                                     <div className="text-right">
-                                                        <p className={`text-2xl font-bold ${
-                                                            Number(attempt.score) >= 80
+                                                        <p className={`text-2xl font-bold ${Number(attempt.score) >= 80
                                                                 ? "text-green-600"
                                                                 : Number(attempt.score) >= 60
                                                                     ? "text-yellow-600"
                                                                     : "text-red-600"
-                                                        }`}>
+                                                            }`}>
                                                             {Math.round(Number(attempt.score))}%
                                                         </p>
                                                     </div>
