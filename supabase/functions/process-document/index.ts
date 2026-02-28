@@ -25,9 +25,9 @@ const corsHeaders = {
 }
 
 // Configuration
-const CHUNK_SIZE = 1000       // Characters per chunk (~200 words) - optimized for quiz generation
-const CHUNK_OVERLAP = 100     // Overlap between chunks
-const MAX_CHUNKS = 20         // Maximum chunks to process (increased for more context)
+const CHUNK_SIZE = 2800       // Characters per chunk (~700 tokens) - optimized for RAG retrieval
+const CHUNK_OVERLAP = 200     // Overlap between chunks for context continuity
+const MAX_CHUNKS = 20         // Maximum chunks to process
 const MAX_RETRIES = 3         // API retry attempts
 const BASE_DELAY_MS = 2000    // Base delay for exponential backoff
 const DEFAULT_PROCESSOR = 'pure_nlp'
@@ -1220,7 +1220,13 @@ async function generateAndSaveEmbeddings(
     chunks: ChunkRecord[],
     apiKey: string
 ): Promise<void> {
-    const batchSize = 5
+    // Rate limits for gemini-embedding-001 free tier:
+    //   RPM = 100, TPM = 30,000, RPD = 1,000
+    // With ~700-token chunks, batch of 3 = ~2,100 tokens per batch.
+    // At 1.5s between batches => ~40 batches/min => ~120 RPM (close to limit)
+    // so 3 concurrent + 1.5s delay is a safe balance.
+    const batchSize = 3
+    const batchDelayMs = 1500
     let successCount = 0
     let failCount = 0
 
@@ -1258,9 +1264,8 @@ async function generateAndSaveEmbeddings(
             }
         }
 
-        // Small delay between batches to avoid rate limits
         if (i + batchSize < chunks.length) {
-            await new Promise(resolve => setTimeout(resolve, 500))
+            await new Promise(resolve => setTimeout(resolve, batchDelayMs))
         }
     }
 
@@ -1269,19 +1274,21 @@ async function generateAndSaveEmbeddings(
 
 /**
  * Generate embedding for a single text using Gemini
- * Using text-embedding-004 (free tier, 768 dimensions)
+ * Using gemini-embedding-001 (free tier, default 3072 dims, requesting 768)
+ * Max input: 2048 tokens (~8000 chars)
  */
 async function generateEmbedding(text: string, apiKey: string): Promise<number[]> {
     const maxChars = 8000
     const truncatedText = text.length > maxChars ? text.substring(0, maxChars) : text
 
     const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`,
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 content: { parts: [{ text: truncatedText }] },
+                outputDimensionality: 768,
             }),
         }
     )

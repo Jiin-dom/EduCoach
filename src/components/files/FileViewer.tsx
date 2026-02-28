@@ -607,8 +607,8 @@ export function FileViewer() {
                 </div>
             </div>
 
-            {/* AI Tutor Chat */}
-            <AiTutorChat />
+            {/* AI Tutor Chat — scoped to this document */}
+            <AiTutorChat documentId={id} />
         </div>
     )
 }
