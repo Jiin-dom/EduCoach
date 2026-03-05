@@ -18,6 +18,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Download spaCy model using pip (more reliable than spacy download)
 RUN pip install --no-cache-dir https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
 
+# Pre-download sentence-transformers model so cold starts are fast
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+
 # Copy application code
 COPY . .
 

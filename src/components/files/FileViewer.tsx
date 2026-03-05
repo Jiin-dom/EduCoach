@@ -14,11 +14,20 @@ import {
     Clock,
     CheckCircle2,
     ChevronDown,
-    ChevronUp
+    ChevronUp,
+    Play,
+    Grid3X3,
+    Layers,
+    Zap,
+    AlertTriangle,
+    Code,
+    Network,
+    Eye,
+    EyeOff,
 } from "lucide-react"
 import { AiTutorChat } from "@/components/shared/AiTutorChat"
 import { Link, useParams, useNavigate } from "react-router-dom"
-import { useDocument, useProcessDocument } from "@/hooks/useDocuments"
+import { useDocument, useProcessDocument, type StructuredSummary } from "@/hooks/useDocuments"
 import { useDocumentConcepts, getDifficultyColor, getImportanceColor, type Concept } from "@/hooks/useConcepts"
 import { getFileUrl, formatFileSize } from "@/lib/storage"
 import { useGenerateQuiz } from "@/hooks/useQuizzes"
@@ -81,6 +90,173 @@ function buildKeywordPool(concepts: Concept[] | undefined): string[] {
     return pool
 }
 
+const SECTION_ICON_MAP: Record<string, React.ElementType> = {
+    play: Play,
+    sparkles: Sparkles,
+    grid: Grid3X3,
+    layers: Layers,
+    zap: Zap,
+    "alert-triangle": AlertTriangle,
+    code: Code,
+    network: Network,
+    "book-open": BookOpen,
+}
+
+const SECTION_COLOR_MAP: Record<string, string> = {
+    play: "text-orange-500 border-orange-300",
+    sparkles: "text-blue-500 border-blue-300",
+    grid: "text-green-500 border-green-300",
+    layers: "text-purple-500 border-purple-300",
+    zap: "text-yellow-500 border-yellow-300",
+    "alert-triangle": "text-red-500 border-red-300",
+    code: "text-teal-500 border-teal-300",
+    network: "text-indigo-500 border-indigo-300",
+    "book-open": "text-blue-500 border-blue-300",
+}
+
+const BULLET_LABEL_COLORS: Record<string, string> = {
+    DEFINITION: "bg-blue-50 text-blue-700 border-blue-200",
+    "KEY CONCEPT": "bg-purple-50 text-purple-700 border-purple-200",
+    "KEY DISTINCTION": "bg-indigo-50 text-indigo-700 border-indigo-200",
+    PROCESS: "bg-green-50 text-green-700 border-green-200",
+    EXAMPLE: "bg-orange-50 text-orange-700 border-orange-200",
+    CHALLENGE: "bg-red-50 text-red-700 border-red-200",
+    ADVANTAGE: "bg-emerald-50 text-emerald-700 border-emerald-200",
+}
+
+function SummaryContent({
+    document,
+    summaryView,
+    highlightKeywords: _highlightKeywords,
+    sortedKeywords: _sortedKeywords,
+    renderTextWithHighlights,
+}: {
+    document: { summary: string | null; structured_summary?: StructuredSummary | null }
+    summaryView: "short" | "detailed" | "bullets"
+    highlightKeywords: boolean
+    sortedKeywords: string[]
+    renderTextWithHighlights: (text: string) => React.ReactNode
+}) {
+    const ss = document.structured_summary
+
+    // Short view
+    if (summaryView === "short") {
+        const shortText = ss?.short || document.summary || ""
+        if (!shortText) return null
+        return (
+            <div className="space-y-3 text-muted-foreground leading-relaxed">
+                {cleanDisplayText(shortText)
+                    .split(/\n\n+/)
+                    .filter(Boolean)
+                    .map((para, idx) => (
+                        <p key={idx}>{renderTextWithHighlights(para)}</p>
+                    ))}
+            </div>
+        )
+    }
+
+    // Detailed view with sections
+    if (summaryView === "detailed") {
+        if (ss?.detailed && ss.detailed.length > 0) {
+            return (
+                <div className="space-y-4">
+                    {ss.detailed.map((section, idx) => {
+                        const IconComp = SECTION_ICON_MAP[section.icon] || BookOpen
+                        const colorClass = SECTION_COLOR_MAP[section.icon] || "text-blue-500 border-blue-300"
+                        const [textColor] = colorClass.split(" ")
+                        return (
+                            <div
+                                key={idx}
+                                className={`border-l-4 ${colorClass.split(" ").slice(1).join(" ")} pl-4 py-2`}
+                            >
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <IconComp className={`w-4 h-4 ${textColor}`} />
+                                        <h4 className={`text-sm font-semibold uppercase tracking-wide ${textColor}`}>
+                                            {section.title}
+                                        </h4>
+                                    </div>
+                                    {section.pages && section.pages.length > 0 && (
+                                        <Badge variant="outline" className="text-xs gap-1">
+                                            <BookOpen className="w-3 h-3" />
+                                            p.{section.pages.join(", ")}
+                                        </Badge>
+                                    )}
+                                </div>
+                                <p className="text-muted-foreground leading-relaxed text-sm">
+                                    {renderTextWithHighlights(section.content)}
+                                </p>
+                            </div>
+                        )
+                    })}
+                </div>
+            )
+        }
+        // Fallback: split summary into paragraphs
+        const fallback = document.summary || ""
+        return (
+            <div className="space-y-3 text-muted-foreground leading-relaxed">
+                {cleanDisplayText(fallback)
+                    .split(/\n\n+/)
+                    .filter(Boolean)
+                    .map((para, idx) => (
+                        <p key={idx}>{renderTextWithHighlights(para)}</p>
+                    ))}
+            </div>
+        )
+    }
+
+    // Bullets view
+    if (summaryView === "bullets") {
+        if (ss?.bullets && ss.bullets.length > 0) {
+            return (
+                <div className="space-y-3">
+                    {ss.bullets.map((bullet, idx) => {
+                        const labelColor = BULLET_LABEL_COLORS[bullet.label] || "bg-gray-50 text-gray-700 border-gray-200"
+                        return (
+                            <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-muted/30 border">
+                                <CheckCircle2 className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+                                <div className="flex-1 space-y-1.5">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <Badge
+                                            variant="outline"
+                                            className={`text-xs font-semibold ${labelColor}`}
+                                        >
+                                            {bullet.label}
+                                        </Badge>
+                                        {bullet.page != null && (
+                                            <Badge variant="outline" className="text-xs gap-1">
+                                                <BookOpen className="w-3 h-3" />
+                                                Page {bullet.page}
+                                            </Badge>
+                                        )}
+                                    </div>
+                                    <p className="text-sm text-muted-foreground leading-relaxed">
+                                        {renderTextWithHighlights(bullet.text)}
+                                    </p>
+                                </div>
+                            </div>
+                        )
+                    })}
+                </div>
+            )
+        }
+        // Fallback: split summary into sentence bullets
+        const fallback = document.summary || ""
+        return (
+            <ul className="list-disc pl-5 space-y-2 text-muted-foreground">
+                {splitIntoSentences(fallback).map((sentence, idx) => (
+                    <li key={idx} className="leading-relaxed">
+                        {renderTextWithHighlights(sentence)}
+                    </li>
+                ))}
+            </ul>
+        )
+    }
+
+    return null
+}
+
 export function FileViewer() {
     const { id } = useParams<{ id: string }>()
     const navigate = useNavigate()
@@ -88,7 +264,7 @@ export function FileViewer() {
     const [_fileUrl, setFileUrl] = useState<string | null>(null)
     const [downloadingUrl, setDownloadingUrl] = useState(false)
     const [highlightKeywords, setHighlightKeywords] = useState(true)
-    const [summaryView, setSummaryView] = useState<"paragraph" | "bullets">("paragraph")
+    const [summaryView, setSummaryView] = useState<"short" | "detailed" | "bullets">("short")
 
     // Fetch document and concepts
     const { data: document, isLoading: docLoading, error: docError, refetch: refetchDoc } = useDocument(id)
@@ -401,64 +577,54 @@ export function FileViewer() {
             )}
 
             {/* Summary Section */}
-            {document.summary && (
+            {(document.summary || document.structured_summary) && (
                 <Card>
                     <CardHeader className="space-y-3">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <CardTitle className="flex items-center gap-2">
-                                <BookOpen className="w-5 h-5 text-primary" />
-                                Document Summary
+                                <Sparkles className="w-5 h-5 text-primary" />
+                                Summary
                             </CardTitle>
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex items-center gap-2">
                                 <Button
-                                    variant={summaryView === "paragraph" ? "default" : "outline"}
-                                    size="sm"
-                                    onClick={() => setSummaryView("paragraph")}
-                                    className="h-8"
-                                >
-                                    Paragraph
-                                </Button>
-                                <Button
-                                    variant={summaryView === "bullets" ? "default" : "outline"}
-                                    size="sm"
-                                    onClick={() => setSummaryView("bullets")}
-                                    className="h-8"
-                                >
-                                    Bullets
-                                </Button>
-                                <Button
-                                    variant={highlightKeywords ? "default" : "outline"}
+                                    variant="ghost"
                                     size="sm"
                                     onClick={() => setHighlightKeywords((prev) => !prev)}
-                                    className="h-8"
+                                    className="h-8 gap-1.5 text-xs"
+                                    title={highlightKeywords ? "Hide highlights" : "Show highlights"}
                                 >
-                                    Highlight Terms
+                                    {highlightKeywords ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                                    Terms
                                 </Button>
                             </div>
                         </div>
-                        <CardDescription>
-                            Cleaned and formatted for study readability.
-                        </CardDescription>
+                        <div className="flex gap-1 border-b pb-0">
+                            {(["short", "detailed", "bullets"] as const).map((tab) => (
+                                <button
+                                    key={tab}
+                                    onClick={() => setSummaryView(tab)}
+                                    className={`px-4 py-2 text-sm font-medium capitalize transition-colors relative ${
+                                        summaryView === tab
+                                            ? "text-primary"
+                                            : "text-muted-foreground hover:text-foreground"
+                                    }`}
+                                >
+                                    {tab}
+                                    {summaryView === tab && (
+                                        <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t" />
+                                    )}
+                                </button>
+                            ))}
+                        </div>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        {summaryView === "bullets" ? (
-                            <ul className="list-disc pl-5 space-y-2 text-muted-foreground">
-                                {splitIntoSentences(document.summary).map((sentence, idx) => (
-                                    <li key={idx} className="leading-relaxed">
-                                        {renderTextWithHighlights(sentence)}
-                                    </li>
-                                ))}
-                            </ul>
-                        ) : (
-                            <div className="space-y-3 text-muted-foreground leading-relaxed">
-                                {cleanDisplayText(document.summary)
-                                    .split(/\n\n+/)
-                                    .filter(Boolean)
-                                    .map((para, idx) => (
-                                        <p key={idx}>{renderTextWithHighlights(para)}</p>
-                                    ))}
-                            </div>
-                        )}
+                        <SummaryContent
+                            document={document}
+                            summaryView={summaryView}
+                            highlightKeywords={highlightKeywords}
+                            sortedKeywords={sortedKeywords}
+                            renderTextWithHighlights={renderTextWithHighlights}
+                        />
 
                         {keywordPool.length > 0 && (
                             <div className="pt-2 border-t">

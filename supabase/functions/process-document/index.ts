@@ -42,6 +42,16 @@ const STOPWORDS = new Set([
     'about', 'into', 'within', 'without', 'over', 'under', 'between', 'during'
 ])
 
+const EDGE_GENERIC_TAGS = new Set([
+    'datum', 'data', 'portion', 'portions', 'function', 'method',
+    'use', 'result', 'value', 'number', 'type', 'time', 'output',
+    'input', 'model', 'step', 'example', 'case', 'set', 'way',
+    'form', 'work', 'end', 'side', 'level', 'line', 'order',
+    'area', 'point', 'group', 'part', 'kind', 'thing', 'stuff',
+    'state', 'need', 'change', 'note', 'item', 'term', 'unit',
+    'you', 'your', 'something', 'anything', 'everything',
+])
+
 let processedByColumnCache: boolean | null = null
 
 function normalizeProcessor(value?: string | null): 'pure_nlp' | 'gemini' | null {
@@ -99,8 +109,28 @@ interface Concept {
     keywords: string[]
 }
 
+interface SummarySection {
+    title: string
+    icon: string
+    content: string
+    pages?: number[]
+}
+
+interface SummaryBullet {
+    label: string
+    text: string
+    page?: number
+}
+
+interface StructuredSummary {
+    short: string
+    detailed: SummarySection[]
+    bullets: SummaryBullet[]
+}
+
 interface GeminiResponse {
     summary: string
+    structured_summary?: StructuredSummary | null
     concepts: Concept[]
 }
 
@@ -205,20 +235,32 @@ serve(async (req) => {
         let textContent: string
         let extractedKeywords: string[] = []
         let importantSentences: string[] = []
+        let extractedNounPhrases: NounPhrase[] = []
+        let extractedClusters: SentenceCluster[] = []
+        let extractedSummarySentences: SummarySentence[] = []
+        let extractedClusterQuality: number | null = null
 
         if (nlpServiceUrl) {
-            // Use NLP service for extraction + keywords + ranked sentences
+            // Use NLP service for extraction + keywords + ranked sentences + clusters
             const nlpStartTime = Date.now()
             console.log('🧠 NLP service extraction started')
             const nlpResult = await extractWithNlpService(fileData, nlpServiceUrl, document.file_type)
             textContent = nlpResult.text
             extractedKeywords = nlpResult.keywords
             importantSentences = nlpResult.importantSentences
+            extractedNounPhrases = nlpResult.nounPhrases
+            extractedClusters = nlpResult.sentenceClusters
+            extractedSummarySentences = nlpResult.summarySentences
+            extractedClusterQuality = nlpResult.clusterQuality
             console.log('✅ NLP service extraction finished', {
                 durationMs: Date.now() - nlpStartTime,
                 charCount: textContent.length,
                 keywordCount: extractedKeywords.length,
-                sentenceCount: importantSentences.length
+                sentenceCount: importantSentences.length,
+                clusterCount: extractedClusters.length,
+                nounPhraseCount: extractedNounPhrases.length,
+                summarySentenceCount: extractedSummarySentences.length,
+                clusterQuality: extractedClusterQuality,
             })
         } else if (document.file_type === 'pdf') {
             // Fallback: basic PDF extraction (may not work well)
@@ -287,7 +329,11 @@ serve(async (req) => {
             ? importantSentences
             : splitSentences(textContent).slice(0, 10)
 
-        const pureNlpResult = buildPureNlpResult(textContent, derivedKeywords, derivedImportantSentences)
+        const pureNlpResult = buildPureNlpResult(
+            textContent, derivedKeywords, derivedImportantSentences,
+            extractedNounPhrases, extractedClusters,
+            extractedSummarySentences
+        )
 
         const runGeminiAnalysis = async (): Promise<GeminiResponse> => {
             if (!geminiApiKey) {
@@ -372,6 +418,10 @@ serve(async (req) => {
             error_message: null,
         }
 
+        if (analysisResult.structured_summary) {
+            updatePayload.structured_summary = analysisResult.structured_summary
+        }
+
         if (await hasProcessedByColumn(supabase)) {
             updatePayload.processed_by = processedBy
         }
@@ -452,10 +502,20 @@ serve(async (req) => {
  * Extract text from document using NLP Microservice (Tika + TextRank + KeyBERT)
  * This is the proper way to extract text from PDF/DOCX files
  */
+interface SummarySentence {
+    text: string
+    index: number
+    relevance_score: number
+}
+
 interface NlpExtractionResult {
     text: string
     keywords: string[]
     importantSentences: string[]
+    nounPhrases: NounPhrase[]
+    sentenceClusters: SentenceCluster[]
+    summarySentences: SummarySentence[]
+    clusterQuality: number | null
 }
 
 async function extractWithNlpService(
@@ -497,7 +557,11 @@ async function extractWithNlpService(
         return {
             text: result.text,
             keywords: result.keywords || [],
-            importantSentences: result.important_sentences || []
+            importantSentences: result.important_sentences || [],
+            nounPhrases: result.noun_phrases || [],
+            sentenceClusters: result.sentence_clusters || [],
+            summarySentences: result.summary_sentences || [],
+            clusterQuality: result.cluster_quality ?? null,
         }
     } catch (error) {
         const err = error as Error
@@ -654,12 +718,9 @@ function stripNoisyInlineContent(text: string): string {
         .replace(/www\.\S+/gi, ' ')
         // Common slide/page markers from PDFs.
         .replace(/\b(slide|page)\s*\d+\b/gi, ' ')
-        // Common mojibake from PDF extraction.
-        .replace(/â€™/g, "'")
-        .replace(/â€œ|â€�/g, '"')
-        .replace(/â€“|â€”/g, '-')
-        .replace(/â€¢/g, '-')
-        .replace(/â€¦/g, '...')
+        // Strip residual mojibake: unicode control-range characters
+        .replace(/\u00e2[\u0080-\u00bf]*/g, ' ')
+        .replace(/[\u00c2\u00c3][\u0080-\u00bf]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
 }
@@ -700,6 +761,12 @@ function filterKeywordsForStudy(keywords: string[]): string[] {
         if (lower.includes('http') || lower.includes('www')) continue
         if (slidePageNumberRe.test(lower) || lower === 'slide' || lower === 'page') continue
         if (phrase.length < 3) continue
+        // Reject single-word generic terms
+        const words = lower.split(/\s+/)
+        if (words.length === 1 && EDGE_GENERIC_TAGS.has(lower)) continue
+        if (words.length === 1 && STOPWORDS.has(lower)) continue
+        // Reject if ALL tokens are generic
+        if (words.every(w => EDGE_GENERIC_TAGS.has(w) || STOPWORDS.has(w))) continue
 
         seen.add(lower)
         filtered.push(phrase)
@@ -767,10 +834,457 @@ function deriveKeywordsForSentence(sentence: string, keywords: string[]): string
     return extractKeyTerms(sentence).slice(0, 5)
 }
 
+// ============================================
+// Cluster-based concept extraction types & helpers
+// ============================================
+
+interface NounPhrase {
+    phrase: string
+    count: number
+}
+
+interface SentenceCluster {
+    label: string
+    sentence_indices: number[]
+    key_terms: string[]
+    representative_index: number
+}
+
+const LABEL_PENALTY_TERMS = new Set([
+    'using', 'building', 'creating', 'importing', 'making', 'doing',
+    'overview', 'introduction', 'general', 'example', 'review',
+    'understanding', 'learning', 'studying', 'applying', 'getting',
+    'started', 'basics', 'chapter', 'section', 'slide', 'page',
+    'module', 'lecture', 'part', 'unit', 'step', 'steps',
+    'thing', 'things', 'stuff', 'way', 'lot', 'kind', 'type',
+    'datum', 'data', 'number', 'value', 'result', 'set',
+    'use', 'work', 'time', 'end', 'place', 'form', 'point',
+    'area', 'case', 'fact', 'group', 'order', 'side', 'level',
+    'line', 'change', 'need', 'something', 'anything', 'everything',
+    'item', 'list', 'issue', 'note', 'notes', 'idea', 'information',
+    'you', 'your', 'we', 'our', 'they', 'their', 'one', 'ones',
+    'portion', 'portions', 'method', 'approach', 'process', 'state',
+    'problem', 'question', 'answer', 'term', 'terms',
+])
+
+const LABEL_ARTICLES = new Set(['the', 'a', 'an', 'this', 'that', 'these', 'those', 'some', 'many', 'each', 'every'])
+
+const KNOWN_ACRONYMS = new Set([
+    'CNN', 'RNN', 'LSTM', 'GRU', 'BPTT', 'NLP', 'ML', 'AI', 'GPU', 'CPU',
+    'API', 'SQL', 'HTML', 'CSS', 'HTTP', 'REST', 'JSON', 'XML', 'TCP', 'UDP',
+    'OOP', 'DFS', 'BFS', 'SVM', 'PCA', 'GAN', 'VAE', 'MLP', 'KNN',
+    'SGD', 'ADAM', 'ReLU', 'MSE', 'MAE', 'ROC', 'AUC', 'IoU',
+])
+
+function cleanConceptLabel(rawLabel: string): string {
+    const tokens = rawLabel.split(/\s+/).filter(Boolean)
+    // Strip leading articles
+    const noArticles = tokens.filter(t => !LABEL_ARTICLES.has(t.toLowerCase()))
+    const cleaned = noArticles.filter(t => !LABEL_PENALTY_TERMS.has(t.toLowerCase()))
+
+    if (cleaned.length === 0) return ''
+
+    // Reject if remaining text contains mojibake-like characters
+    const joined = cleaned.join(' ')
+    if (/[\u00e2\u00c3\u00c2\u0080-\u009f]/.test(joined)) return ''
+
+    // Single-word labels: only accepted if they're known acronyms or long enough
+    if (cleaned.length === 1) {
+        const upper = cleaned[0].toUpperCase()
+        if (KNOWN_ACRONYMS.has(upper)) return upper
+        if (cleaned[0].length <= 4) return ''
+    }
+
+    if (cleaned.length > 5) return toTitleCase(cleaned.slice(0, 4).join(' '))
+    return toTitleCase(cleaned.join(' '))
+}
+
+function jaccardSimilarity(nameA: string, nameB: string): number {
+    const tokensA = new Set(normalizeForDedup(nameA).split(' ').filter(Boolean))
+    const tokensB = new Set(normalizeForDedup(nameB).split(' ').filter(Boolean))
+    const intersection = [...tokensA].filter(t => tokensB.has(t)).length
+    const union = new Set([...tokensA, ...tokensB]).size
+    if (union === 0) return 0
+    return intersection / union
+}
+
+function isContainedIn(shorter: string, longer: string): boolean {
+    const shortTokens = normalizeForDedup(shorter).split(' ').filter(Boolean)
+    const longTokens = new Set(normalizeForDedup(longer).split(' ').filter(Boolean))
+    if (shortTokens.length === 0 || shortTokens.length >= longTokens.size) return false
+    return shortTokens.every(t => longTokens.has(t))
+}
+
+function deduplicateConcepts(concepts: Concept[]): Concept[] {
+    const kept: Concept[] = []
+
+    for (const candidate of concepts) {
+        let mergeTarget = -1
+
+        for (let i = 0; i < kept.length; i++) {
+            const existing = kept[i]
+            const nameA = candidate.name
+            const nameB = existing.name
+
+            // Exact normalized match
+            if (normalizeForDedup(nameA) === normalizeForDedup(nameB)) {
+                mergeTarget = i
+                break
+            }
+
+            // Containment: one name's tokens are a subset of the other's
+            if (isContainedIn(nameA, nameB) || isContainedIn(nameB, nameA)) {
+                mergeTarget = i
+                break
+            }
+
+            // Jaccard overlap (stricter threshold for short names)
+            const tokenCountA = normalizeForDedup(nameA).split(' ').filter(Boolean).length
+            const tokenCountB = normalizeForDedup(nameB).split(' ').filter(Boolean).length
+            const minTokens = Math.min(tokenCountA, tokenCountB)
+            const threshold = minTokens <= 2 ? 0.7 : 0.5
+            if (jaccardSimilarity(nameA, nameB) > threshold) {
+                mergeTarget = i
+                break
+            }
+        }
+
+        if (mergeTarget >= 0) {
+            const existing = kept[mergeTarget]
+            // Keep the one with higher importance; if tied, prefer the shorter name
+            if (candidate.importance > existing.importance ||
+                (candidate.importance === existing.importance && candidate.name.length < existing.name.length)) {
+                // Merge tags from existing into candidate
+                const mergedTags = [...new Set([...candidate.keywords, ...existing.keywords])].slice(0, 5)
+                kept[mergeTarget] = { ...candidate, keywords: mergedTags }
+            } else {
+                // Merge candidate's tags into existing
+                const mergedTags = [...new Set([...existing.keywords, ...candidate.keywords])].slice(0, 5)
+                kept[mergeTarget] = { ...existing, keywords: mergedTags }
+            }
+        } else {
+            kept.push(candidate)
+        }
+    }
+
+    return kept
+}
+
+function estimateDifficulty(description: string, _conceptName: string): string {
+    try {
+        const words = description.split(/\s+/)
+        const avgWordLen = words.reduce((s, w) => s + w.length, 0) / Math.max(1, words.length)
+        const hasIntroPattern = /\b(basic|introduction|what is|definition|overview|fundamental)\b/i.test(description)
+        const hasMathPattern = /[=+\-*/^]|\b(equation|formula|theorem|proof|derivative|gradient)\b/i.test(description)
+        const hasAdvancedVocab = /\b(optimization|regularization|backpropagation|convergence|hyperparameter)\b/i.test(description)
+        const acronymCount = (description.match(/\b[A-Z]{2,}\b/g) || []).length
+
+        if (hasIntroPattern && avgWordLen < 5.5) return 'beginner'
+        if (hasMathPattern || hasAdvancedVocab || (acronymCount >= 3 && avgWordLen > 6)) return 'advanced'
+        return 'intermediate'
+    } catch {
+        return 'intermediate'
+    }
+}
+
+function detectCategory(conceptName: string, keywords: string[]): string {
+    try {
+        const text = [conceptName, ...keywords].join(' ').toLowerCase()
+        const rules: Array<{ pattern: RegExp; label: string }> = [
+            { pattern: /\b(neural network|deep learning|cnn|rnn|lstm|gru|transformer)\b/, label: 'Neural Networks' },
+            { pattern: /\b(convolution|filter|kernel|feature map|pooling|stride|padding)\b/, label: 'CNN Architecture' },
+            { pattern: /\b(gradient|backpropagation|loss function|optimizer|learning rate)\b/, label: 'Training' },
+            { pattern: /\b(batch size|epoch|dropout|regularization|hyperparameter)\b/, label: 'Hyperparameters' },
+            { pattern: /\b(activation|relu|sigmoid|softmax|tanh)\b/, label: 'Activation Functions' },
+            { pattern: /\b(algorithm|sort|search|complexity|big.?o)\b/, label: 'Algorithms' },
+            { pattern: /\b(array|linked list|tree|graph|stack|queue|hash)\b/, label: 'Data Structures' },
+            { pattern: /\b(database|sql|query|schema|table|index)\b/, label: 'Databases' },
+            { pattern: /\b(class|object|inheritance|polymorphism|encapsulation)\b/, label: 'Object-Oriented Programming' },
+            { pattern: /\b(variable|function|loop|condition|syntax)\b/, label: 'Programming Fundamentals' },
+        ]
+        for (const { pattern, label } of rules) {
+            if (pattern.test(text)) return label
+        }
+        return 'General Study'
+    } catch {
+        return 'General Study'
+    }
+}
+
+function stripLeadingConjunctions(text: string): string {
+    return text.replace(/^(And|But|Also|Or|So|Yet|However|Moreover|Furthermore|Additionally)\s+/i, '').trim()
+}
+
+function truncateOnSentenceBoundary(text: string, maxLen: number): string {
+    if (text.length <= maxLen) return text
+    const truncated = text.substring(0, maxLen)
+    const lastPeriod = truncated.lastIndexOf('. ')
+    const lastExclaim = truncated.lastIndexOf('! ')
+    const lastQuestion = truncated.lastIndexOf('? ')
+    const boundary = Math.max(lastPeriod, lastExclaim, lastQuestion)
+    if (boundary > maxLen * 0.4) {
+        return truncated.substring(0, boundary + 1).trim()
+    }
+    return truncated.trim()
+}
+
+// Fixed pedagogical section definitions
+const PEDAGOGICAL_SECTIONS = [
+    {
+        title: 'Introduction',
+        icon: 'play',
+        patterns: /\b(introduc|what is|overview|basic|definition|define|background|purpose|objective|about)\b/i,
+    },
+    {
+        title: 'Core Concepts',
+        icon: 'sparkles',
+        patterns: /\b(concept|theory|principle|fundamental|key idea|mechanism|how .+ works?|architecture|structure|model|framework)\b/i,
+    },
+    {
+        title: 'Key Components',
+        icon: 'grid',
+        patterns: /\b(component|layer|module|element|parameter|configur|feature|property|attribute|type|class)\b/i,
+    },
+    {
+        title: 'Applications',
+        icon: 'layers',
+        patterns: /\b(appl|use case|example|implement|build|create|code|train|deploy|practice|exercise|real.?world)\b/i,
+    },
+    {
+        title: 'Challenges',
+        icon: 'alert-triangle',
+        patterns: /\b(challeng|problem|limit|issue|drawback|trade.?off|difficult|disadvantage|error|overfitting|underfitting)\b/i,
+    },
+]
+
+const BULLET_LABEL_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
+    { pattern: /\b(defin|is a\b|are a\b|refers to|means\b|known as)\b/i, label: 'DEFINITION' },
+    { pattern: /\b(example|instance|such as|e\.g\.|for instance|illustrated by)\b/i, label: 'EXAMPLE' },
+    { pattern: /\b(step|process|procedure|build|create|implement|compil|train)\b/i, label: 'PROCESS' },
+    { pattern: /\b(challeng|problem|issue|difficult|limit|drawback|error)\b/i, label: 'CHALLENGE' },
+    { pattern: /\b(advantage|benefit|strength|useful|improve|efficient)\b/i, label: 'ADVANTAGE' },
+    { pattern: /\b(compar|differ|unlike|versus|vs\b|contrast|distinction)\b/i, label: 'KEY DISTINCTION' },
+    { pattern: /\b(key|important|fundamental|essential|core|critical|significant)\b/i, label: 'KEY CONCEPT' },
+]
+
+function detectBulletLabel(text: string): string {
+    for (const { pattern, label } of BULLET_LABEL_PATTERNS) {
+        if (pattern.test(text)) return label
+    }
+    return 'KEY CONCEPT'
+}
+
+function classifyClusterToSection(clusterText: string): number {
+    let bestIdx = 1 // Default to "Core Concepts"
+    let bestScore = 0
+
+    for (let i = 0; i < PEDAGOGICAL_SECTIONS.length; i++) {
+        const matches = clusterText.match(PEDAGOGICAL_SECTIONS[i].patterns)
+        const score = matches ? matches.length : 0
+        if (score > bestScore) {
+            bestScore = score
+            bestIdx = i
+        }
+    }
+
+    return bestIdx
+}
+
+function buildStructuredSummaryFromClusters(
+    sentencePool: string[],
+    clusters: SentenceCluster[],
+    summarySentences: SummarySentence[],
+    fallbackSentences: string[]
+): { summary: string; structured: StructuredSummary } {
+    const shortSources = summarySentences.length > 0
+        ? summarySentences.slice(0, 3).map(s => s.text)
+        : fallbackSentences.slice(0, 3)
+    const shortText = shortSources.join('. ').replace(/\.\./g, '.').trim()
+    const short = shortText.endsWith('.') ? shortText : shortText + '.'
+
+    // Classify each cluster into a pedagogical section
+    const sectionBuckets: Map<number, string[]> = new Map()
+
+    for (const cluster of clusters) {
+        const clusterSentences = cluster.sentence_indices
+            .map(idx => sentencePool[idx])
+            .filter(Boolean)
+        if (clusterSentences.length === 0) continue
+
+        const representative = sentencePool[cluster.representative_index] || clusterSentences[0]
+        const clusterText = clusterSentences.join(' ')
+        const sectionIdx = classifyClusterToSection(clusterText)
+
+        let content = representative
+        if (clusterSentences.length >= 2) {
+            const second = clusterSentences.find(s => s !== representative)
+            if (second) content = representative + '. ' + second
+        }
+        content = stripLeadingConjunctions(content)
+        if (content.length > 400) {
+            content = truncateOnSentenceBoundary(content, 400)
+        }
+
+        const existing = sectionBuckets.get(sectionIdx) || []
+        existing.push(content)
+        sectionBuckets.set(sectionIdx, existing)
+    }
+
+    // Build detailed sections from buckets, keeping order
+    const detailed: SummarySection[] = []
+    for (let i = 0; i < PEDAGOGICAL_SECTIONS.length; i++) {
+        const contents = sectionBuckets.get(i)
+        if (!contents || contents.length === 0) continue
+
+        let merged = contents.join(' ')
+        if (merged.length > 600) {
+            merged = truncateOnSentenceBoundary(merged, 600)
+        }
+
+        detailed.push({
+            title: PEDAGOGICAL_SECTIONS[i].title,
+            icon: PEDAGOGICAL_SECTIONS[i].icon,
+            content: merged,
+        })
+    }
+
+    // If classification left us with fewer than 2 sections, build from MMR sentences
+    if (detailed.length < 2 && summarySentences.length > 0) {
+        const mmrSentences = summarySentences.map(s => s.text)
+        if (mmrSentences.length >= 2) {
+            detailed.length = 0
+            detailed.push({
+                title: 'Introduction',
+                icon: 'play',
+                content: mmrSentences[0],
+            })
+            detailed.push({
+                title: 'Core Concepts',
+                icon: 'sparkles',
+                content: mmrSentences.slice(1, 3).join('. '),
+            })
+            if (mmrSentences.length > 3) {
+                detailed.push({
+                    title: 'Key Components',
+                    icon: 'grid',
+                    content: mmrSentences.slice(3).join('. '),
+                })
+            }
+        }
+    }
+
+    // Bullets: one per cluster representative with concept label prefix
+    const bullets: SummaryBullet[] = []
+    for (const cluster of clusters) {
+        if (bullets.length >= 10) break
+        const rep = sentencePool[cluster.representative_index]
+        if (!rep) continue
+        const label = detectBulletLabel(rep)
+        const clusterLabel = cleanConceptLabel(cluster.label)
+        const text = clusterLabel
+            ? `${clusterLabel}: ${stripLeadingConjunctions(rep)}`
+            : stripLeadingConjunctions(rep)
+        bullets.push({ label, text })
+    }
+
+    if (bullets.length < 3 && summarySentences.length > 0) {
+        const usedTexts = new Set(bullets.map(b => b.text.toLowerCase()))
+        for (const ss of summarySentences) {
+            if (bullets.length >= 10) break
+            if (usedTexts.has(ss.text.toLowerCase())) continue
+            usedTexts.add(ss.text.toLowerCase())
+            bullets.push({
+                label: detectBulletLabel(ss.text),
+                text: stripLeadingConjunctions(ss.text),
+            })
+        }
+    }
+
+    return {
+        summary: short,
+        structured: { short, detailed, bullets },
+    }
+}
+
+function filterConceptTags(tags: string[], labelLower: string): string[] {
+    const seen = new Set<string>()
+    const result: string[] = []
+    for (const t of tags) {
+        const low = t.toLowerCase().trim()
+        if (!low || low.length < 3) continue
+        if (seen.has(low)) continue
+        if (EDGE_GENERIC_TAGS.has(low)) continue
+        if (labelLower.includes(low)) continue
+        if (STOPWORDS.has(low)) continue
+        seen.add(low)
+        result.push(t)
+        if (result.length >= 4) break
+    }
+    return result
+}
+
+function buildConceptsFromClusters(
+    sentencePool: string[],
+    clusters: SentenceCluster[],
+    _nounPhrases: NounPhrase[],
+    _keywordPool: string[]
+): Concept[] {
+    const concepts: Concept[] = []
+
+    for (const cluster of clusters) {
+        if (concepts.length >= 12) break
+
+        const label = cleanConceptLabel(cluster.label)
+        if (!label) continue
+
+        const clusterSentences = cluster.sentence_indices
+            .map(i => sentencePool[i])
+            .filter(Boolean)
+        const representative = sentencePool[cluster.representative_index] || clusterSentences[0]
+        if (!representative) continue
+
+        let description = representative
+        if (clusterSentences.length >= 2) {
+            const second = clusterSentences.find(s => s !== representative)
+            if (second) description = representative + '. ' + second
+        }
+        description = stripLeadingConjunctions(description)
+        if (description.length > 300) {
+            description = truncateOnSentenceBoundary(description, 300)
+        }
+
+        const labelLower = label.toLowerCase()
+        const tags = filterConceptTags(cluster.key_terms, labelLower)
+
+        const clusterSize = cluster.sentence_indices.length
+        const avgRank = cluster.sentence_indices.reduce((s, i) => s + i, 0) / Math.max(1, clusterSize)
+        const sizeScore = Math.min(3, clusterSize)
+        const rankScore = Math.max(0, 5 - Math.floor(avgRank / 3))
+        const importance = Math.min(10, Math.max(1, Math.round(sizeScore + rankScore + 2)))
+
+        const difficulty = estimateDifficulty(description, label)
+        const category = detectCategory(label, tags)
+
+        concepts.push({
+            name: label,
+            description,
+            category,
+            importance,
+            difficulty_level: difficulty,
+            keywords: tags,
+        })
+    }
+
+    return concepts
+}
+
 function buildPureNlpResult(
     text: string,
     keywords: string[],
-    importantSentences: string[]
+    importantSentences: string[],
+    nounPhrases: NounPhrase[] = [],
+    sentenceClusters: SentenceCluster[] = [],
+    summarySentences: SummarySentence[] = []
 ): GeminiResponse {
     const cleanedText = stripNoisyInlineContent(text)
     const baseSentences = importantSentences.length > 0 ? importantSentences : splitSentences(cleanedText)
@@ -788,21 +1302,28 @@ function buildPureNlpResult(
         if (sentencePool.length >= 20) break
     }
 
-    const summary = sentencePool.slice(0, 3).join(' ').trim() || cleanedText.substring(0, 300).trim()
-
-    // Prefer NLP service keywords, but filter them. If they are weak, fall back to simple frequency keywords.
     const keywordPool = filterKeywordsForStudy(
         keywords.length > 0 ? keywords : extractKeywordsFromText(cleanedText, 25)
     )
 
-    // Build concepts around keyphrases and attach a supporting sentence.
+    // Cluster-based path: semantic clusters from NLP service
+    if (sentenceClusters.length >= 3) {
+        const clusterConcepts = buildConceptsFromClusters(sentencePool, sentenceClusters, nounPhrases, keywordPool)
+        const dedupedConcepts = deduplicateConcepts(clusterConcepts)
+        const { summary, structured } = buildStructuredSummaryFromClusters(
+            sentencePool, sentenceClusters, summarySentences, sentencePool
+        )
+        return { summary, structured_summary: structured, concepts: dedupedConcepts }
+    }
+
+    // Fallback path: keyword-based concept building when no clusters available
+    const summary = sentencePool.slice(0, 3).join(' ').trim() || cleanedText.substring(0, 300).trim()
     const concepts: Concept[] = []
     const conceptNames = new Set<string>()
 
     for (const phrase of keywordPool) {
         if (concepts.length >= 12) break
 
-        // Avoid overly-generic single-word concepts.
         const normalized = normalizeForDedup(phrase)
         if (!normalized) continue
         if (!phrase.includes(' ') && (STOPWORDS.has(normalized) || normalized.length <= 4)) continue
@@ -824,7 +1345,6 @@ function buildPureNlpResult(
         })
     }
 
-    // Fallback: if keyword-based concepting produced too few, fall back to sentence-based concepts.
     if (concepts.length < 5) {
         for (let i = 0; i < Math.min(10, sentencePool.length); i++) {
             const sentence = sentencePool[i]
@@ -887,20 +1407,36 @@ DOCUMENT:
 ${text}
 
 Analyze this document and provide:
-1. A concise summary (3-4 sentences covering the main points)
+1. A structured summary with three formats (short, detailed sections, and bullet points)
 2. Key concepts that students should learn (5-15 concepts)
+
+For the structured_summary:
+- "short": A concise 2-3 sentence overview of the entire document
+- "detailed": An array of 3-6 themed sections, each with a title (e.g., "Introduction", "Core Concepts", "Key Components", "Applications", "Challenges"), an icon name (one of: "play", "sparkles", "grid", "layers", "zap", "alert-triangle", "code", "network", "book-open"), and 2-4 sentences of content
+- "bullets": An array of labeled bullet points. Each has a label (one of: "DEFINITION", "KEY CONCEPT", "PROCESS", "EXAMPLE", "CHALLENGE", "ADVANTAGE", "KEY DISTINCTION") and a text description
 
 For each concept include:
 - name: Short title (2-5 words)
 - description: Clear explanation (1-2 sentences)
-- category: Topic category (e.g., "Data Structures", "Algorithms", "Programming Fundamentals")
-- importance: Score 1-10 (10 = essential, must know; 1 = supplementary)
+- category: Topic category
+- importance: Score 1-10
 - difficulty_level: "beginner", "intermediate", or "advanced"
-- keywords: Array of 3-5 related terms for studying
+- keywords: Array of 3-5 related terms
 
 Respond with this exact JSON structure:
 {
-  "summary": "A comprehensive summary of the document...",
+  "summary": "Short 2-3 sentence overview (same as structured_summary.short)",
+  "structured_summary": {
+    "short": "2-3 sentence overview...",
+    "detailed": [
+      { "title": "Introduction", "icon": "play", "content": "2-4 sentences about this section..." },
+      { "title": "Core Concepts", "icon": "sparkles", "content": "..." }
+    ],
+    "bullets": [
+      { "label": "DEFINITION", "text": "Term: Clear definition..." },
+      { "label": "KEY CONCEPT", "text": "Important point about..." }
+    ]
+  },
   "concepts": [
     {
       "name": "Concept Name",
@@ -917,9 +1453,10 @@ Rules:
 - Return ONLY valid JSON, no markdown code blocks
 - Focus on exam-relevant concepts
 - Be specific - avoid vague or generic descriptions
-- Prioritize concepts by importance for studying`
+- Generate 5-8 detailed sections and 6-10 bullet points
+- Each bullet should start with the topic followed by a colon, then the explanation`
 
-    const content = await callGemini(prompt, apiKey, 4096)
+    const content = await callGemini(prompt, apiKey, 6000)
     return parseGeminiResponse(content)
 }
 
@@ -1035,14 +1572,30 @@ SECTION SUMMARIES:
 ${allSummaries}
 
 ALL KEY POINTS:
-${allKeyPoints.map(p => `• ${p}`).join('\n')}
+${allKeyPoints.map(p => `- ${p}`).join('\n')}
 
 CONCEPTS FOUND ACROSS SECTIONS:
 ${uniqueConcepts.map(c => `- ${c.name}: ${c.description}`).join('\n')}
 
-Now create a comprehensive final analysis. Respond with this exact JSON structure:
+Create a comprehensive final analysis with a structured summary. Respond with this exact JSON:
 {
-  "summary": "A unified summary (4-5 sentences) that ties all sections together and covers the main document themes",
+  "summary": "Short 2-3 sentence overview of the whole document",
+  "structured_summary": {
+    "short": "Same 2-3 sentence overview",
+    "detailed": [
+      { "title": "Introduction", "icon": "play", "content": "2-4 sentences about the document's introduction and purpose..." },
+      { "title": "Core Concepts", "icon": "sparkles", "content": "2-4 sentences about the main theoretical concepts..." },
+      { "title": "Key Components", "icon": "grid", "content": "2-4 sentences about important components or architecture..." },
+      { "title": "Applications", "icon": "layers", "content": "2-4 sentences about practical applications..." }
+    ],
+    "bullets": [
+      { "label": "DEFINITION", "text": "Term: Clear definition..." },
+      { "label": "KEY CONCEPT", "text": "Important concept explanation..." },
+      { "label": "PROCESS", "text": "Step or methodology description..." },
+      { "label": "EXAMPLE", "text": "Practical example..." },
+      { "label": "CHALLENGE", "text": "Known challenge or limitation..." }
+    ]
+  },
   "concepts": [
     {
       "name": "Concept Name",
@@ -1057,13 +1610,13 @@ Now create a comprehensive final analysis. Respond with this exact JSON structur
 
 Requirements:
 - Create ONE unified summary that synthesizes all sections
-- Select the 8-15 MOST IMPORTANT concepts from all sections
-- Prioritize concepts with higher importance scores
+- Generate 3-6 detailed sections and 5-10 labeled bullets
+- Select the 8-15 MOST IMPORTANT concepts
 - Remove duplicates and merge similar concepts
 - Focus on exam-relevant material
 - Return ONLY valid JSON, no markdown code blocks`
 
-    const content = await callGemini(prompt, apiKey, 4096)
+    const content = await callGemini(prompt, apiKey, 6000)
     return parseGeminiResponse(content)
 }
 
@@ -1072,7 +1625,6 @@ Requirements:
  */
 function parseGeminiResponse(content: string): GeminiResponse {
     try {
-        // Handle potential markdown code blocks in response
         let jsonStr = content
         if (jsonStr.includes('```json')) {
             jsonStr = jsonStr.split('```json')[1].split('```')[0]
@@ -1080,9 +1632,23 @@ function parseGeminiResponse(content: string): GeminiResponse {
             jsonStr = jsonStr.split('```')[1].split('```')[0]
         }
 
-        return JSON.parse(jsonStr.trim())
+        const parsed = JSON.parse(jsonStr.trim())
+        const result: GeminiResponse = {
+            summary: parsed.summary || '',
+            concepts: parsed.concepts || [],
+        }
+
+        if (parsed.structured_summary) {
+            result.structured_summary = {
+                short: parsed.structured_summary.short || parsed.summary || '',
+                detailed: Array.isArray(parsed.structured_summary.detailed) ? parsed.structured_summary.detailed : [],
+                bullets: Array.isArray(parsed.structured_summary.bullets) ? parsed.structured_summary.bullets : [],
+            }
+        }
+
+        return result
     } catch {
-        console.error('⚠️ Failed to parse Gemini response:', content.substring(0, 200))
+        console.error('Failed to parse Gemini response:', content.substring(0, 200))
         return {
             summary: 'Document uploaded successfully. Summary generation encountered an issue.',
             concepts: [],
@@ -1220,7 +1786,7 @@ async function generateAndSaveEmbeddings(
     chunks: ChunkRecord[],
     apiKey: string
 ): Promise<void> {
-    // Rate limits for gemini-embedding-001 free tier:
+    // Rate limits for gemini-embedding-001 free tier: 
     //   RPM = 100, TPM = 30,000, RPD = 1,000
     // With ~700-token chunks, batch of 3 = ~2,100 tokens per batch.
     // At 1.5s between batches => ~40 batches/min => ~120 RPM (close to limit)

@@ -10,6 +10,25 @@ import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { deleteFile } from '@/lib/storage'
 import { useAuth } from '@/contexts/AuthContext'
 
+export interface SummarySection {
+    title: string
+    icon: string
+    content: string
+    pages?: number[]
+}
+
+export interface SummaryBullet {
+    label: string
+    text: string
+    page?: number
+}
+
+export interface StructuredSummary {
+    short: string
+    detailed: SummarySection[]
+    bullets: SummaryBullet[]
+}
+
 // Document type matching database schema
 export interface Document {
     id: string
@@ -22,6 +41,7 @@ export interface Document {
     status: 'pending' | 'processing' | 'ready' | 'error'
     error_message: string | null
     summary: string | null
+    structured_summary?: StructuredSummary | null
     concept_count: number
     processed_by?: 'pure_nlp' | 'gemini' | null
     created_at: string
