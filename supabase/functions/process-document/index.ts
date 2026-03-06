@@ -50,7 +50,23 @@ const EDGE_GENERIC_TAGS = new Set([
     'area', 'point', 'group', 'part', 'kind', 'thing', 'stuff',
     'state', 'need', 'change', 'note', 'item', 'term', 'unit',
     'you', 'your', 'something', 'anything', 'everything',
+    'agenda', 'outline', 'recap', 'overview', 'contents',
+    'objectives', 'topics', 'summary', 'review', 'introduction',
+    'references', 'bibliography', 'questions',
 ])
+
+function isNumericHeavy(text: string): boolean {
+    const stripped = text.replace(/\s/g, '')
+    if (stripped.length === 0) return true
+    const digitDots = (stripped.match(/[\d.]/g) || []).length
+    return digitDots / stripped.length > 0.4
+}
+
+function isCodeLikeContent(text: string): boolean {
+    return /\b(import\s+\w|from\s+\w+\.\w+\s+import|def\s+\w+\(|class\s+\w+[(:])/.test(text)
+        || /\b(Sequential|Dense|model\.\w+|\.fit\(|\.predict\(|\.compile\()/.test(text)
+        || (/[{};=]/.test(text) && (text.match(/[{};=]/g) || []).length >= 3)
+}
 
 let processedByColumnCache: boolean | null = null
 
@@ -239,6 +255,8 @@ serve(async (req) => {
         let extractedClusters: SentenceCluster[] = []
         let extractedSummarySentences: SummarySentence[] = []
         let extractedClusterQuality: number | null = null
+        let extractedDocumentType = 'prose'
+        let extractedSlides: SlideData[] = []
 
         if (nlpServiceUrl) {
             // Use NLP service for extraction + keywords + ranked sentences + clusters
@@ -252,6 +270,8 @@ serve(async (req) => {
             extractedClusters = nlpResult.sentenceClusters
             extractedSummarySentences = nlpResult.summarySentences
             extractedClusterQuality = nlpResult.clusterQuality
+            extractedDocumentType = nlpResult.documentType
+            extractedSlides = nlpResult.slides
             console.log('✅ NLP service extraction finished', {
                 durationMs: Date.now() - nlpStartTime,
                 charCount: textContent.length,
@@ -261,6 +281,8 @@ serve(async (req) => {
                 nounPhraseCount: extractedNounPhrases.length,
                 summarySentenceCount: extractedSummarySentences.length,
                 clusterQuality: extractedClusterQuality,
+                documentType: extractedDocumentType,
+                slideCount: extractedSlides.length,
             })
         } else if (document.file_type === 'pdf') {
             // Fallback: basic PDF extraction (may not work well)
@@ -332,7 +354,8 @@ serve(async (req) => {
         const pureNlpResult = buildPureNlpResult(
             textContent, derivedKeywords, derivedImportantSentences,
             extractedNounPhrases, extractedClusters,
-            extractedSummarySentences
+            extractedSummarySentences,
+            extractedDocumentType, extractedSlides
         )
 
         const runGeminiAnalysis = async (): Promise<GeminiResponse> => {
@@ -508,6 +531,13 @@ interface SummarySentence {
     relevance_score: number
 }
 
+interface SlideData {
+    slide_number: number
+    title: string
+    bullets: string[]
+    keywords?: string[]
+}
+
 interface NlpExtractionResult {
     text: string
     keywords: string[]
@@ -516,6 +546,8 @@ interface NlpExtractionResult {
     sentenceClusters: SentenceCluster[]
     summarySentences: SummarySentence[]
     clusterQuality: number | null
+    documentType: string
+    slides: SlideData[]
 }
 
 async function extractWithNlpService(
@@ -562,6 +594,8 @@ async function extractWithNlpService(
             sentenceClusters: result.sentence_clusters || [],
             summarySentences: result.summary_sentences || [],
             clusterQuality: result.cluster_quality ?? null,
+            documentType: result.document_type || 'prose',
+            slides: result.slides || [],
         }
     } catch (error) {
         const err = error as Error
@@ -718,6 +752,8 @@ function stripNoisyInlineContent(text: string): string {
         .replace(/www\.\S+/gi, ' ')
         // Common slide/page markers from PDFs.
         .replace(/\b(slide|page)\s*\d+\b/gi, ' ')
+        // Strip arrow characters that leak from slide notation
+        .replace(/[\u2190-\u21ff\u27f0-\u27ff\u2900-\u297f\u25b6\u25ba\u279c-\u279e]/g, ' ')
         // Strip residual mojibake: unicode control-range characters
         .replace(/\u00e2[\u0080-\u00bf]*/g, ' ')
         .replace(/[\u00c2\u00c3][\u0080-\u00bf]/g, ' ')
@@ -753,7 +789,8 @@ function filterKeywordsForStudy(keywords: string[]): string[] {
     const slidePageNumberRe = /\b(slide|page)\s*\d+\b/i
 
     for (const raw of keywords) {
-        const phrase = stripNoisyInlineContent(raw || '')
+        // Strip arrows, articles, and inline noise before evaluation
+        const phrase = stripArrowsAndArticles(stripNoisyInlineContent(raw || ''))
         if (!phrase) continue
 
         const lower = phrase.toLowerCase()
@@ -761,12 +798,15 @@ function filterKeywordsForStudy(keywords: string[]): string[] {
         if (lower.includes('http') || lower.includes('www')) continue
         if (slidePageNumberRe.test(lower) || lower === 'slide' || lower === 'page') continue
         if (phrase.length < 3) continue
+        if (isNumericHeavy(phrase)) continue
         // Reject single-word generic terms
         const words = lower.split(/\s+/)
         if (words.length === 1 && EDGE_GENERIC_TAGS.has(lower)) continue
         if (words.length === 1 && STOPWORDS.has(lower)) continue
         // Reject if ALL tokens are generic
         if (words.every(w => EDGE_GENERIC_TAGS.has(w) || STOPWORDS.has(w))) continue
+        // Reject 2-word phrases where one token is purely numeric
+        if (words.length === 2 && words.some(w => /^\d[\d.]*$/.test(w))) continue
 
         seen.add(lower)
         filtered.push(phrase)
@@ -876,23 +916,66 @@ const KNOWN_ACRONYMS = new Set([
     'SGD', 'ADAM', 'ReLU', 'MSE', 'MAE', 'ROC', 'AUC', 'IoU',
 ])
 
+const PROTECTED_BIGRAMS = new Set([
+    'deep learning', 'machine learning', 'reinforcement learning',
+    'transfer learning', 'supervised learning', 'unsupervised learning',
+    'representation learning', 'active learning', 'online learning',
+    'federated learning', 'contrastive learning', 'curriculum learning',
+    'neural network', 'neural networks',
+    'data structure', 'data structures', 'data science',
+    'computer vision', 'computer science', 'natural language',
+    'operating system', 'operating systems',
+    'information retrieval', 'information theory',
+])
+
+const LEADING_PREPS = new Set([
+    'of', 'for', 'in', 'on', 'to', 'by', 'with', 'from', 'about', 'between',
+])
+
+const COMMON_SINGLE_WORDS = new Set([
+    'useful', 'connected', 'dense', 'important', 'similar',
+    'different', 'simple', 'complex', 'possible', 'available',
+    'necessary', 'better', 'worse', 'faster', 'slower',
+    'larger', 'smaller', 'higher', 'lower', 'common', 'typical',
+])
+
 function cleanConceptLabel(rawLabel: string): string {
-    const tokens = rawLabel.split(/\s+/).filter(Boolean)
-    // Strip leading articles
+    const stripped = stripArrowsAndArticles(rawLabel)
+    const tokens = stripped.split(/\s+/).filter(Boolean)
+
+    if (isNumericHeavy(stripped)) return ''
+
     const noArticles = tokens.filter(t => !LABEL_ARTICLES.has(t.toLowerCase()))
-    const cleaned = noArticles.filter(t => !LABEL_PENALTY_TERMS.has(t.toLowerCase()))
+
+    // Build protected token indices before penalty filtering
+    const protectedIndices = new Set<number>()
+    for (let i = 0; i < noArticles.length - 1; i++) {
+        const bigram = `${noArticles[i].toLowerCase()} ${noArticles[i + 1].toLowerCase()}`
+        if (PROTECTED_BIGRAMS.has(bigram)) {
+            protectedIndices.add(i)
+            protectedIndices.add(i + 1)
+        }
+    }
+
+    const cleaned = noArticles.filter((t, i) =>
+        protectedIndices.has(i) || !LABEL_PENALTY_TERMS.has(t.toLowerCase())
+    )
+
+    // Strip leading prepositions left behind after penalty removal
+    while (cleaned.length > 0 && LEADING_PREPS.has(cleaned[0].toLowerCase())) {
+        cleaned.shift()
+    }
 
     if (cleaned.length === 0) return ''
 
-    // Reject if remaining text contains mojibake-like characters
     const joined = cleaned.join(' ')
     if (/[\u00e2\u00c3\u00c2\u0080-\u009f]/.test(joined)) return ''
 
-    // Single-word labels: only accepted if they're known acronyms or long enough
     if (cleaned.length === 1) {
         const upper = cleaned[0].toUpperCase()
         if (KNOWN_ACRONYMS.has(upper)) return upper
         if (cleaned[0].length <= 4) return ''
+        if (COMMON_SINGLE_WORDS.has(cleaned[0].toLowerCase())) return ''
     }
 
     if (cleaned.length > 5) return toTitleCase(cleaned.slice(0, 4).join(' '))
@@ -1060,10 +1143,12 @@ const PEDAGOGICAL_SECTIONS = [
 const BULLET_LABEL_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
     { pattern: /\b(defin|is a\b|are a\b|refers to|means\b|known as)\b/i, label: 'DEFINITION' },
     { pattern: /\b(example|instance|such as|e\.g\.|for instance|illustrated by)\b/i, label: 'EXAMPLE' },
-    { pattern: /\b(step|process|procedure|build|create|implement|compil|train)\b/i, label: 'PROCESS' },
-    { pattern: /\b(challeng|problem|issue|difficult|limit|drawback|error)\b/i, label: 'CHALLENGE' },
-    { pattern: /\b(advantage|benefit|strength|useful|improve|efficient)\b/i, label: 'ADVANTAGE' },
-    { pattern: /\b(compar|differ|unlike|versus|vs\b|contrast|distinction)\b/i, label: 'KEY DISTINCTION' },
+    { pattern: /\b(step|process|procedure|build|create|implement|compil|train|algorithm|pipeline)\b/i, label: 'PROCESS' },
+    { pattern: /\b(challeng|problem|issue|difficult|limit|drawback|error|vanish|overfit|underfit)\b/i, label: 'CHALLENGE' },
+    { pattern: /\b(advantage|benefit|strength|useful|improve|efficient|reduce|fast|simple)\b/i, label: 'ADVANTAGE' },
+    { pattern: /\b(compar|differ|unlike|versus|vs\b|contrast|distinction|verses)\b/i, label: 'KEY DISTINCTION' },
+    { pattern: /\b(operation|convol|mathematical|computation|formula|calculat|transform|activation)\b/i, label: 'PROCESS' },
+    { pattern: /\b(architecture|network|layer|neuron|kernel|filter|channel|pool|stride)\b/i, label: 'KEY CONCEPT' },
     { pattern: /\b(key|important|fundamental|essential|core|critical|significant)\b/i, label: 'KEY CONCEPT' },
 ]
 
@@ -1071,6 +1156,8 @@ function detectBulletLabel(text: string): string {
     for (const { pattern, label } of BULLET_LABEL_PATTERNS) {
         if (pattern.test(text)) return label
     }
+    // Colon-separated "Term: explanation" is very common in slide bullets
+    if (/^[A-Z][A-Za-z\s-]{2,30}:/.test(text.trim())) return 'DEFINITION'
     return 'KEY CONCEPT'
 }
 
@@ -1210,17 +1297,223 @@ function filterConceptTags(tags: string[], labelLower: string): string[] {
     const seen = new Set<string>()
     const result: string[] = []
     for (const t of tags) {
-        const low = t.toLowerCase().trim()
+        const cleaned = stripArrowsAndArticles(t)
+        const low = cleaned.toLowerCase().trim()
         if (!low || low.length < 3) continue
         if (seen.has(low)) continue
+        if (isNumericHeavy(cleaned)) continue
         if (EDGE_GENERIC_TAGS.has(low)) continue
         if (labelLower.includes(low)) continue
         if (STOPWORDS.has(low)) continue
+        const words = low.split(/\s+/)
+        if (words.length === 1 && STOPWORDS.has(low)) continue
         seen.add(low)
-        result.push(t)
+        result.push(cleaned)
         if (result.length >= 4) break
     }
     return result
+}
+
+function stripArrowsAndArticles(text: string): string {
+    return text
+        .replace(/[\u2190-\u21ff\u27f0-\u27ff\u2900-\u297f\u25b6\u25ba\u279c-\u279e]/g, ' ')
+        .replace(/^\s*(the|a|an)\s+/i, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+}
+
+const META_SLIDE_TITLES = new Set([
+    'agenda', 'outline', 'table of contents', 'topics', 'overview',
+    'contents', 'objectives', 'learning objectives', 'recap',
+    'references', 'bibliography', 'thank you', 'questions',
+    'q&a', 'summary', 'review', 'end',
+])
+
+const COVER_SLIDE_RE = /^[A-Za-z\s]+:\s*\d+/
+
+function isMetaSlide(slide: SlideData): boolean {
+    const titleLower = (slide.title || '').trim().toLowerCase()
+    if (META_SLIDE_TITLES.has(titleLower)) return true
+    if (slide.slide_number === 1 && COVER_SLIDE_RE.test(slide.title || '')) return true
+    return false
+}
+
+function buildConceptsFromSlides(slides: SlideData[]): Concept[] {
+    const concepts: Concept[] = []
+    const usedNames = new Set<string>()
+
+    for (const slide of slides) {
+        if (concepts.length >= 12) break
+
+        if (isMetaSlide(slide)) continue
+
+        const rawTitle = (slide.title || '').trim()
+        if (!rawTitle || rawTitle.length < 3) continue
+
+        const name = cleanConceptLabel(stripArrowsAndArticles(rawTitle))
+        if (!name || name.length < 3) continue
+
+        const nameKey = normalizeForDedup(name)
+        if (usedNames.has(nameKey)) continue
+        usedNames.add(nameKey)
+
+        const cleanBullets = (slide.bullets || [])
+            .map(b => stripArrowsAndArticles(b).trim())
+            .filter(b => b.length > 5 && !isNumericHeavy(b) && !isCodeLikeContent(b))
+
+        if (cleanBullets.length === 0) continue
+
+        let description = cleanBullets.slice(0, 3).join('. ')
+        description = stripLeadingConjunctions(description)
+        if (description.length > 300) {
+            description = truncateOnSentenceBoundary(description, 300)
+        }
+        if (!description.endsWith('.') && !description.endsWith('!') && !description.endsWith('?')) {
+            description += '.'
+        }
+
+        const tags = filterConceptTags(
+            (slide.keywords || []).map(k => stripArrowsAndArticles(k)).filter(Boolean),
+            name.toLowerCase()
+        )
+
+        const importance = Math.min(10, Math.max(1, 10 - Math.floor((slide.slide_number - 1) / 3)))
+        const difficulty = estimateDifficulty(description, name)
+        const category = detectCategory(name, tags)
+
+        concepts.push({
+            name,
+            description,
+            category,
+            importance,
+            difficulty_level: difficulty,
+            keywords: tags,
+        })
+    }
+
+    return concepts
+}
+
+function buildStructuredSummaryFromSlides(
+    slides: SlideData[]
+): { summary: string; structured: StructuredSummary } {
+    // Short summary: synthesized from first few slides with content
+    const introSlides = slides
+        .filter(s => (s.bullets || []).length > 0 && !isMetaSlide(s))
+        .slice(0, 4)
+    const shortParts: string[] = []
+    for (const slide of introSlides) {
+        const title = stripArrowsAndArticles(slide.title || '')
+        if (isNumericHeavy(title)) continue
+        const usableBullets = (slide.bullets || [])
+            .map(b => stripArrowsAndArticles(b))
+            .filter(b => b.length > 5 && !isNumericHeavy(b) && !isCodeLikeContent(b))
+        const firstBullet = usableBullets[0] || ''
+        if (title && firstBullet) {
+            shortParts.push(`${title}: ${firstBullet}`)
+        } else if (firstBullet) {
+            shortParts.push(firstBullet)
+        } else if (title) {
+            shortParts.push(title)
+        }
+    }
+    let short = shortParts.join('. ').replace(/\.\./g, '.').trim()
+    if (short && !short.endsWith('.')) short += '.'
+    if (!short) short = 'Document summary could not be generated.'
+
+    // Detailed sections: group slides into pedagogical categories
+    const sectionBuckets: Map<number, string[]> = new Map()
+
+    for (const slide of slides) {
+        if (isMetaSlide(slide)) continue
+        const title = stripArrowsAndArticles(slide.title || '')
+        const bullets = (slide.bullets || [])
+            .map(b => stripArrowsAndArticles(b))
+            .filter(b => b.length > 0 && !isNumericHeavy(b) && !isCodeLikeContent(b))
+        if (!title && bullets.length === 0) continue
+        if (isNumericHeavy(title) && bullets.length === 0) continue
+
+        const slideText = [title, ...bullets].join(' ')
+        const sectionIdx = classifyClusterToSection(slideText)
+
+        let content = (title && !isNumericHeavy(title)) ? `${title}: ` : ''
+        content += bullets.slice(0, 3).join('. ')
+        content = stripLeadingConjunctions(content.trim())
+        if (content.length > 400) {
+            content = truncateOnSentenceBoundary(content, 400)
+        }
+
+        const existing = sectionBuckets.get(sectionIdx) || []
+        existing.push(content)
+        sectionBuckets.set(sectionIdx, existing)
+    }
+
+    const detailed: SummarySection[] = []
+    for (let i = 0; i < PEDAGOGICAL_SECTIONS.length; i++) {
+        const contents = sectionBuckets.get(i)
+        if (!contents || contents.length === 0) continue
+
+        let merged = contents.join(' ')
+        if (merged.length > 600) {
+            merged = truncateOnSentenceBoundary(merged, 600)
+        }
+
+        detailed.push({
+            title: PEDAGOGICAL_SECTIONS[i].title,
+            icon: PEDAGOGICAL_SECTIONS[i].icon,
+            content: merged,
+        })
+    }
+
+    // If we ended up with fewer than 2 sections, create fallback sections
+    if (detailed.length < 2) {
+        detailed.length = 0
+        const contentSlides = slides.filter(s => (s.bullets || []).length > 0)
+        if (contentSlides.length >= 2) {
+            const first = contentSlides[0]
+            const rest = contentSlides.slice(1)
+            detailed.push({
+                title: 'Introduction',
+                icon: 'play',
+                content: stripArrowsAndArticles(
+                    [first.title, ...(first.bullets || []).slice(0, 2)].filter(Boolean).join('. ')
+                ),
+            })
+            const coreContent = rest.slice(0, 3)
+                .map(s => [s.title, ...(s.bullets || []).slice(0, 2)].filter(Boolean).join('. '))
+                .join(' ')
+            detailed.push({
+                title: 'Core Concepts',
+                icon: 'sparkles',
+                content: stripArrowsAndArticles(
+                    truncateOnSentenceBoundary(coreContent, 500)
+                ),
+            })
+        }
+    }
+
+    // Bullets: one per slide with substantive content
+    const bullets: SummaryBullet[] = []
+    for (const slide of slides) {
+        if (bullets.length >= 10) break
+        if (isMetaSlide(slide)) continue
+        const title = stripArrowsAndArticles(slide.title || '')
+        const usableBullets = (slide.bullets || [])
+            .map(b => stripArrowsAndArticles(b))
+            .filter(b => b.length > 5 && !isNumericHeavy(b) && !isCodeLikeContent(b))
+        const firstBullet = usableBullets[0] || ''
+        if (!firstBullet) continue
+        if (isNumericHeavy(title)) continue
+
+        const bulletText = title ? `${title}: ${firstBullet}` : firstBullet
+        const label = detectBulletLabel(bulletText)
+        bullets.push({ label, text: stripLeadingConjunctions(bulletText) })
+    }
+
+    return {
+        summary: short,
+        structured: { short, detailed, bullets },
+    }
 }
 
 function buildConceptsFromClusters(
@@ -1284,8 +1577,19 @@ function buildPureNlpResult(
     importantSentences: string[],
     nounPhrases: NounPhrase[] = [],
     sentenceClusters: SentenceCluster[] = [],
-    summarySentences: SummarySentence[] = []
+    summarySentences: SummarySentence[] = [],
+    documentType: string = 'prose',
+    slides: SlideData[] = []
 ): GeminiResponse {
+    // Slide-based path: use slide structure directly for best results
+    if (documentType === 'slides' && slides.length >= 3) {
+        console.log(`📊 Using slide-based concept extraction (${slides.length} slides)`)
+        const slideConcepts = buildConceptsFromSlides(slides)
+        const dedupedConcepts = deduplicateConcepts(slideConcepts)
+        const { summary, structured } = buildStructuredSummaryFromSlides(slides)
+        return { summary, structured_summary: structured, concepts: dedupedConcepts }
+    }
+
     const cleanedText = stripNoisyInlineContent(text)
     const baseSentences = importantSentences.length > 0 ? importantSentences : splitSentences(cleanedText)
 

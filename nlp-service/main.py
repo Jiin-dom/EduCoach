@@ -23,6 +23,7 @@ from sentence_transformers import SentenceTransformer
 from threading import Lock
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics.pairwise import cosine_distances
+from bs4 import BeautifulSoup
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -76,6 +77,13 @@ _NON_LETTER_RE = re.compile(r"[^a-zA-Z]+")
 
 _STRAY_ACCENT_RE = re.compile(r"\xe2[\x80-\xbf]*")
 _LEFTOVER_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+_ARROW_RE = re.compile(r'[\u2190-\u21ff\u27f0-\u27ff\u2900-\u297f\u25b6\u25ba\u279c-\u279e]')
+_LEADING_ARTICLE_RE = re.compile(r'^(the|a|an)\s+', re.IGNORECASE)
+_PPTX_CONTENT_TYPES = frozenset([
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+])
 
 def _repair_encoding(text: str) -> str:
     """
@@ -95,6 +103,183 @@ def _repair_encoding(text: str) -> str:
     text = _LEFTOVER_CONTROL_RE.sub("", text)
     text = re.sub(r"  +", " ", text)
     return text
+
+
+def _is_numeric_heavy(text: str) -> bool:
+    """True when >40% of non-space characters are digits or decimal points."""
+    stripped = re.sub(r'\s', '', text)
+    if not stripped:
+        return True
+    digit_dots = sum(1 for c in stripped if c.isdigit() or c == '.')
+    return digit_dots / len(stripped) > 0.4
+
+
+_CODE_LIKE_RE = re.compile(
+    r'\b(import\s+\w|from\s+\w+\.\w+\s+import|def\s+\w+\(|class\s+\w+[(:])' 
+    r'|Sequential|Dense|model\.\w+|\.fit\(|\.predict\(|\.compile\(',
+    re.IGNORECASE,
+)
+
+def _is_code_like(text: str) -> bool:
+    """True when text looks like a code snippet rather than prose."""
+    if _CODE_LIKE_RE.search(text):
+        return True
+    special = sum(1 for c in text if c in '{};=')
+    return special >= 3
+
+
+def _strip_arrows(text: str) -> str:
+    """Remove arrow characters and normalize surrounding whitespace."""
+    result = _ARROW_RE.sub(' ', text)
+    return _MULTISPACE_RE.sub(' ', result).strip()
+
+
+def _extract_slides_from_html(html_content: str) -> List[dict]:
+    """
+    Parse Tika's XHTML output to extract slide boundaries and content.
+    Works for PPTX (div.slide-content) and PDF pages (div.page).
+    """
+    try:
+        soup = BeautifulSoup(html_content, 'lxml')
+    except Exception:
+        return []
+
+    slides: List[dict] = []
+
+    # PPTX: Tika wraps each slide in <div class="slide-content">
+    slide_divs = soup.find_all('div', class_='slide-content')
+
+    if not slide_divs:
+        # PDF: Tika wraps each page in <div class="page">
+        slide_divs = soup.find_all('div', class_='page')
+
+    if not slide_divs:
+        return []
+
+    for i, div in enumerate(slide_divs):
+        # Skip master-slide content (PPTX template headers/footers)
+        if 'slide-master-content' in (div.get('class') or []):
+            continue
+
+        paragraphs: List[str] = []
+        for el in div.find_all(['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+            # Skip master-slide child elements
+            parent_classes = ' '.join(el.parent.get('class', []) if el.parent else [])
+            if 'slide-master' in parent_classes:
+                continue
+
+            text = el.get_text(strip=True)
+            if text and len(text) > 1:
+                paragraphs.append(_repair_encoding(text))
+
+        if not paragraphs:
+            continue
+
+        # First short paragraph is likely the slide title
+        title = ''
+        bullets: List[str] = []
+        for j, para in enumerate(paragraphs):
+            if j == 0 and len(para) < 150 and not para.startswith(('-', '*', '\u2022')):
+                title = para
+            else:
+                bullets.append(para)
+
+        if title or bullets:
+            slides.append({
+                'slide_number': i + 1,
+                'title': _strip_arrows(title),
+                'bullets': [_strip_arrows(b) for b in bullets],
+            })
+
+    return slides
+
+
+def _detect_document_type(raw_text: str, slides: List[dict], content_type: str = '') -> str:
+    """
+    Detect whether a document is slide-based or prose.
+    Uses content type, HTML structure, and text heuristics.
+    """
+    # Definitive: PPTX MIME type
+    ct_lower = (content_type or '').lower()
+    if any(pt in ct_lower for pt in _PPTX_CONTENT_TYPES):
+        return 'slides'
+
+    # Definitive: HTML parsing found multiple slide boundaries
+    if len(slides) >= 3:
+        return 'slides'
+
+    # Heuristic: analyze raw text characteristics
+    lines = [ln.strip() for ln in raw_text.split('\n') if ln.strip()]
+    if not lines:
+        return 'prose'
+
+    short_line_count = sum(1 for ln in lines if len(ln) < 60)
+    arrow_count = len(_ARROW_RE.findall(raw_text))
+    avg_line_len = sum(len(ln) for ln in lines) / len(lines)
+
+    # Slides tend to have many short lines, arrows, and low avg line length
+    slide_score = 0
+    if len(lines) > 5 and short_line_count / len(lines) > 0.5:
+        slide_score += 2
+    if arrow_count > 3:
+        slide_score += 1
+    if avg_line_len < 50:
+        slide_score += 2
+    if len(lines) > 10 and all(len(ln) < 120 for ln in lines[:10]):
+        slide_score += 1
+
+    return 'slides' if slide_score >= 3 else 'prose'
+
+
+def _process_slides_keywords(slides: List[dict]) -> List[str]:
+    """
+    Run KeyBERT per-slide for better keyword relevance.
+    Also attaches a 'keywords' list to each slide dict in-place.
+    Returns merged global keywords.
+    """
+    all_keywords: List[str] = []
+    seen: set = set()
+
+    for slide in slides:
+        # Filter out code-like and numeric-heavy bullets before keyword extraction
+        usable_bullets = [
+            b for b in slide.get('bullets', [])
+            if not _is_numeric_heavy(b) and not _is_code_like(b)
+        ]
+        slide_text = ' '.join([slide.get('title', '')] + usable_bullets)
+        slide_text = _strip_arrows(slide_text)
+        if len(slide_text) < 20:
+            slide['keywords'] = []
+            continue
+
+        try:
+            kws = kw_model.extract_keywords(
+                slide_text[:KEYBERT_INPUT_MAX_CHARS],
+                keyphrase_ngram_range=(1, 2),
+                stop_words='english',
+                top_n=5,
+                use_maxsum=True,
+                nr_candidates=15,
+            )
+            slide_kws: List[str] = []
+            for phrase, score in kws:
+                if score < 0.15:
+                    continue
+                clean = _strip_arrows(phrase)
+                low = clean.lower()
+                if not low or len(low) < 3:
+                    continue
+                if _is_numeric_heavy(clean):
+                    continue
+                slide_kws.append(clean)
+                if low not in seen:
+                    seen.add(low)
+                    all_keywords.append(clean)
+            slide['keywords'] = filter_keywords(slide_kws)[:5]
+        except Exception:
+            slide['keywords'] = []
+
+    return filter_keywords(all_keywords)[:KEYBERT_TOP_N]
 
 
 def _is_noise_line(line: str) -> bool:
@@ -137,18 +322,20 @@ def _merge_short_lines(lines: List[str], min_len: int = 60) -> List[str]:
     return merged
 
 
-def clean_extracted_text(text: str) -> str:
+def clean_extracted_text(text: str, skip_merge: bool = False) -> str:
     """
     Make Tika output more study-friendly:
     - remove URLs and obvious slide/page markers
+    - strip arrow characters
     - reduce PDF mojibake artifacts
-    - merge short lines from PDF slides
+    - merge short lines from PDF slides (skipped for slide-type documents)
     - collapse whitespace while keeping sentence boundaries mostly intact
     """
     if not text:
         return ""
 
     text = _repair_encoding(text)
+    text = _strip_arrows(text)
 
     # Work line-by-line to drop obvious junk early.
     lines = [ln.strip() for ln in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
@@ -173,8 +360,10 @@ def clean_extracted_text(text: str) -> str:
         seen.add(key)
         kept.append(ln)
 
-    # Merge consecutive short fragments from PDF slides into coherent sentences
-    kept = _merge_short_lines(kept, min_len=60)
+    # Merge consecutive short fragments — but NOT for slide-type documents
+    # where merging destroys the natural slide-boundary structure.
+    if not skip_merge:
+        kept = _merge_short_lines(kept, min_len=60)
 
     cleaned = " ".join(kept)
     cleaned = _MULTISPACE_RE.sub(" ", cleaned).strip()
@@ -228,6 +417,8 @@ _GENERIC_STOPWORDS = frozenset([
     "example", "examples", "instance", "figure", "table", "section",
     "chapter", "slide", "page", "unit", "module", "lecture", "review",
     "overview", "introduction", "conclusion", "summary", "note", "notes",
+    "agenda", "outline", "recap", "contents", "objectives", "topics",
+    "references", "bibliography", "questions",
     "step", "steps", "item", "items", "list", "issue", "issues",
     "you", "your", "we", "our", "they", "their", "one", "ones",
     "portion", "portions", "function", "method", "approach", "process",
@@ -242,6 +433,11 @@ def filter_keywords(phrases: list) -> list:
         phrase = (p or "").strip()
         if not phrase:
             continue
+        # Strip arrows and leading articles before evaluation
+        phrase = _strip_arrows(phrase)
+        phrase = _LEADING_ARTICLE_RE.sub('', phrase).strip()
+        if not phrase:
+            continue
         low = phrase.lower()
         if low in seen:
             continue
@@ -250,6 +446,8 @@ def filter_keywords(phrases: list) -> list:
         if _SLIDE_RE.search(low) or low in ("slide", "page"):
             continue
         if len(phrase) < 3:
+            continue
+        if _is_numeric_heavy(phrase):
             continue
         # Reject single-word generic terms
         words = low.split()
@@ -260,6 +458,12 @@ def filter_keywords(phrases: list) -> list:
             continue
         # Reject very short single words that aren't acronyms
         if len(words) == 1 and len(phrase) <= 3 and not phrase.isupper():
+            continue
+        # Reject phrases that are just connectors/prepositions
+        if all(w in _CONJUNCTION_PREPS for w in words):
+            continue
+        # Reject 2-word phrases where one token is purely numeric
+        if len(words) == 2 and any(w.replace('.', '').isdigit() for w in words):
             continue
         seen.add(low)
         filtered.append(phrase)
@@ -557,6 +761,8 @@ class ProcessResponse(BaseModel):
     sentence_clusters: Optional[List[dict]] = None
     summary_sentences: Optional[List[dict]] = None
     cluster_quality: Optional[float] = None
+    document_type: str = "prose"
+    slides: Optional[List[dict]] = None
     error: Optional[str] = None
 
 # ============================================
@@ -719,7 +925,7 @@ def process_document(file: UploadFile = File(...)):
         PROCESS_LOCK.acquire()
         acquired = True
 
-        # Step 1: Extract text with Tika
+        # Step 1: Extract XHTML from Tika (preserves slide/page structure)
         content = file.file.read()
         print(f"[nlp-service] /process start filename={file.filename} type={file.content_type} size_bytes={len(content)}", flush=True)
         
@@ -727,7 +933,7 @@ def process_document(file: UploadFile = File(...)):
             f"{TIKA_URL}/tika",
             data=content,
             headers={
-                "Accept": "text/plain",
+                "Accept": "text/html",
                 "Content-Type": file.content_type or "application/octet-stream"
             },
             timeout=60
@@ -743,11 +949,28 @@ def process_document(file: UploadFile = File(...)):
                 error=f"Tika extraction failed: {response.status_code}"
             )
         
-        raw_text = response.text.strip()
-        text = clean_extracted_text(raw_text)
+        html_content = response.text.strip()
+
+        # Step 1b: Parse HTML for slide/page boundaries
+        slides = _extract_slides_from_html(html_content)
+
+        # Step 1c: Extract plain text from the HTML
+        try:
+            html_soup = BeautifulSoup(html_content, 'lxml')
+            body = html_soup.find('body')
+            raw_text = body.get_text('\n').strip() if body else html_soup.get_text('\n').strip()
+        except Exception:
+            raw_text = html_content
+
+        # Step 1d: Detect document type before cleaning
+        document_type = _detect_document_type(raw_text, slides, file.content_type or '')
+
+        # Clean text — skip destructive short-line merging for slides
+        text = clean_extracted_text(raw_text, skip_merge=(document_type == 'slides'))
         print(
             f"[nlp-service] tika done seconds={(time.time() - start):.2f} "
-            f"text_chars={len(text)} raw_chars={len(raw_text)}",
+            f"text_chars={len(text)} raw_chars={len(raw_text)} "
+            f"document_type={document_type} slides_found={len(slides)}",
             flush=True
         )
         
@@ -806,6 +1029,18 @@ def process_document(file: UploadFile = File(...)):
         keywords = filter_keywords([kw[0] for kw in keywords_deduped])[:KEYBERT_TOP_N]
         print(f"[nlp-service] keybert done seconds={(time.time() - keybert_start):.2f} keywords={len(keywords)}", flush=True)
 
+        # Step 3b: Per-slide keyword extraction (slide documents only)
+        slide_keywords: List[str] = []
+        if document_type == 'slides' and slides:
+            slide_kw_start = time.time()
+            slide_keywords = _process_slides_keywords(slides)
+            merged_kw_set = set(k.lower() for k in keywords)
+            for sk in slide_keywords:
+                if sk.lower() not in merged_kw_set:
+                    keywords.append(sk)
+                    merged_kw_set.add(sk.lower())
+            print(f"[nlp-service] slide_keywords done seconds={(time.time() - slide_kw_start):.2f} slide_keywords={len(slide_keywords)}", flush=True)
+
         # Step 4: Noun phrases (reuse spaCy doc from step 2)
         np_start = time.time()
         noun_phrases = extract_noun_phrases(doc)
@@ -856,6 +1091,8 @@ def process_document(file: UploadFile = File(...)):
             sentence_clusters=sentence_clusters,
             summary_sentences=summary_sentences,
             cluster_quality=cluster_quality,
+            document_type=document_type,
+            slides=slides if document_type == 'slides' and slides else None,
         )
         
     except requests.exceptions.RequestException as e:
