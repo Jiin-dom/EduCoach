@@ -16,8 +16,17 @@ import { Badge } from "@/components/ui/badge"
 
 export function DashboardHeader() {
     const navigate = useNavigate()
-    const { signOut } = useAuth()
+    const { signOut, profile } = useAuth()
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+
+    // Compute user initials or fallback
+    const displayName = profile?.display_name || "User"
+    const initials = displayName
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .substring(0, 2)
+        .toUpperCase()
     const [notifications, setNotifications] = useState([
         { id: 1, title: "Quiz Completed", message: "You scored 85% on Physics Quiz", time: "2 hours ago", read: false },
         {
@@ -137,7 +146,7 @@ export function DashboardHeader() {
                             <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" size="icon" className="rounded-full">
                                     <Avatar>
-                                        <AvatarFallback className="bg-primary text-primary-foreground">JD</AvatarFallback>
+                                        <AvatarFallback className="bg-primary text-primary-foreground">{initials}</AvatarFallback>
                                     </Avatar>
                                 </Button>
                             </DropdownMenuTrigger>
