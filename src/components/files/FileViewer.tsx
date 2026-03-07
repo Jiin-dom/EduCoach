@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { ArrowLeft, Loader2, AlertCircle, BookOpen, Brain, Sparkles, StickyNote } from 'lucide-react'
+import { ArrowLeft, Loader2, AlertCircle, BookOpen, Brain, Sparkles, StickyNote, RefreshCw } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
-import { useDocument } from '@/hooks/useDocuments'
+import { useDocument, useProcessDocument } from '@/hooks/useDocuments'
 import { useDocumentConcepts } from '@/hooks/useConcepts'
 import { AiTutorChat } from '@/components/shared/AiTutorChat'
 import { StudyHeader } from './StudyHeader'
@@ -23,6 +23,7 @@ export function FileViewer() {
 
     const { data: document, isLoading: docLoading, error: docError, refetch: refetchDoc } = useDocument(id)
     const { data: concepts, isLoading: conceptsLoading } = useDocumentConcepts(id)
+    const processDocument = useProcessDocument()
 
     const handlePageJump = (page: number) => {
         setCurrentPage(page)
@@ -74,12 +75,94 @@ export function FileViewer() {
         )
     }
 
+    const isNotReady = document.status !== 'ready'
+
     return (
         <div className="space-y-6">
             <StudyHeader document={document} refetchDoc={refetchDoc} />
 
+            {/* Processing / Pending / Error overlay */}
+            {isNotReady && (
+                <Card>
+                    <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+                        {document.status === 'processing' && (
+                            <>
+                                <div className="relative mb-6">
+                                    <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
+                                        <Brain className="w-10 h-10 text-primary" />
+                                    </div>
+                                    <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-background border-2 border-primary/30 flex items-center justify-center">
+                                        <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                                    </div>
+                                </div>
+                                <h3 className="text-lg font-semibold mb-1">Analyzing Your Document</h3>
+                                <p className="text-sm text-muted-foreground max-w-sm">
+                                    EduCoach is extracting concepts, building flashcards, and
+                                    preparing your study material. This page will update automatically.
+                                </p>
+                                <div className="mt-6 flex items-center gap-2 text-xs text-muted-foreground">
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                    Checking for updates every few seconds...
+                                </div>
+                            </>
+                        )}
+                        {document.status === 'pending' && (
+                            <>
+                                <div className="w-20 h-20 rounded-full bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center mb-6">
+                                    <Sparkles className="w-10 h-10 text-orange-500" />
+                                </div>
+                                <h3 className="text-lg font-semibold mb-1">Document Pending Processing</h3>
+                                <p className="text-sm text-muted-foreground max-w-sm mb-4">
+                                    This document has been uploaded but hasn't been processed yet.
+                                    Start processing to generate your study material.
+                                </p>
+                                <Button
+                                    onClick={() => processDocument.mutate(document.id)}
+                                    disabled={processDocument.isPending}
+                                    className="gap-2"
+                                >
+                                    {processDocument.isPending ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                        <Brain className="w-4 h-4" />
+                                    )}
+                                    Process Document
+                                </Button>
+                            </>
+                        )}
+                        {document.status === 'error' && (
+                            <>
+                                <div className="w-20 h-20 rounded-full bg-destructive/10 flex items-center justify-center mb-6">
+                                    <AlertCircle className="w-10 h-10 text-destructive" />
+                                </div>
+                                <h3 className="text-lg font-semibold mb-1 text-destructive">Processing Failed</h3>
+                                <p className="text-sm text-muted-foreground max-w-sm mb-1">
+                                    {document.error_message || 'Something went wrong while processing your document.'}
+                                </p>
+                                <p className="text-xs text-muted-foreground mb-4">
+                                    You can retry processing below.
+                                </p>
+                                <Button
+                                    onClick={() => processDocument.mutate(document.id)}
+                                    disabled={processDocument.isPending}
+                                    variant="outline"
+                                    className="gap-2"
+                                >
+                                    {processDocument.isPending ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                        <RefreshCw className="w-4 h-4" />
+                                    )}
+                                    Retry Processing
+                                </Button>
+                            </>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
+
             {/* Two-pane layout */}
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-6" style={isNotReady ? { opacity: 0.3, pointerEvents: 'none' } : undefined}>
                 {/* Left pane: study content */}
                 <div className="lg:col-span-3 space-y-4">
                     {document.status === 'ready' && (

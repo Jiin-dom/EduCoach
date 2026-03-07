@@ -235,7 +235,9 @@ export function FilesContent() {
                                                 )}
                                             </div>
                                             {file.status === 'error' && file.error_message && (
-                                                <p className="text-sm text-destructive mt-1">{file.error_message}</p>
+                                                <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
+                                                    {file.error_message}
+                                                </p>
                                             )}
                                         </div>
                                     </Link>

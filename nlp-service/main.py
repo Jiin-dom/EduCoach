@@ -1106,7 +1106,7 @@ def process_document(file: UploadFile = File(...)):
                 keywords=[],
                 important_sentences=[],
                 char_count=0,
-                error=f"Tika extraction failed: {response.status_code}"
+                error="The document could not be read. It may be corrupted or in an unsupported format. Please try re-uploading or converting it to PDF first."
             )
         
         html_content = response.text.strip()
@@ -1141,7 +1141,7 @@ def process_document(file: UploadFile = File(...)):
                 keywords=[],
                 important_sentences=[],
                 char_count=0,
-                error="Document appears to be empty or unreadable"
+                error="Not enough readable text found in this document. It may contain mostly images, scanned pages, or non-text content. Try uploading a text-based version instead."
             )
         
         analysis_text = text
@@ -1274,22 +1274,24 @@ def process_document(file: UploadFile = File(...)):
         )
         
     except requests.exceptions.RequestException as e:
+        print(f"[nlp-service] Tika connection error: {e}", flush=True)
         return ProcessResponse(
             success=False,
             text="",
             keywords=[],
             important_sentences=[],
             char_count=0,
-            error=f"Tika connection error: {str(e)}"
+            error="The text extraction service is temporarily unavailable. Please try again in a few moments."
         )
     except Exception as e:
+        print(f"[nlp-service] /process unexpected error: {e}", flush=True)
         return ProcessResponse(
             success=False,
             text="",
             keywords=[],
             important_sentences=[],
             char_count=0,
-            error=str(e)
+            error="Something unexpected happened while analyzing your document. Please try again."
         )
     finally:
         try:

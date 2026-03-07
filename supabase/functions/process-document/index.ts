@@ -244,7 +244,7 @@ serve(async (req) => {
             .download(document.file_path)
 
         if (downloadError || !fileData) {
-            throw new Error(`STORAGE_ERROR:Failed to download file. ${downloadError?.message || 'Please try uploading again.'}`)
+            throw new Error(`STORAGE_ERROR:We couldn't retrieve your file. Please try uploading it again.`)
         }
 
         // 3. Extract text based on file type
@@ -347,7 +347,7 @@ serve(async (req) => {
             .select()
 
         if (chunkError) {
-            throw new Error(`DB_ERROR:Failed to save document chunks. ${chunkError.message}`)
+            throw new Error(`DB_ERROR:We couldn't save the processed content. Please try again.`)
         }
 
         // 7. Analyze document (Pure NLP default, Gemini optional)
@@ -568,7 +568,7 @@ serve(async (req) => {
             .eq('id', documentId)
 
         if (updateError) {
-            throw new Error(`DB_ERROR:Failed to update document. ${updateError.message}`)
+            throw new Error(`DB_ERROR:We couldn't finalize your document. Please try processing again.`)
         }
 
         const totalTime = Date.now() - startTime
@@ -697,7 +697,7 @@ async function extractWithNlpService(
         if (!response.ok) {
             const errorText = await response.text()
             console.error('NLP service error:', errorText)
-            throw new Error(`NLP_SERVICE_ERROR:Failed to extract text. Status: ${response.status}`)
+            throw new Error(`NLP_SERVICE_ERROR:The text analysis service encountered an error. Please try again.`)
         }
 
         const result = await response.json()
@@ -725,11 +725,18 @@ async function extractWithNlpService(
         const err = error as Error
         console.error('NLP service call failed:', err.message)
 
-        if (err.name === 'AbortError') {
-            throw new Error('NLP_SERVICE_TIMEOUT:Text extraction service timed out. Please try again.')
+        // Re-throw errors that already carry an NLP error code — they are
+        // intentional failures (e.g. empty document) thrown above, not
+        // connection/network errors.
+        if (err.message.startsWith('NLP_SERVICE_ERROR:') || err.message.startsWith('NLP_SERVICE_TIMEOUT:')) {
+            throw err
         }
 
-        throw new Error('NLP_SERVICE_ERROR:Could not connect to text extraction service. Please try again.')
+        if (err.name === 'AbortError') {
+            throw new Error('NLP_SERVICE_TIMEOUT:Text extraction is taking too long. The document may be very large — please try a smaller file or try again later.')
+        }
+
+        throw new Error('NLP_SERVICE_ERROR:Could not reach the text extraction service. Please try again in a moment.')
     }
 }
 
@@ -751,7 +758,7 @@ async function extractTextFromPdfFallback(blob: Blob): Promise<string> {
         return cleanedText
     }
 
-    throw new Error('PDF_ERROR:Could not extract text from PDF. Please ensure NLP service is running or upload a text file (.txt, .md) instead.')
+    throw new Error('PDF_ERROR:We couldn\'t extract text from this PDF. It may be image-based or protected. Try uploading a different version.')
 }
 
 /**
