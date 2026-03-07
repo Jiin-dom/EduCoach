@@ -119,7 +119,7 @@ export function useQuizzes() {
 export function useQuiz(quizId: string | undefined) {
     const { user } = useAuth()
 
-    return useQuery({
+    const query = useQuery({
         queryKey: quizKeys.detail(quizId ?? ''),
         queryFn: async ({ signal }): Promise<Quiz | null> => {
             if (!quizId || !user) return null
@@ -139,7 +139,13 @@ export function useQuiz(quizId: string | undefined) {
             return data as Quiz
         },
         enabled: !!quizId && !!user,
+        refetchInterval: (query) => {
+            const quiz = query.state.data as Quiz | null | undefined
+            return quiz?.status === 'generating' ? 4000 : false
+        },
     })
+
+    return query
 }
 
 export function useQuizQuestions(quizId: string | undefined) {
@@ -246,23 +252,60 @@ export function useGenerateQuiz() {
                 throw new Error('Your session has expired — please log in again')
             }
 
-            const { data, error } = await supabase.functions.invoke('generate-quiz', {
-                body: {
-                    documentId: input.documentId,
-                    questionCount: input.questionCount ?? 10,
-                    difficulty: input.difficulty ?? 'mixed',
-                    questionTypes: input.questionTypes ?? ['multiple_choice', 'identification', 'true_false', 'fill_in_blank'],
-                    enhanceWithLlm: input.enhanceWithLlm ?? true,
-                },
-            })
+            // Guard: check if a quiz is already generating for this document
+            const { data: existing } = await supabase
+                .from('quizzes')
+                .select('id, status')
+                .eq('document_id', input.documentId)
+                .eq('status', 'generating')
+                .limit(1)
+                .maybeSingle()
 
-            if (error) {
-                console.error('[Quiz] Generation failed:', error.message)
-                throw new Error(error.message)
+            if (existing) {
+                console.log('[Quiz] Quiz already generating, reusing:', existing.id)
+                return { success: true, quizId: existing.id, questionCount: 0 }
             }
 
-            console.log('[Quiz] Generation successful:', data)
-            return data as { success: boolean; quizId: string; questionCount: number }
+            try {
+                const { data, error } = await supabase.functions.invoke('generate-quiz', {
+                    body: {
+                        documentId: input.documentId,
+                        questionCount: input.questionCount ?? 10,
+                        difficulty: input.difficulty ?? 'mixed',
+                        questionTypes: input.questionTypes ?? ['multiple_choice', 'identification', 'true_false', 'fill_in_blank'],
+                        enhanceWithLlm: input.enhanceWithLlm ?? true,
+                    },
+                })
+
+                if (error) {
+                    console.error('[Quiz] Generation failed:', error.message)
+                    throw new Error(error.message)
+                }
+
+                console.log('[Quiz] Generation successful:', data)
+                return data as { success: boolean; quizId: string; questionCount: number }
+            } catch (err) {
+                // Recovery: if the fetch failed (timeout, network), the edge function
+                // may have already created the quiz record before the client gave up.
+                // Check the DB and recover instead of showing an error.
+                console.warn('[Quiz] Edge function call failed, checking for server-side quiz...', (err as Error).message)
+
+                const { data: recoveredQuiz } = await supabase
+                    .from('quizzes')
+                    .select('id, status')
+                    .eq('document_id', input.documentId)
+                    .in('status', ['generating', 'ready'])
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle()
+
+                if (recoveredQuiz) {
+                    console.log('[Quiz] Recovered quiz from DB:', recoveredQuiz.id, recoveredQuiz.status)
+                    return { success: true, quizId: recoveredQuiz.id, questionCount: 0 }
+                }
+
+                throw err
+            }
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: quizKeys.all })

@@ -377,9 +377,41 @@ _CONJUNCTION_PREPS = frozenset([
 
 _CONSECUTIVE_CAPS_RE = re.compile(r"(?:\b[A-Z][a-z]*\s+){5,}")
 
+_INTERROGATIVE_STARTS = re.compile(
+    r"^(how|what|why|when|where|who|which|can|could|should|would|"
+    r"is|are|do|does|did|will|has|have|shall|may|might)\b",
+    re.IGNORECASE,
+)
+
+_ELLIPSIS_RE = re.compile(r"\.\.\.|[\u2026]")
+
+
+def _is_declarative_statement(sentence: str) -> bool:
+    """True only for declarative sentences suitable for True/False questions."""
+    s = sentence.strip()
+    if s.endswith("?"):
+        return False
+    if _INTERROGATIVE_STARTS.match(s):
+        return False
+    if _ELLIPSIS_RE.search(s):
+        return False
+    try:
+        doc = nlp(s[:200])
+        if doc and doc[0].pos_ == "VERB" and doc[0].dep_ == "ROOT":
+            return False
+    except Exception:
+        pass
+    return True
+
+
 def is_good_sentence(sentence: str) -> bool:
     s = sentence.strip()
     if len(s) < 40 or len(s) > 400:
+        return False
+
+    if s.endswith("?"):
+        return False
+    if _ELLIPSIS_RE.search(s):
         return False
 
     words = s.split()
@@ -1436,7 +1468,7 @@ def generate_flashcards(input: GenerateFlashcardsInput):
 # ============================================
 # Automatic Question Generation (AQG)
 # Template-driven, grounded in source text.
-# Per Obj3 sections 6-8.
+# Per Obj3 sections 6-8, upgraded in Phase 4.2.
 # ============================================
 
 AQG_LOCK = Lock()
@@ -1445,6 +1477,14 @@ _AMBIGUOUS_QUALIFIERS = re.compile(
     r"probably|generally|typically|possibly|approximately|almost|nearly)\b",
     re.IGNORECASE,
 )
+
+class ConceptInput(BaseModel):
+    name: str
+    importance: int = 5
+    difficulty_level: str = "intermediate"
+    keywords: List[str] = []
+    description: str = ""
+    source_pages: Optional[List[int]] = None
 
 class ChunkInput(BaseModel):
     chunk_id: str
@@ -1458,6 +1498,9 @@ class GenerateQuestionsInput(BaseModel):
     question_types: List[str] = ["identification", "true_false", "multiple_choice", "fill_in_blank"]
     max_questions_per_chunk: int = 3
     max_total_questions: int = 15
+    difficulty: str = "mixed"
+    concepts: List[ConceptInput] = []
+    document_type: str = "prose"
 
 class GeneratedQuestion(BaseModel):
     chunk_id: str
@@ -1466,12 +1509,38 @@ class GeneratedQuestion(BaseModel):
     options: Optional[List[str]] = None
     correct_answer: str
     difficulty_label: str = "intermediate"
+    explanation: Optional[str] = None
 
 class GenerateQuestionsResponse(BaseModel):
     success: bool
     questions: List[GeneratedQuestion] = []
     stats: Optional[dict] = None
     error: Optional[str] = None
+
+_IDENTIFICATION_TEMPLATES_BEGINNER = [
+    "What is {kp}?",
+    "Define {kp}.",
+    "What does {kp} refer to?",
+]
+_IDENTIFICATION_TEMPLATES_INTERMEDIATE = [
+    "Explain {kp} in detail.",
+    "What is the purpose of {kp}?",
+    "How does {kp} work?",
+    "Describe the role of {kp}.",
+]
+_IDENTIFICATION_TEMPLATES_ADVANCED = [
+    "What are the key characteristics of {kp}?",
+    "Compare and contrast {kp} with related concepts.",
+    "What are the implications of {kp}?",
+    "Analyze how {kp} relates to the broader topic.",
+]
+
+_DIFFICULTY_TYPE_WEIGHTS = {
+    "beginner":     {"identification": 3, "true_false": 4, "multiple_choice": 2, "fill_in_blank": 1},
+    "intermediate": {"identification": 2, "true_false": 2, "multiple_choice": 3, "fill_in_blank": 3},
+    "advanced":     {"identification": 1, "true_false": 1, "multiple_choice": 4, "fill_in_blank": 4},
+    "mixed":        {"identification": 2, "true_false": 2, "multiple_choice": 3, "fill_in_blank": 3},
+}
 
 
 def _get_sentences(text: str) -> List:
@@ -1489,25 +1558,21 @@ def _find_keyphrase_in_sentence(sentence_text: str, keyphrases: List[str]) -> Op
     return None
 
 
-def _pick_distractors(correct: str, chunk_keyphrases: List[str],
-                      all_keyphrases: List[str], count: int = 3) -> List[str]:
+def _pick_distractors_semantic(correct: str, chunk_keyphrases: List[str],
+                               all_keyphrases: List[str], count: int = 3) -> List[str]:
     """
-    Build MCQ distractors per Obj3 section 7:
-    - Primary: other keyphrases from the same chunk
-    - Fallback: keyphrases from the full document pool
-    - Filters: unique, not the correct answer, similar length
+    Build MCQ distractors using semantic similarity (sentence-transformers).
+    Picks keyphrases that are related but distinct from the correct answer.
+    Falls back to length-based sorting if embedding fails.
     """
     correct_lower = correct.lower().strip()
-    correct_len = len(correct)
-    candidates = []
+    candidates: List[str] = []
     seen = {correct_lower}
 
     def _try_add(phrase: str):
         p = phrase.strip()
         low = p.lower()
-        if low in seen or not p:
-            return
-        if len(p) < 2:
+        if low in seen or not p or len(p) < 2:
             return
         seen.add(low)
         candidates.append(p)
@@ -1516,43 +1581,90 @@ def _pick_distractors(correct: str, chunk_keyphrases: List[str],
         _try_add(kp)
     for kp in all_keyphrases:
         _try_add(kp)
-        if len(candidates) >= count * 3:
+        if len(candidates) >= count * 5:
             break
 
-    # Rank by similarity in length to the correct answer 
-    candidates.sort(key=lambda c: abs(len(c) - correct_len))
-    return candidates[:count]
+    if not candidates:
+        return []
+
+    try:
+        correct_emb = st_model.encode([correct])
+        cand_embs = st_model.encode(candidates)
+        sims = (1.0 - cosine_distances(correct_emb, cand_embs))[0]
+        scored = sorted(zip(candidates, sims), key=lambda x: x[1], reverse=True)
+        # Pick the most semantically similar (plausible) but not identical
+        result = [c for c, s in scored if 0.15 < s < 0.85]
+        return result[:count]
+    except Exception:
+        correct_len = len(correct)
+        candidates.sort(key=lambda c: abs(len(c) - correct_len))
+        return candidates[:count]
+
+
+def _build_explanation(sentence_text: str, keyphrase: str = "") -> str:
+    """Build a source-grounded explanation from the supporting sentence."""
+    clean = sentence_text.strip()
+    if len(clean) > 200:
+        clean = clean[:197] + "..."
+    if keyphrase:
+        return f"The answer is '{keyphrase}'. According to the document: {clean}"
+    return f"According to the document: {clean}"
+
+
+def _select_difficulty_label(target_difficulty: str, question_type: str) -> str:
+    """Pick a difficulty label consistent with the target and question type."""
+    if target_difficulty in ("beginner", "intermediate", "advanced"):
+        return target_difficulty
+    # 'mixed' - vary by question type
+    defaults = {
+        "true_false": "beginner",
+        "identification": "intermediate",
+        "multiple_choice": "intermediate",
+        "fill_in_blank": "intermediate",
+    }
+    return defaults.get(question_type, "intermediate")
 
 
 def _generate_identification(sentence_text: str, keyphrase: str,
-                             chunk_id: str) -> Optional[GeneratedQuestion]:
-    """Template: 'What is [keyphrase]?' / 'Define [keyphrase].'"""
+                             chunk_id: str, difficulty: str = "mixed") -> Optional[GeneratedQuestion]:
+    """Template-based identification question with difficulty-varied templates."""
     answer = sentence_text.strip()
     if len(answer) < 20:
         return None
-    templates = [
-        f"What is {keyphrase}?",
-        f"Define {keyphrase}.",
-        f"Explain {keyphrase}.",
-    ]
-    q_text = random.choice(templates)
+
+    diff_label = _select_difficulty_label(difficulty, "identification")
+    if diff_label == "beginner":
+        templates = _IDENTIFICATION_TEMPLATES_BEGINNER
+    elif diff_label == "advanced":
+        templates = _IDENTIFICATION_TEMPLATES_ADVANCED
+    else:
+        templates = _IDENTIFICATION_TEMPLATES_INTERMEDIATE
+
+    q_text = random.choice(templates).format(kp=keyphrase)
     return GeneratedQuestion(
         chunk_id=chunk_id,
         question_type="identification",
         question_text=q_text,
         correct_answer=answer,
-        difficulty_label="intermediate",
+        difficulty_label=diff_label,
+        explanation=_build_explanation(answer, keyphrase),
     )
 
 
-def _generate_true_false(sentence_text: str, chunk_id: str) -> Optional[GeneratedQuestion]:
+def _generate_true_false(sentence_text: str, chunk_id: str,
+                         keyphrases: List[str] = [],
+                         difficulty: str = "mixed") -> Optional[GeneratedQuestion]:
     """
-    Present a key sentence as True, or negate it for False.
-    Reject ambiguous sentences (Obj3 section 8).
+    Present a key sentence as True, or create a False variant.
+    Uses entity/keyphrase swapping for more natural False statements.
+    Falls back to verb negation if swapping fails.
     """
+    if not _is_declarative_statement(sentence_text):
+        return None
     if _AMBIGUOUS_QUALIFIERS.search(sentence_text):
         return None
 
+    diff_label = _select_difficulty_label(difficulty, "true_false")
     make_false = random.random() < 0.5
 
     if not make_false:
@@ -1561,10 +1673,23 @@ def _generate_true_false(sentence_text: str, chunk_id: str) -> Optional[Generate
             question_type="true_false",
             question_text=sentence_text.strip(),
             correct_answer="true",
-            difficulty_label="beginner",
+            difficulty_label=diff_label,
+            explanation=_build_explanation(sentence_text),
         )
 
-    # Negate by inserting "not" after the main verb using spaCy
+    # Strategy 1: Entity/keyphrase swapping (more natural)
+    swapped = _try_entity_swap(sentence_text, keyphrases)
+    if swapped:
+        return GeneratedQuestion(
+            chunk_id=chunk_id,
+            question_type="true_false",
+            question_text=swapped.strip(),
+            correct_answer="false",
+            difficulty_label=diff_label,
+            explanation=f"This statement is false. {_build_explanation(sentence_text)}",
+        )
+
+    # Strategy 2: Verb negation fallback
     doc = nlp(sentence_text)
     negated = None
     for token in doc:
@@ -1582,52 +1707,91 @@ def _generate_true_false(sentence_text: str, chunk_id: str) -> Optional[Generate
         question_type="true_false",
         question_text=negated.strip(),
         correct_answer="false",
-        difficulty_label="beginner",
+        difficulty_label=diff_label,
+        explanation=f"This statement is false because 'not' changes the meaning. {_build_explanation(sentence_text)}",
     )
 
 
+def _try_entity_swap(sentence_text: str, keyphrases: List[str]) -> Optional[str]:
+    """Try to swap a named entity or keyphrase with another to create a false statement."""
+    doc = nlp(sentence_text)
+    entities = [(ent.text, ent.start_char, ent.end_char, ent.label_)
+                for ent in doc.ents if len(ent.text) > 2]
+
+    if entities:
+        target = random.choice(entities)
+        target_text, start, end, label = target
+        # Find a different entity of the same type
+        same_type = [e for e in entities if e[3] == label and e[0] != target_text]
+        if same_type:
+            replacement = random.choice(same_type)[0]
+            return sentence_text[:start] + replacement + sentence_text[end:]
+
+    # Try keyphrase swapping
+    sent_lower = sentence_text.lower()
+    found_kps = [(kp, sent_lower.find(kp.lower())) for kp in keyphrases
+                 if kp.lower() in sent_lower]
+    if len(found_kps) >= 1:
+        target_kp, pos = found_kps[0]
+        # Find a different keyphrase to swap in
+        others = [kp for kp in keyphrases if kp.lower() != target_kp.lower()
+                  and abs(len(kp) - len(target_kp)) < len(target_kp)]
+        if others:
+            replacement = random.choice(others)
+            pattern = re.compile(re.escape(target_kp), re.IGNORECASE)
+            return pattern.sub(replacement, sentence_text, count=1)
+
+    return None
+
+
 def _generate_mcq(sentence_text: str, keyphrase: str, chunk_keyphrases: List[str],
-                   all_keyphrases: List[str], chunk_id: str) -> Optional[GeneratedQuestion]:
+                   all_keyphrases: List[str], chunk_id: str,
+                   difficulty: str = "mixed") -> Optional[GeneratedQuestion]:
     """
-    Blank the keyphrase in the sentence to form the stem, use other keyphrases
-    as distractors (Obj3 section 7).
+    Blank the keyphrase in the sentence to form the stem, use semantically
+    similar keyphrases as distractors.
     """
     pattern = re.compile(re.escape(keyphrase), re.IGNORECASE)
     if not pattern.search(sentence_text):
         return None
 
     stem = pattern.sub("__________", sentence_text, count=1).strip()
-    distractors = _pick_distractors(keyphrase, chunk_keyphrases, all_keyphrases, count=3)
+    distractors = _pick_distractors_semantic(keyphrase, chunk_keyphrases, all_keyphrases, count=3)
     if len(distractors) < 2:
         return None
 
     options = distractors[:3] + [keyphrase]
     random.shuffle(options)
 
+    diff_label = _select_difficulty_label(difficulty, "multiple_choice")
     return GeneratedQuestion(
         chunk_id=chunk_id,
         question_type="multiple_choice",
         question_text=stem,
         options=options,
         correct_answer=keyphrase,
-        difficulty_label="intermediate",
+        difficulty_label=diff_label,
+        explanation=_build_explanation(sentence_text, keyphrase),
     )
 
 
 def _generate_fill_in_blank(sentence_text: str, keyphrase: str,
-                            chunk_id: str) -> Optional[GeneratedQuestion]:
+                            chunk_id: str,
+                            difficulty: str = "mixed") -> Optional[GeneratedQuestion]:
     """Remove a keyphrase from the sentence to create a blank."""
     pattern = re.compile(re.escape(keyphrase), re.IGNORECASE)
     if not pattern.search(sentence_text):
         return None
 
     blanked = pattern.sub("__________", sentence_text, count=1).strip()
+    diff_label = _select_difficulty_label(difficulty, "fill_in_blank")
     return GeneratedQuestion(
         chunk_id=chunk_id,
         question_type="fill_in_blank",
         question_text=blanked,
         correct_answer=keyphrase,
-        difficulty_label="intermediate",
+        difficulty_label=diff_label,
+        explanation=_build_explanation(sentence_text, keyphrase),
     )
 
 
@@ -1644,26 +1808,198 @@ def _deduplicate_questions(questions: List[GeneratedQuestion]) -> List[Generated
     return result
 
 
+def _validate_question(q: GeneratedQuestion) -> bool:
+    """Quality gate: reject questions that are too short, trivial, or malformed."""
+    if len(q.question_text) < 15:
+        return False
+    if len(q.correct_answer) < 2:
+        return False
+    if q.question_type == "true_false":
+        text = q.question_text.strip()
+        if text.endswith("?"):
+            return False
+        if _INTERROGATIVE_STARTS.match(text):
+            return False
+        if _ELLIPSIS_RE.search(text):
+            return False
+    if q.question_type == "multiple_choice":
+        if not q.options or len(q.options) < 3:
+            return False
+        unique_opts = set(o.lower().strip() for o in q.options)
+        if len(unique_opts) < 3:
+            return False
+    if q.question_type == "fill_in_blank":
+        if "__________" not in q.question_text:
+            return False
+    return True
+
+
+def _generate_slide_questions(
+    concepts: List[ConceptInput],
+    all_keyphrases: List[str],
+    difficulty: str,
+    question_types: List[str],
+    max_questions: int,
+) -> List[GeneratedQuestion]:
+    """
+    Generate questions specifically from slide-based concept data.
+    Uses concept names as natural topic stems and descriptions as answer material.
+    """
+    questions: List[GeneratedQuestion] = []
+    type_set = set(question_types)
+
+    _SLIDE_IDENT_TEMPLATES = [
+        "What is covered in the section on {name}?",
+        "Summarize the key points about {name}.",
+        "What are the main ideas related to {name}?",
+    ]
+    _SLIDE_MCQ_TEMPLATES = [
+        "Which of the following best describes {name}?",
+        "What is the main purpose of {name}?",
+    ]
+
+    sorted_concepts = sorted(concepts, key=lambda c: c.importance, reverse=True)
+
+    for concept in sorted_concepts:
+        if len(questions) >= max_questions:
+            break
+
+        name = concept.name
+        desc = concept.description.strip()
+        if not desc or len(desc) < 20:
+            continue
+
+        diff_label = _select_difficulty_label(difficulty, "identification")
+
+        # Identification from slide topic
+        if "identification" in type_set and len(questions) < max_questions:
+            template = random.choice(_SLIDE_IDENT_TEMPLATES)
+            q = GeneratedQuestion(
+                chunk_id="",
+                question_type="identification",
+                question_text=template.format(name=name),
+                correct_answer=desc[:300],
+                difficulty_label=diff_label,
+                explanation=f"This is covered in the slide on '{name}': {desc[:150]}",
+            )
+            if _validate_question(q):
+                questions.append(q)
+
+        # MCQ using concept name and other concepts as distractors
+        if "multiple_choice" in type_set and len(questions) < max_questions:
+            other_names = [c.name for c in sorted_concepts if c.name != name]
+            if len(other_names) >= 2:
+                distractors = random.sample(other_names, min(3, len(other_names)))
+                desc_short = desc.split('.')[0].strip()
+                if len(desc_short) > 15:
+                    template = random.choice(_SLIDE_MCQ_TEMPLATES)
+                    options = distractors[:3] + [desc_short]
+                    random.shuffle(options)
+                    q = GeneratedQuestion(
+                        chunk_id="",
+                        question_type="multiple_choice",
+                        question_text=template.format(name=name),
+                        options=options,
+                        correct_answer=desc_short,
+                        difficulty_label=_select_difficulty_label(difficulty, "multiple_choice"),
+                        explanation=f"The correct answer describes {name}: {desc[:150]}",
+                    )
+                    if _validate_question(q):
+                        questions.append(q)
+
+        # Fill-in-blank from description
+        if "fill_in_blank" in type_set and len(questions) < max_questions:
+            name_lower = name.lower()
+            desc_lower = desc.lower()
+            if name_lower in desc_lower:
+                pattern = re.compile(re.escape(name), re.IGNORECASE)
+                blanked = pattern.sub("__________", desc, count=1)
+                q = GeneratedQuestion(
+                    chunk_id="",
+                    question_type="fill_in_blank",
+                    question_text=blanked[:300],
+                    correct_answer=name,
+                    difficulty_label=_select_difficulty_label(difficulty, "fill_in_blank"),
+                    explanation=f"The blank should be filled with '{name}'.",
+                )
+                if _validate_question(q):
+                    questions.append(q)
+
+    return questions
+
+
+def _balance_by_concept_coverage(
+    all_questions: List[GeneratedQuestion],
+    max_total: int,
+    concept_names: List[str],
+) -> List[GeneratedQuestion]:
+    """
+    Reorder questions to ensure coverage across concepts.
+    Prioritizes one question per concept before duplicating.
+    """
+    if not concept_names or len(all_questions) <= max_total:
+        return all_questions
+
+    concept_lower = [c.lower() for c in concept_names]
+    concept_buckets: Dict[str, List[GeneratedQuestion]] = {c: [] for c in concept_lower}
+    unbucketed: List[GeneratedQuestion] = []
+
+    for q in all_questions:
+        q_text_lower = q.question_text.lower() + " " + q.correct_answer.lower()
+        placed = False
+        for cn in concept_lower:
+            if cn in q_text_lower:
+                concept_buckets[cn].append(q)
+                placed = True
+                break
+        if not placed:
+            unbucketed.append(q)
+
+    result: List[GeneratedQuestion] = []
+    round_num = 0
+    while len(result) < max_total:
+        added_this_round = False
+        for cn in concept_lower:
+            if round_num < len(concept_buckets[cn]) and len(result) < max_total:
+                result.append(concept_buckets[cn][round_num])
+                added_this_round = True
+        round_num += 1
+        if not added_this_round:
+            break
+
+    for q in unbucketed:
+        if len(result) >= max_total:
+            break
+        result.append(q)
+
+    return result[:max_total]
+
+
 @app.post("/generate-questions", response_model=GenerateQuestionsResponse)
 def generate_questions(input: GenerateQuestionsInput):
     """
     Template-driven Automatic Question Generation (AQG).
     Generates grounded questions from chunk text using spaCy NLP.
-    This is the core of Obj3 -- no free LLM generation.
+    Supports difficulty targeting and concept coverage balancing.
     """
     try:
         start = time.time()
         AQG_LOCK.acquire()
         acquired = True
 
+        difficulty = input.difficulty or "mixed"
+        type_weights = _DIFFICULTY_TYPE_WEIGHTS.get(difficulty, _DIFFICULTY_TYPE_WEIGHTS["mixed"])
+
         print(f"[nlp-service] /generate-questions start chunks={len(input.chunks)} "
-              f"types={input.question_types} max_total={input.max_total_questions}", flush=True)
+              f"types={input.question_types} difficulty={difficulty} "
+              f"max_total={input.max_total_questions} concepts={len(input.concepts)}", flush=True)
 
         all_questions: List[GeneratedQuestion] = []
         type_set = set(input.question_types)
+        used_keyphrases: set = set()
 
         for chunk in input.chunks:
-            if len(all_questions) >= input.max_total_questions:
+            if len(all_questions) >= input.max_total_questions * 2:
                 break
 
             chunk_questions: List[GeneratedQuestion] = []
@@ -1671,13 +2007,11 @@ def generate_questions(input: GenerateQuestionsInput):
             if len(text) < 50:
                 continue
 
-            # Get sentences via spaCy
             sentences = _get_sentences(text)
             good_sentences = [
                 str(s).strip() for s in sentences if is_good_sentence(str(s))
             ]
 
-            # Resolve keyphrases: use provided ones, or re-extract with KeyBERT
             keyphrases = filter_keywords(chunk.keyphrases) if chunk.keyphrases else []
             if not keyphrases:
                 try:
@@ -1694,10 +2028,14 @@ def generate_questions(input: GenerateQuestionsInput):
                 except Exception:
                     keyphrases = []
 
-            # Resolve important sentences: use provided or derive from good_sentences
             imp_sentences = chunk.important_sentences if chunk.important_sentences else good_sentences[:5]
 
-            # --- Generate each question type ---
+            # Build a weighted type order based on difficulty
+            weighted_types = []
+            for qt in input.question_types:
+                w = type_weights.get(qt, 1)
+                weighted_types.extend([qt] * w)
+            random.shuffle(weighted_types)
 
             for sent in imp_sentences:
                 if len(chunk_questions) >= input.max_questions_per_chunk:
@@ -1705,51 +2043,79 @@ def generate_questions(input: GenerateQuestionsInput):
 
                 kp = _find_keyphrase_in_sentence(sent, keyphrases)
 
-                # Identification
-                if "identification" in type_set and kp and len(chunk_questions) < input.max_questions_per_chunk:
-                    q = _generate_identification(sent, kp, chunk.chunk_id)
-                    if q:
-                        chunk_questions.append(q)
+                # Prefer keyphrases not yet used (for diversity)
+                if kp and kp.lower() in used_keyphrases:
+                    alt_kp = None
+                    for other_kp in keyphrases:
+                        if other_kp.lower() not in used_keyphrases and other_kp.lower() in sent.lower():
+                            alt_kp = other_kp
+                            break
+                    if alt_kp:
+                        kp = alt_kp
 
-                # True/False
-                if "true_false" in type_set and len(chunk_questions) < input.max_questions_per_chunk:
-                    q = _generate_true_false(sent, chunk.chunk_id)
-                    if q:
-                        chunk_questions.append(q)
+                # Pick question type from weighted rotation
+                for qt in weighted_types:
+                    if len(chunk_questions) >= input.max_questions_per_chunk:
+                        break
+                    if qt not in type_set:
+                        continue
 
-                # MCQ
-                if "multiple_choice" in type_set and kp and len(chunk_questions) < input.max_questions_per_chunk:
-                    q = _generate_mcq(sent, kp, keyphrases, input.all_keyphrases, chunk.chunk_id)
-                    if q:
-                        chunk_questions.append(q)
+                    q = None
+                    if qt == "identification" and kp:
+                        q = _generate_identification(sent, kp, chunk.chunk_id, difficulty)
+                    elif qt == "true_false":
+                        if not _is_declarative_statement(sent):
+                            continue
+                        q = _generate_true_false(sent, chunk.chunk_id, keyphrases, difficulty)
+                    elif qt == "multiple_choice" and kp:
+                        q = _generate_mcq(sent, kp, keyphrases, input.all_keyphrases, chunk.chunk_id, difficulty)
+                    elif qt == "fill_in_blank" and kp:
+                        q = _generate_fill_in_blank(sent, kp, chunk.chunk_id, difficulty)
 
-                # Fill-in-the-Blank
-                if "fill_in_blank" in type_set and kp and len(chunk_questions) < input.max_questions_per_chunk:
-                    q = _generate_fill_in_blank(sent, kp, chunk.chunk_id)
-                    if q:
+                    if q and _validate_question(q):
                         chunk_questions.append(q)
+                        if kp:
+                            used_keyphrases.add(kp.lower())
+                        break
 
             all_questions.extend(chunk_questions)
 
-        # Validation: dedup, cap at max_total_questions
+        # Supplement with slide-specific questions when document is slide-based
+        if input.document_type == "slides" and input.concepts:
+            slide_questions = _generate_slide_questions(
+                input.concepts,
+                input.all_keyphrases,
+                difficulty,
+                input.question_types,
+                max(3, input.max_total_questions - len(all_questions)),
+            )
+            all_questions.extend(slide_questions)
+            if slide_questions:
+                print(f"[nlp-service] added {len(slide_questions)} slide-specific questions", flush=True)
+
+        # Validation: dedup, quality filter, concept balancing
         all_questions = _deduplicate_questions(all_questions)
+
+        concept_names = [c.name for c in input.concepts] if input.concepts else []
+        all_questions = _balance_by_concept_coverage(
+            all_questions, input.max_total_questions, concept_names
+        )
+
         if len(all_questions) > input.max_total_questions:
-            random.shuffle(all_questions)
             all_questions = all_questions[:input.max_total_questions]
 
-        # Compute stats
         by_type: dict = {}
         for q in all_questions:
             by_type[q.question_type] = by_type.get(q.question_type, 0) + 1
 
         elapsed = time.time() - start
         print(f"[nlp-service] /generate-questions done seconds={elapsed:.2f} "
-              f"total={len(all_questions)} by_type={by_type}", flush=True)
+              f"total={len(all_questions)} by_type={by_type} difficulty={difficulty}", flush=True)
 
         return GenerateQuestionsResponse(
             success=True,
             questions=all_questions,
-            stats={"total": len(all_questions), "by_type": by_type},
+            stats={"total": len(all_questions), "by_type": by_type, "difficulty": difficulty},
         )
 
     except Exception as e:

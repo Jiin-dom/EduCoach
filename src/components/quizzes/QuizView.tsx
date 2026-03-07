@@ -1,4 +1,4 @@
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
@@ -8,10 +8,10 @@ import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import {
     CheckCircle2, XCircle, ArrowRight, ArrowLeft, Trophy,
-    Loader2, AlertCircle, ArrowUpRight
+    Loader2, AlertCircle, ArrowUpRight, RotateCcw
 } from "lucide-react"
 import { useNavigate, useParams, Link } from "react-router-dom"
-import { useQuiz, useQuizQuestions, useSubmitAttempt } from "@/hooks/useQuizzes"
+import { useQuiz, useQuizQuestions, useSubmitAttempt, useGenerateQuiz } from "@/hooks/useQuizzes"
 import type { QuizQuestion, AttemptAnswer } from "@/hooks/useQuizzes"
 import { useProcessQuizResults } from "@/hooks/useLearning"
 
@@ -25,6 +25,34 @@ function questionTypeLabel(type: QuizQuestion['question_type']): string {
     }
 }
 
+function normalizeForGrading(text: string): string {
+    return text
+        .toLowerCase()
+        .trim()
+        .replace(/^(the|a|an)\s+/i, '')
+        .replace(/[.,;:!?'"()[\]{}]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+}
+
+function levenshteinDistance(a: string, b: string): number {
+    const m = a.length
+    const n = b.length
+    const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0))
+
+    for (let i = 0; i <= m; i++) dp[i][0] = i
+    for (let j = 0; j <= n; j++) dp[0][j] = j
+
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            dp[i][j] = a[i - 1] === b[j - 1]
+                ? dp[i - 1][j - 1]
+                : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+        }
+    }
+    return dp[m][n]
+}
+
 function isAnswerCorrect(question: QuizQuestion, userAnswer: string): boolean {
     if (!userAnswer) return false
     const ua = userAnswer.toLowerCase().trim()
@@ -36,23 +64,60 @@ function isAnswerCorrect(question: QuizQuestion, userAnswer: string): boolean {
     if (question.question_type === 'multiple_choice') {
         return ua === ca
     }
-    // For identification and fill_in_blank, do a more lenient comparison
-    return ua === ca || ca.includes(ua) || ua.includes(ca)
+
+    // Fuzzy grading for identification and fill_in_blank
+    const normUa = normalizeForGrading(userAnswer)
+    const normCa = normalizeForGrading(question.correct_answer)
+
+    if (normUa === normCa) return true
+
+    // For fill_in_blank, the expected answer is usually short -- use tighter matching
+    if (question.question_type === 'fill_in_blank') {
+        const maxLen = Math.max(normUa.length, normCa.length)
+        if (maxLen === 0) return false
+        const dist = levenshteinDistance(normUa, normCa)
+        return dist / maxLen <= 0.2
+    }
+
+    // For identification, allow fuzzy match (80% similarity)
+    const maxLen = Math.max(normUa.length, normCa.length)
+    if (maxLen === 0) return false
+    const dist = levenshteinDistance(normUa, normCa)
+    const similarity = 1 - dist / maxLen
+    if (similarity >= 0.8) return true
+
+    // Also accept if the core answer is contained (but require >60% of the correct answer)
+    if (normCa.length > 5 && normUa.includes(normCa)) return true
+    if (normUa.length > 5 && normUa.length >= normCa.length * 0.6 && normCa.includes(normUa)) return true
+
+    return false
 }
 
 export function QuizView() {
     const navigate = useNavigate()
     const { id } = useParams<{ id: string }>()
     const startedAtRef = useRef(new Date().toISOString())
+    const startTimestampRef = useRef(Date.now())
 
     const { data: quiz, isLoading: quizLoading, error: quizError } = useQuiz(id)
     const { data: questions, isLoading: questionsLoading } = useQuizQuestions(id)
     const submitAttempt = useSubmitAttempt()
     const processQuizResults = useProcessQuizResults()
+    const retryGenerate = useGenerateQuiz()
 
     const [currentQuestion, setCurrentQuestion] = useState(0)
     const [answers, setAnswers] = useState<Record<string, string>>({})
     const [showResults, setShowResults] = useState(false)
+    const [elapsedSeconds, setElapsedSeconds] = useState(0)
+
+    // Timer: track elapsed time while taking the quiz
+    useEffect(() => {
+        if (showResults || !quiz || quiz.status !== 'ready' || !questions?.length) return
+        const interval = setInterval(() => {
+            setElapsedSeconds(Math.floor((Date.now() - startTimestampRef.current) / 1000))
+        }, 1000)
+        return () => clearInterval(interval)
+    }, [showResults, quiz, questions])
 
     // Loading state
     if (quizLoading || questionsLoading) {
@@ -88,7 +153,7 @@ export function QuizView() {
         )
     }
 
-    // Quiz still generating
+    // Quiz still generating (auto-polls every 4s via useQuiz)
     if (quiz.status === 'generating') {
         return (
             <div className="max-w-3xl mx-auto">
@@ -96,8 +161,11 @@ export function QuizView() {
                     <CardContent className="flex flex-col items-center justify-center py-16">
                         <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
                         <h3 className="text-lg font-semibold mb-2">Generating Quiz...</h3>
-                        <p className="text-muted-foreground text-center">
+                        <p className="text-muted-foreground text-center mb-2">
                             Your quiz is being generated from the document. This may take a minute.
+                        </p>
+                        <p className="text-xs text-muted-foreground animate-pulse">
+                            This page will update automatically when ready
                         </p>
                     </CardContent>
                 </Card>
@@ -105,7 +173,7 @@ export function QuizView() {
         )
     }
 
-    // Quiz errored
+    // Quiz errored -- with retry button
     if (quiz.status === 'error') {
         return (
             <div className="max-w-3xl mx-auto">
@@ -116,9 +184,27 @@ export function QuizView() {
                         <p className="text-sm text-muted-foreground text-center mb-4">
                             {quiz.error_message || 'An error occurred while generating the quiz.'}
                         </p>
-                        <Button variant="outline" onClick={() => navigate('/quizzes')}>
-                            Back to Quizzes
-                        </Button>
+                        <div className="flex gap-3">
+                            <Button variant="outline" onClick={() => navigate('/quizzes')}>
+                                Back to Quizzes
+                            </Button>
+                            <Button
+                                onClick={() => retryGenerate.mutate(
+                                    { documentId: quiz.document_id },
+                                    { onSuccess: (data) => {
+                                        if (data?.quizId) navigate(`/quizzes/${data.quizId}`)
+                                    }}
+                                )}
+                                disabled={retryGenerate.isPending}
+                            >
+                                {retryGenerate.isPending ? (
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                ) : (
+                                    <RotateCcw className="w-4 h-4 mr-2" />
+                                )}
+                                Retry
+                            </Button>
+                        </div>
                     </CardContent>
                 </Card>
             </div>
@@ -163,6 +249,7 @@ export function QuizView() {
     }
 
     const handleSubmit = () => {
+        const timeTaken = Math.floor((Date.now() - startTimestampRef.current) / 1000)
         const attemptAnswers: AttemptAnswer[] = questions.map((q) => ({
             question_id: q.id,
             user_answer: answers[q.id] || '',
@@ -178,6 +265,7 @@ export function QuizView() {
                 totalQuestions: questions.length,
                 correctAnswers: correctCount,
                 score,
+                timeTakenSeconds: timeTaken,
                 startedAt: startedAtRef.current,
             },
             {
@@ -282,6 +370,8 @@ export function QuizView() {
                                     setAnswers({})
                                     setShowResults(false)
                                     startedAtRef.current = new Date().toISOString()
+                                    startTimestampRef.current = Date.now()
+                                    setElapsedSeconds(0)
                                 }}
                                 variant="outline"
                                 className="flex-1"
@@ -427,6 +517,12 @@ export function QuizView() {
                         <span className="text-muted-foreground">Questions Answered</span>
                         <span className="font-medium">
                             {Object.keys(answers).length} / {questions.length}
+                        </span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm mt-2">
+                        <span className="text-muted-foreground">Time Elapsed</span>
+                        <span className="font-medium font-mono">
+                            {Math.floor(elapsedSeconds / 60)}:{String(elapsedSeconds % 60).padStart(2, '0')}
                         </span>
                     </div>
                 </CardContent>

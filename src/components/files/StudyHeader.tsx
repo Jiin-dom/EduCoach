@@ -17,11 +17,11 @@ import {
     Wand2,
     Gauge,
 } from 'lucide-react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import type { Document } from '@/hooks/useDocuments'
 import { useProcessDocument } from '@/hooks/useDocuments'
-import { useGenerateQuiz } from '@/hooks/useQuizzes'
 import { getFileUrl, formatFileSize } from '@/lib/storage'
+import { GenerateQuizDialog } from './GenerateQuizDialog'
 
 interface StudyHeaderProps {
     document: Document
@@ -82,10 +82,9 @@ function ProcessingQualityBadge({ quality }: { quality: number }) {
 }
 
 export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
-    const navigate = useNavigate()
     const processDocument = useProcessDocument()
-    const generateQuiz = useGenerateQuiz()
     const [downloadingUrl, setDownloadingUrl] = useState(false)
+    const [quizDialogOpen, setQuizDialogOpen] = useState(false)
 
     const status = STATUS_MAP[document.status] || STATUS_MAP.pending
     const StatusIcon = status.icon
@@ -98,13 +97,6 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
         processDocument.mutate(
             { documentId: document.id, processor: 'gemini' },
             { onSuccess: () => refetchDoc() }
-        )
-    }
-
-    const handleQuiz = () => {
-        generateQuiz.mutate(
-            { documentId: document.id, questionCount: 10, enhanceWithLlm: true },
-            { onSuccess: (data) => navigate(data?.quizId ? `/quizzes/${data.quizId}` : '/quizzes') }
         )
     }
 
@@ -164,8 +156,8 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
                                 {processDocument.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
                                 Refine with Gemini
                             </Button>
-                            <Button className="gap-2" onClick={handleQuiz} disabled={generateQuiz.isPending}>
-                                {generateQuiz.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                            <Button className="gap-2" onClick={() => setQuizDialogOpen(true)}>
+                                <Sparkles className="w-4 h-4" />
                                 Generate Quiz
                             </Button>
                         </>
@@ -185,6 +177,12 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
                     </div>
                 </div>
             )}
+
+            <GenerateQuizDialog
+                open={quizDialogOpen}
+                onOpenChange={setQuizDialogOpen}
+                documentId={document.id}
+            />
         </div>
     )
 }

@@ -124,6 +124,7 @@ interface Concept {
     difficulty_level: string
     keywords: string[]
     source_pages?: number[]
+    chunk_id?: string
 }
 
 interface SummarySection {
@@ -402,11 +403,21 @@ serve(async (req) => {
 
         console.log(`🧠 Extracted ${analysisResult.concepts.length} concepts`)
 
-        // 8. Save concepts to database
+        // 8. Save concepts to database (with chunk_id mapping)
         let savedConceptIds: string[] = []
         if (analysisResult.concepts.length > 0) {
             console.log('💾 Saving concepts to database...')
-            const conceptRecords = analysisResult.concepts.map((concept) => ({
+
+            const chunkData = (savedChunks || []).map((c: { id: string; content: string; chunk_index?: number }) => ({
+                id: c.id,
+                content: c.content,
+                chunk_index: (c as Record<string, unknown>).chunk_index as number ?? 0,
+            }))
+            const mappedConcepts = mapConceptsToChunks(analysisResult.concepts, chunkData)
+            const chunksMapped = mappedConcepts.filter(c => c.chunk_id).length
+            console.log(`🔗 Mapped ${chunksMapped}/${mappedConcepts.length} concepts to chunks`)
+
+            const conceptRecords = mappedConcepts.map((concept) => ({
                 document_id: documentId,
                 name: concept.name,
                 description: concept.description,
@@ -415,6 +426,7 @@ serve(async (req) => {
                 difficulty_level: concept.difficulty_level,
                 keywords: concept.keywords,
                 ...(concept.source_pages ? { source_pages: concept.source_pages } : {}),
+                ...(concept.chunk_id ? { chunk_id: concept.chunk_id } : {}),
             }))
 
             const { data: savedConcepts, error: conceptError } = await supabase
@@ -801,6 +813,55 @@ function chunkText(text: string, chunkSize: number, overlap: number): string[] {
     }
 
     return chunks.filter(chunk => chunk.length > 50) // Remove tiny chunks
+}
+
+/**
+ * Map each concept to its best-matching chunk by finding which chunk
+ * contains the concept's description or name. Uses keyword overlap as tiebreaker.
+ */
+function mapConceptsToChunks(
+    concepts: Concept[],
+    savedChunks: Array<{ id: string; content: string; chunk_index: number }>
+): Concept[] {
+    if (!savedChunks || savedChunks.length === 0) return concepts
+
+    return concepts.map((concept) => {
+        let bestChunkId: string | undefined
+        let bestScore = 0
+
+        const nameLower = concept.name.toLowerCase()
+        const descLower = (concept.description || '').toLowerCase()
+        const conceptKeywords = (concept.keywords || []).map(k => k.toLowerCase())
+
+        for (const chunk of savedChunks) {
+            const contentLower = chunk.content.toLowerCase()
+            let score = 0
+
+            if (contentLower.includes(descLower.substring(0, 80))) {
+                score += 5
+            }
+
+            if (contentLower.includes(nameLower)) {
+                score += 3
+            }
+
+            for (const kw of conceptKeywords) {
+                if (kw.length > 3 && contentLower.includes(kw)) {
+                    score += 1
+                }
+            }
+
+            if (score > bestScore) {
+                bestScore = score
+                bestChunkId = chunk.id
+            }
+        }
+
+        if (bestChunkId && bestScore > 0) {
+            return { ...concept, chunk_id: bestChunkId }
+        }
+        return concept
+    })
 }
 
 /**

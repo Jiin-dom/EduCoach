@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { ArrowLeft, Loader2, AlertCircle, BookOpen, Brain, Sparkles, StickyNote, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Loader2, AlertCircle, BookOpen, Brain, Sparkles, StickyNote, Layers, RefreshCw } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 import { useDocument, useProcessDocument } from '@/hooks/useDocuments'
 import { useDocumentConcepts } from '@/hooks/useConcepts'
@@ -13,6 +13,7 @@ import { GuideTab } from './GuideTab'
 import { ConceptsTab } from './ConceptsTab'
 import { QuizPrepTab } from './QuizPrepTab'
 import { NotesTab } from './NotesTab'
+import { FlashcardsTab } from './FlashcardsTab'
 import { DocumentPane } from './DocumentPane'
 
 export function FileViewer() {
@@ -170,7 +171,7 @@ export function FileViewer() {
                     )}
 
                     <Tabs value={activeTab} onValueChange={setActiveTab}>
-                        <TabsList className="grid w-full grid-cols-4">
+                        <TabsList className="grid w-full grid-cols-5">
                             <TabsTrigger value="guide" className="gap-1.5 text-xs sm:text-sm">
                                 <BookOpen className="w-3.5 h-3.5 hidden sm:inline" />
                                 Guide
@@ -182,6 +183,10 @@ export function FileViewer() {
                             <TabsTrigger value="quiz-prep" className="gap-1.5 text-xs sm:text-sm">
                                 <Sparkles className="w-3.5 h-3.5 hidden sm:inline" />
                                 Quiz Prep
+                            </TabsTrigger>
+                            <TabsTrigger value="flashcards" className="gap-1.5 text-xs sm:text-sm">
+                                <Layers className="w-3.5 h-3.5 hidden sm:inline" />
+                                Flashcards
                             </TabsTrigger>
                             <TabsTrigger value="notes" className="gap-1.5 text-xs sm:text-sm">
                                 <StickyNote className="w-3.5 h-3.5 hidden sm:inline" />
@@ -213,6 +218,13 @@ export function FileViewer() {
                             <QuizPrepTab
                                 documentId={document.id}
                                 concepts={concepts || []}
+                                documentStatus={document.status}
+                            />
+                        </TabsContent>
+
+                        <TabsContent value="flashcards" className="mt-4">
+                            <FlashcardsTab
+                                documentId={document.id}
                                 documentStatus={document.status}
                             />
                         </TabsContent>
