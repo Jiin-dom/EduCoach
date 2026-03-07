@@ -26,20 +26,31 @@ export function QuizCard({ quiz, lastScore }: QuizCardProps) {
     const hasAttempt = lastScore !== null && lastScore !== undefined
 
     return (
-        <div className="flex items-center gap-4 p-4 rounded-lg border bg-card hover:bg-accent/5 transition-colors">
-            <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                {isGenerating ? (
-                    <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                ) : isError ? (
-                    <AlertCircle className="w-6 h-6 text-destructive" />
-                ) : hasAttempt ? (
-                    <CheckCircle2 className="w-6 h-6 text-primary" />
-                ) : (
-                    <FileQuestion className="w-6 h-6 text-primary" />
-                )}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-lg border bg-card hover:bg-accent/5 transition-colors">
+            <div className="flex items-center gap-4 w-full sm:w-auto">
+                <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    {isGenerating ? (
+                        <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                    ) : isError ? (
+                        <AlertCircle className="w-6 h-6 text-destructive" />
+                    ) : hasAttempt ? (
+                        <CheckCircle2 className="w-6 h-6 text-primary" />
+                    ) : (
+                        <FileQuestion className="w-6 h-6 text-primary" />
+                    )}
+                </div>
+
+                <div className="flex-1 min-w-0 sm:hidden">
+                    <h4 className="font-semibold mb-1 truncate">{quiz.title}</h4>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span>{quiz.question_count} qs</span>
+                        <span>•</span>
+                        <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {estimatedMinutes} min</span>
+                    </div>
+                </div>
             </div>
 
-            <div className="flex-1 min-w-0">
+            <div className="hidden sm:block flex-1 min-w-0">
                 <h4 className="font-semibold mb-1 truncate">{quiz.title}</h4>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <span>{quiz.question_count} questions</span>
@@ -60,20 +71,36 @@ export function QuizCard({ quiz, lastScore }: QuizCardProps) {
                     <p className="text-sm text-destructive mt-1 truncate">{quiz.error_message}</p>
                 )}
             </div>
+            
+            <div className="sm:hidden w-full space-y-2 mt-1 mb-1">
+                <Badge variant="secondary" className={difficultyColors[quiz.difficulty] || difficultyColors.mixed}>
+                    {quiz.difficulty.charAt(0).toUpperCase() + quiz.difficulty.slice(1)}
+                </Badge>
+                {hasAttempt && (
+                    <p className="text-sm font-medium text-primary mt-1">
+                        Last Score: {Math.round(lastScore)}%
+                    </p>
+                )}
+                {isError && quiz.error_message && (
+                    <p className="text-sm text-destructive mt-1 truncate">{quiz.error_message}</p>
+                )}
+            </div>
 
-            {isReady && (
-                <Link to={`/quizzes/${quiz.id}`}>
-                    <Button size="sm" variant={hasAttempt ? "outline" : "default"}>
-                        {hasAttempt ? "Retake" : "Start Quiz"}
+            <div className="shrink-0 w-full sm:w-auto flex flex-col items-stretch">
+                {isReady && (
+                    <Link to={`/quizzes/${quiz.id}`} className="w-full">
+                        <Button size="sm" variant={hasAttempt ? "outline" : "default"} className="w-full sm:w-auto">
+                            {hasAttempt ? "Retake" : "Start Quiz"}
+                        </Button>
+                    </Link>
+                )}
+                {isGenerating && (
+                    <Button size="sm" variant="outline" disabled className="w-full sm:w-auto">
+                        <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                        Generating...
                     </Button>
-                </Link>
-            )}
-            {isGenerating && (
-                <Button size="sm" variant="outline" disabled>
-                    <Loader2 className="w-3 h-3 mr-2 animate-spin" />
-                    Generating...
-                </Button>
-            )}
+                )}
+            </div>
         </div>
     )
 }

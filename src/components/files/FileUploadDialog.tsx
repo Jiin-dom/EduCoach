@@ -242,7 +242,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
 
             <Dialog open={open} onOpenChange={handleOpenChange}>
                 <DialogContent
-                    className={`sm:max-w-md ${isBusy ? 'z-[70]' : ''}`}
+                    className={`max-w-[calc(100vw-2rem)] sm:max-w-md w-full overflow-hidden ${isBusy ? 'z-[70]' : ''}`}
                     onPointerDownOutside={(e) => { if (isBusy) e.preventDefault() }}
                     onEscapeKeyDown={(e) => { if (isBusy) e.preventDefault() }}
                     onInteractOutside={(e) => { if (isBusy) e.preventDefault() }}
@@ -252,18 +252,18 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                         <style>{`[data-dialog-close] { display: none !important; }`}</style>
                     )}
 
-                    <DialogHeader>
-                        <DialogTitle>
+                    <DialogHeader className="min-w-0">
+                        <DialogTitle className="pr-6 break-words text-left">
                             {isBusy ? 'Processing Your Document' : 'Upload Study Material'}
                         </DialogTitle>
-                        <DialogDescription>
+                        <DialogDescription className="break-words text-left">
                             {isBusy
                                 ? 'Please wait while EduCoach prepares your study material.'
                                 : 'Upload your documents to generate AI-powered quizzes and study guides.'}
                         </DialogDescription>
                     </DialogHeader>
 
-                    <div className="space-y-4 py-4">
+                    <div className="space-y-4 py-4 min-w-0 w-full">
                         {/* ── IDLE: Drop zone ── */}
                         {phase === 'idle' && !selectedFile && (
                             <div
@@ -301,13 +301,13 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                         {/* ── IDLE: Selected file ── */}
                         {selectedFile && phase === 'idle' && (
                             <div className="space-y-4">
-                                <div className="flex items-center gap-3 p-3 rounded-lg border bg-accent/20 overflow-hidden">
+                                <div className="flex items-center gap-3 p-3 rounded-lg border bg-accent/20 min-w-0 w-full">
                                     <div className="w-10 h-10 shrink-0 rounded-lg bg-primary/10 flex items-center justify-center">
-                                        <FileText className="w-5 h-5 text-primary" />
+                                        <FileText className="w-5 h-5 text-primary shrink-0" />
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <p className="font-medium truncate text-sm">{selectedFile.name}</p>
-                                        <p className="text-xs text-muted-foreground">
+                                        <p className="font-medium truncate text-sm" title={selectedFile.name}>{selectedFile.name}</p>
+                                        <p className="text-xs text-muted-foreground truncate">
                                             {formatFileSize(selectedFile.size)} &bull; {getFileTypeFromMime(selectedFile.type).toUpperCase()}
                                         </p>
                                     </div>

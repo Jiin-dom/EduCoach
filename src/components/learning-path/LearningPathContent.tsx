@@ -352,21 +352,21 @@ export function LearningPathContent() {
     return (
         <main className="container mx-auto px-4 py-8">
             <div className="space-y-6">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                        <div className="w-12 h-12 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center">
                             <Calendar className="w-6 h-6 text-primary" />
                         </div>
                         <div>
-                            <h1 className="text-3xl font-bold">Learning Path</h1>
-                            <p className="text-muted-foreground">Your personalized study priorities</p>
+                            <h1 className="text-2xl sm:text-3xl font-bold">Learning Path</h1>
+                            <p className="text-sm sm:text-base text-muted-foreground">Your personalized study priorities</p>
                         </div>
                     </div>
                     {!isLoading && (masteryList || []).length > 0 && (
                         <Button
                             onClick={handleStartReview}
                             disabled={generateReview.isPending || (sections.dueToday.length + sections.needsReview.length) === 0}
-                            className="gap-2"
+                            className="gap-2 w-full sm:w-auto"
                         >
                             {generateReview.isPending ? (
                                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -425,21 +425,21 @@ export function LearningPathContent() {
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent>
-                                    <div className="flex flex-wrap gap-6 text-sm">
+                                    <div className="flex flex-col sm:flex-row flex-wrap sm:items-center gap-4 sm:gap-6 text-sm">
                                         <div className="flex items-center gap-2">
-                                            <Zap className="w-4 h-4 text-amber-500" />
+                                            <Zap className="w-4 h-4 text-amber-500 shrink-0" />
                                             <span><strong>{weeklyProgress.conceptsImproved}</strong> concepts improved</span>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <Target className="w-4 h-4 text-blue-500" />
+                                            <Target className="w-4 h-4 text-blue-500 shrink-0" />
                                             <span><strong>{weeklyProgress.newConceptsTracked}</strong> new concepts tracked</span>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <Brain className="w-4 h-4 text-purple-500" />
+                                            <Brain className="w-4 h-4 text-purple-500 shrink-0" />
                                             <span><strong>{weeklyProgress.questionsAnswered}</strong> questions answered</span>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <BookOpen className="w-4 h-4 text-green-500" />
+                                            <BookOpen className="w-4 h-4 text-green-500 shrink-0" />
                                             <span><strong>{weeklyProgress.quizzesCompleted}</strong> quizzes completed</span>
                                         </div>
                                     </div>

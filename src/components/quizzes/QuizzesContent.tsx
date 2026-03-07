@@ -45,12 +45,12 @@ export function QuizzesContent() {
         return (
             <div className="space-y-6">
                 <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                    <div className="w-12 h-12 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center">
                         <Brain className="w-6 h-6 text-primary" />
                     </div>
                     <div>
-                        <h1 className="text-3xl font-bold">My Quizzes & Flashcards</h1>
-                        <p className="text-muted-foreground">Track your progress and test your knowledge</p>
+                        <h1 className="text-2xl sm:text-3xl font-bold">My Quizzes & Flashcards</h1>
+                        <p className="text-sm sm:text-base text-muted-foreground">Track your progress and test your knowledge</p>
                     </div>
                 </div>
                 <Card>
@@ -69,12 +69,12 @@ export function QuizzesContent() {
         return (
             <div className="space-y-6">
                 <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                    <div className="w-12 h-12 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center">
                         <Brain className="w-6 h-6 text-primary" />
                     </div>
                     <div>
-                        <h1 className="text-3xl font-bold">My Quizzes & Flashcards</h1>
-                        <p className="text-muted-foreground">Track your progress and test your knowledge</p>
+                        <h1 className="text-2xl sm:text-3xl font-bold">My Quizzes & Flashcards</h1>
+                        <p className="text-sm sm:text-base text-muted-foreground">Track your progress and test your knowledge</p>
                     </div>
                 </div>
                 <Card>
@@ -97,22 +97,22 @@ export function QuizzesContent() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                    <div className="w-12 h-12 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center">
                         <Brain className="w-6 h-6 text-primary" />
                     </div>
                     <div>
-                        <h1 className="text-3xl font-bold">My Quizzes & Flashcards</h1>
-                        <p className="text-muted-foreground">Track your progress and test your knowledge</p>
+                        <h1 className="text-2xl sm:text-3xl font-bold">My Quizzes & Flashcards</h1>
+                        <p className="text-sm sm:text-base text-muted-foreground">Track your progress and test your knowledge</p>
                     </div>
                 </div>
-                <div className="flex items-center gap-2">
-                    <Button variant="outline" size="icon" onClick={() => refetch()}>
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                    <Button variant="outline" size="icon" onClick={() => refetch()} className="shrink-0">
                         <RefreshCw className="w-4 h-4" />
                     </Button>
-                    <Link to="/files">
-                        <Button className="gap-2">
+                    <Link to="/files" className="flex-1 sm:flex-none">
+                        <Button className="w-full gap-2">
                             <FileText className="w-4 h-4" />
                             Generate from Document
                         </Button>

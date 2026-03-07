@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { ArrowLeft, Loader2, AlertCircle, BookOpen, Brain, Sparkles, StickyNote, Layers, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Loader2, AlertCircle, BookOpen, Brain, Sparkles, StickyNote, Layers, RefreshCw, FileText } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 import { useDocument, useProcessDocument } from '@/hooks/useDocuments'
 import { useDocumentConcepts } from '@/hooks/useConcepts'
@@ -21,6 +21,7 @@ export function FileViewer() {
     const [activeTab, setActiveTab] = useState('guide')
     const [currentPage, setCurrentPage] = useState(1)
     const [tutorPrompt, setTutorPrompt] = useState<string | null>(null)
+    const [showMobileDoc, setShowMobileDoc] = useState(false)
 
     const { data: document, isLoading: docLoading, error: docError, refetch: refetchDoc } = useDocument(id)
     const { data: concepts, isLoading: conceptsLoading } = useDocumentConcepts(id)
@@ -162,34 +163,57 @@ export function FileViewer() {
                 </Card>
             )}
 
+            {/* Mobile Document Toggle */}
+            {document.status === 'ready' && (
+                <div className="lg:hidden flex justify-end">
+                    <Button 
+                        variant="outline" 
+                        onClick={() => setShowMobileDoc(!showMobileDoc)}
+                        className="gap-2 w-full sm:w-auto"
+                    >
+                        {showMobileDoc ? (
+                            <>
+                                <ArrowLeft className="w-4 h-4" />
+                                Back to Study Material
+                            </>
+                        ) : (
+                            <>
+                                <FileText className="w-4 h-4" />
+                                View Document
+                            </>
+                        )}
+                    </Button>
+                </div>
+            )}
+
             {/* Two-pane layout */}
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-6" style={isNotReady ? { opacity: 0.3, pointerEvents: 'none' } : undefined}>
                 {/* Left pane: study content */}
-                <div className="lg:col-span-3 space-y-4">
+                <div className={`lg:col-span-3 space-y-4 ${showMobileDoc ? 'hidden lg:block' : 'block'}`}>
                     {document.status === 'ready' && (
                         <StudyPath documentId={document.id} onSelectTab={setActiveTab} />
                     )}
 
                     <Tabs value={activeTab} onValueChange={setActiveTab}>
-                        <TabsList className="grid w-full grid-cols-5">
-                            <TabsTrigger value="guide" className="gap-1.5 text-xs sm:text-sm">
-                                <BookOpen className="w-3.5 h-3.5 hidden sm:inline" />
+                        <TabsList className="flex w-full overflow-x-auto justify-start no-scrollbar">
+                            <TabsTrigger value="guide" className="gap-1.5 text-xs sm:text-sm whitespace-nowrap">
+                                <BookOpen className="w-3.5 h-3.5" />
                                 Guide
                             </TabsTrigger>
-                            <TabsTrigger value="concepts" className="gap-1.5 text-xs sm:text-sm">
-                                <Brain className="w-3.5 h-3.5 hidden sm:inline" />
+                            <TabsTrigger value="concepts" className="gap-1.5 text-xs sm:text-sm whitespace-nowrap">
+                                <Brain className="w-3.5 h-3.5" />
                                 Concepts
                             </TabsTrigger>
-                            <TabsTrigger value="quiz-prep" className="gap-1.5 text-xs sm:text-sm">
-                                <Sparkles className="w-3.5 h-3.5 hidden sm:inline" />
+                            <TabsTrigger value="quiz-prep" className="gap-1.5 text-xs sm:text-sm whitespace-nowrap">
+                                <Sparkles className="w-3.5 h-3.5" />
                                 Quiz Prep
                             </TabsTrigger>
-                            <TabsTrigger value="flashcards" className="gap-1.5 text-xs sm:text-sm">
-                                <Layers className="w-3.5 h-3.5 hidden sm:inline" />
+                            <TabsTrigger value="flashcards" className="gap-1.5 text-xs sm:text-sm whitespace-nowrap">
+                                <Layers className="w-3.5 h-3.5" />
                                 Flashcards
                             </TabsTrigger>
-                            <TabsTrigger value="notes" className="gap-1.5 text-xs sm:text-sm">
-                                <StickyNote className="w-3.5 h-3.5 hidden sm:inline" />
+                            <TabsTrigger value="notes" className="gap-1.5 text-xs sm:text-sm whitespace-nowrap">
+                                <StickyNote className="w-3.5 h-3.5" />
                                 Notes
                             </TabsTrigger>
                         </TabsList>
@@ -238,8 +262,8 @@ export function FileViewer() {
                     </Tabs>
                 </div>
 
-                {/* Right pane: document viewer (lg+ only) */}
-                <div className="hidden lg:block lg:col-span-2">
+                {/* Right pane: document viewer */}
+                <div className={`lg:col-span-2 mt-6 lg:mt-0 ${showMobileDoc ? 'block' : 'hidden lg:block'}`}>
                     <DocumentPane
                         document={document}
                         currentPage={currentPage}

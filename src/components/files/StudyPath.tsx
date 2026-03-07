@@ -74,7 +74,7 @@ export function StudyPath({ documentId, onSelectTab }: StudyPathProps) {
                 <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Study Path</h3>
                 <span className="text-xs text-muted-foreground">{doneCount}/{STEPS.length} completed</span>
             </div>
-            <div className="flex gap-2 overflow-x-auto pb-1">
+            <div className="flex gap-3 overflow-x-auto pb-3 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide snap-x">
                 {STEPS.map((step) => {
                     const s = getStatus(step.id)
                     const Icon = step.icon
@@ -83,7 +83,7 @@ export function StudyPath({ documentId, onSelectTab }: StudyPathProps) {
                         <button
                             key={step.id}
                             onClick={() => handleClick(step)}
-                            className={`flex-1 min-w-[140px] flex flex-col items-center gap-1.5 p-3 rounded-lg border transition-colors text-center ${
+                            className={`shrink-0 w-[160px] sm:w-auto sm:flex-1 flex flex-col items-center gap-1.5 p-3 rounded-lg border transition-colors text-center snap-start ${
                                 s === 'done'
                                     ? 'border-green-300 bg-green-50 dark:bg-green-950/30'
                                     : s === 'in_progress'

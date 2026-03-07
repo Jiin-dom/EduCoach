@@ -153,7 +153,7 @@ function ConceptDrillDown({ concept, onBack, timeline }: { concept: ConceptMaste
                                 <CartesianGrid strokeDasharray="3 3" />
                                 <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} tick={{ fontSize: 11 }} />
                                 <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                                <Tooltip formatter={(value: number) => [`${value}%`, 'Mastery']} />
+                                <Tooltip formatter={(value: any) => [`${value}%`, 'Mastery']} />
                                 <Line type="monotone" dataKey="mastery" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
                             </LineChart>
                         </ResponsiveContainer>
@@ -230,13 +230,15 @@ export function AnalyticsContent() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
-                    <BarChart3 className="w-6 h-6 text-primary" />
-                </div>
-                <div>
-                    <h1 className="text-3xl font-bold">Analytics</h1>
-                    <p className="text-muted-foreground">Track your learning progress and performance</p>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center">
+                        <BarChart3 className="w-6 h-6 text-primary" />
+                    </div>
+                    <div>
+                        <h1 className="text-2xl sm:text-3xl font-bold">Analytics</h1>
+                        <p className="text-sm sm:text-base text-muted-foreground">Track your learning progress and performance</p>
+                    </div>
                 </div>
             </div>
 
@@ -325,11 +327,11 @@ export function AnalyticsContent() {
                     )}
 
                     <Tabs defaultValue="performance" className="w-full">
-                        <TabsList className="grid w-full max-w-2xl grid-cols-4">
-                            <TabsTrigger value="performance">Performance</TabsTrigger>
-                            <TabsTrigger value="trends">Trends</TabsTrigger>
-                            <TabsTrigger value="weak-topics">Weak Topics</TabsTrigger>
-                            <TabsTrigger value="history">Quiz History</TabsTrigger>
+                        <TabsList className="flex w-full overflow-x-auto justify-start no-scrollbar mb-4 border-b">
+                            <TabsTrigger value="performance" className="whitespace-nowrap">Performance</TabsTrigger>
+                            <TabsTrigger value="trends" className="whitespace-nowrap">Trends</TabsTrigger>
+                            <TabsTrigger value="weak-topics" className="whitespace-nowrap">Weak Topics</TabsTrigger>
+                            <TabsTrigger value="history" className="whitespace-nowrap">Quiz History</TabsTrigger>
                         </TabsList>
 
                         <TabsContent value="performance" className="mt-6 space-y-6">
@@ -361,7 +363,7 @@ export function AnalyticsContent() {
                                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                                                     <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
                                                     <YAxis dataKey="title" type="category" width={150} tick={{ fontSize: 12 }} />
-                                                    <Tooltip formatter={(value: number) => [`${value}%`, 'Mastery']} />
+                                                    <Tooltip formatter={(value: any) => [`${value}%`, 'Mastery']} />
                                                     <Bar dataKey="averageMastery" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
                                                 </BarChart>
                                             </ResponsiveContainer>
@@ -460,7 +462,7 @@ export function AnalyticsContent() {
                                                 <CartesianGrid strokeDasharray="3 3" />
                                                 <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} tick={{ fontSize: 12 }} />
                                                 <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                                                <Tooltip formatter={(value: number) => [`${value}%`, 'Avg Mastery']} />
+                                                <Tooltip formatter={(value: any) => [`${value}%`, 'Avg Mastery']} />
                                                 <Line type="monotone" dataKey="mastery" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                                             </LineChart>
                                         </ResponsiveContainer>
@@ -488,7 +490,7 @@ export function AnalyticsContent() {
                                                 <CartesianGrid strokeDasharray="3 3" />
                                                 <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} tick={{ fontSize: 12 }} />
                                                 <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                                                <Tooltip formatter={(value: number) => [`${value}%`, 'Avg Score']} />
+                                                <Tooltip formatter={(value: any) => [`${value}%`, 'Avg Score']} />
                                                 <Line type="monotone" dataKey="score" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                                             </LineChart>
                                         </ResponsiveContainer>
