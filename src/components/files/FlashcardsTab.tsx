@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
-import { Layers, ChevronRight, RotateCcw, CheckCircle2, Loader2, FileText } from 'lucide-react'
+import { Layers, ChevronRight, RotateCcw, CheckCircle2, Loader2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useDocumentFlashcards, useReviewFlashcard, type Flashcard } from '@/hooks/useFlashcards'
 

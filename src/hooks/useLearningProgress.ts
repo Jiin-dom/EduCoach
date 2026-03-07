@@ -80,15 +80,15 @@ export function useWeeklyProgress() {
 
             // Get mastery scores to compute average delta
             // We'll compute it as: avg score now minus avg score of concepts before this week's attempts
-            const { data: allMastery } = await supabase
-                .from('user_concept_mastery')
-                .select('mastery_score')
-                .eq('user_id', user.id)
-                .abortSignal(signal)
+            // const { data: allMastery } = await supabase
+            //     .from('user_concept_mastery')
+            //     .select('mastery_score')
+            //     .eq('user_id', user.id)
+            //     .abortSignal(signal)
 
-            const avgNow = (allMastery && allMastery.length > 0)
-                ? Math.round(allMastery.reduce((sum, m) => sum + Number(m.mastery_score), 0) / allMastery.length)
-                : 0
+            // const avgNow = (allMastery && allMastery.length > 0)
+            //     ? Math.round(allMastery.reduce((sum, m) => sum + Number(m.mastery_score), 0) / allMastery.length)
+            //     : 0
 
             // Positive delta approximation: concepts improved × average improvement per concept
             // Simplified: just show the count of improved concepts as the headline
