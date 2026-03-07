@@ -27,6 +27,10 @@ interface GenerateQuizRequest {
     difficulty?: string
     questionTypes?: string[]
     enhanceWithLlm?: boolean
+    /** Optional: user ID for mastery-aware generation */
+    userId?: string
+    /** Optional: focus on specific concept IDs (for targeted review quizzes) */
+    focusConceptIds?: string[]
 }
 
 interface NlpQuestion {
@@ -36,6 +40,14 @@ interface NlpQuestion {
     options?: string[] | null
     correct_answer: string
     difficulty_label: string
+    explanation?: string
+}
+
+const DIFFICULTY_MAP: Record<string, string> = {
+    easy: 'beginner',
+    medium: 'intermediate',
+    hard: 'advanced',
+    mixed: 'mixed',
 }
 
 function parseTimeoutMs(value: string | null, fallbackMs: number): number {
@@ -84,6 +96,8 @@ serve(async (req) => {
             difficulty = 'mixed',
             questionTypes = ['multiple_choice', 'identification', 'true_false', 'fill_in_blank'],
             enhanceWithLlm = true,
+            userId: requestUserId,
+            focusConceptIds,
         } = body
 
         if (!documentId) {
@@ -122,10 +136,10 @@ serve(async (req) => {
             throw new Error('NO_CHUNKS:No text chunks found. Please re-process the document.')
         }
 
-        // 3. Fetch concepts (for keyphrases)
+        // 3. Fetch concepts (with chunk_id for per-chunk mapping)
         const { data: concepts, error: conceptError } = await supabase
             .from('concepts')
-            .select('id, name, description, keywords, importance, chunk_id')
+            .select('id, name, description, keywords, importance, chunk_id, difficulty_level, source_pages')
             .eq('document_id', documentId)
             .order('importance', { ascending: false })
 
@@ -134,6 +148,8 @@ serve(async (req) => {
         }
 
         const conceptList = concepts || []
+
+        // Build global keyphrases (for document-wide distractor pool)
         const allKeyphrases: string[] = []
         const seenKp = new Set<string>()
         for (const c of conceptList) {
@@ -147,6 +163,25 @@ serve(async (req) => {
             }
         }
 
+        // Build per-chunk concept map: concepts with chunk_id link directly,
+        // others matched by keyword/name appearing in chunk content
+        const chunkConceptIndex = new Map<string, typeof conceptList>()
+        for (const chunk of chunks) {
+            const matched: typeof conceptList = []
+            const contentLower = chunk.content.toLowerCase()
+            for (const c of conceptList) {
+                if (c.chunk_id === chunk.id) {
+                    matched.push(c)
+                } else if (contentLower.includes(c.name.toLowerCase())) {
+                    matched.push(c)
+                }
+            }
+            chunkConceptIndex.set(chunk.id, matched.length > 0 ? matched : conceptList.slice(0, 5))
+        }
+
+        // Map difficulty from quiz-level vocabulary to question-level
+        const nlpDifficulty = DIFFICULTY_MAP[difficulty] || 'mixed'
+
         // Get the user_id from the auth header
         const authHeader = req.headers.get('Authorization')
         let userId = document.user_id
@@ -158,8 +193,63 @@ serve(async (req) => {
             } catch { /* use document owner */ }
         }
 
-        // 4. Create quiz record
-        const quizTitle = `Quiz: ${document.title}`
+        // 4. Query user mastery data for adaptive generation (Phase 6.1)
+        const resolvedUserId = requestUserId || userId
+        const isReviewQuiz = Array.isArray(focusConceptIds) && focusConceptIds.length > 0
+
+        interface MasteryInfo {
+            mastery_level: string
+            mastery_score: number
+        }
+        const masteryMap = new Map<string, MasteryInfo>()
+
+        if (resolvedUserId && conceptList.length > 0) {
+            try {
+                const conceptIds = conceptList.map(c => c.id)
+                const { data: masteryRows } = await supabase
+                    .from('user_concept_mastery')
+                    .select('concept_id, mastery_score, mastery_level')
+                    .eq('user_id', resolvedUserId)
+                    .in('concept_id', conceptIds)
+
+                if (masteryRows) {
+                    for (const row of masteryRows) {
+                        masteryMap.set(row.concept_id, {
+                            mastery_level: row.mastery_level,
+                            mastery_score: Number(row.mastery_score),
+                        })
+                    }
+                    console.log(`📊 Loaded mastery data for ${masteryRows.length}/${conceptIds.length} concepts`)
+                }
+            } catch (err) {
+                console.warn('⚠️ Could not load mastery data, proceeding without:', (err as Error).message)
+            }
+        }
+
+        // If this is a targeted review quiz, filter concepts to the focus set
+        let activeConceptList = conceptList
+        if (isReviewQuiz) {
+            const focusSet = new Set(focusConceptIds)
+            activeConceptList = conceptList.filter(c => focusSet.has(c.id))
+            if (activeConceptList.length === 0) {
+                activeConceptList = conceptList // fallback if no match
+            }
+            console.log(`🎯 Targeted review: focusing on ${activeConceptList.length} concepts`)
+        }
+
+        // Determine per-concept adaptive difficulty based on mastery
+        function getAdaptiveDifficulty(conceptId: string): string {
+            const m = masteryMap.get(conceptId)
+            if (!m) return difficulty === 'mixed' ? 'mixed' : (DIFFICULTY_MAP[difficulty] || 'intermediate')
+            if (m.mastery_score < 60) return 'beginner'     // weak → easier Qs
+            if (m.mastery_score < 80) return 'intermediate'  // developing → medium
+            return 'advanced'                                // strong → harder Qs
+        }
+
+        // 5. Create quiz record
+        const quizTitle = isReviewQuiz
+            ? `Review Quiz: ${document.title}`
+            : `Quiz: ${document.title}`
         const { data: quiz, error: quizError } = await supabase
             .from('quizzes')
             .insert({
@@ -180,19 +270,58 @@ serve(async (req) => {
         quizId = quiz.id
         console.log(`📝 Quiz record created: ${quizId}`)
 
-        // 5. Build NLP service payload
+        // 5. Build NLP service payload with per-chunk keyphrases and sentences
         const nlpChunks = chunks.map((chunk: { id: string; content: string }) => {
-            const chunkKeyphrases = conceptList
-                .filter((c) => true) // all concepts are document-level
-                .flatMap((c) => [c.name, ...(c.keywords || [])])
-                .filter(Boolean)
+            const chunkConcepts = chunkConceptIndex.get(chunk.id) || []
+            const chunkKeyphrases: string[] = []
+            const seenChunkKp = new Set<string>()
+            for (const c of chunkConcepts) {
+                for (const p of [c.name, ...(c.keywords || [])]) {
+                    const low = (p || '').toLowerCase().trim()
+                    if (low && !seenChunkKp.has(low)) {
+                        seenChunkKp.add(low)
+                        chunkKeyphrases.push(p)
+                    }
+                }
+            }
+
+            // Extract important sentences from the chunk text by picking
+            // sentences that contain at least one keyphrase
+            const chunkSentences = chunk.content
+                .split(/(?<=[.!?])\s+/)
+                .filter((s: string) => s.length > 30 && s.length < 400)
+            const importantFromChunk: string[] = []
+            for (const sent of chunkSentences) {
+                const lower = sent.toLowerCase()
+                if (chunkKeyphrases.some(kp => lower.includes(kp.toLowerCase()))) {
+                    importantFromChunk.push(sent)
+                }
+                if (importantFromChunk.length >= 5) break
+            }
+
             return {
                 chunk_id: chunk.id,
                 text: chunk.content,
                 keyphrases: chunkKeyphrases,
-                important_sentences: [],
+                important_sentences: importantFromChunk,
             }
         })
+
+        // Build concept info array for NLP service (concept coverage balancing)
+        const conceptInfo = conceptList.slice(0, 20).map(c => ({
+            name: c.name,
+            importance: c.importance,
+            difficulty_level: c.difficulty_level || 'intermediate',
+            keywords: c.keywords || [],
+            description: c.description || '',
+            source_pages: (c as Record<string, unknown>).source_pages || null,
+        }))
+
+        // Detect slide-based document from concepts with source_pages
+        const hasSlidePages = conceptList.some(c =>
+            Array.isArray((c as Record<string, unknown>).source_pages) &&
+            ((c as Record<string, unknown>).source_pages as number[]).length > 0
+        )
 
         let questions: NlpQuestion[] = []
         let usedNlpService = false
@@ -200,22 +329,57 @@ serve(async (req) => {
         // 6. Call NLP service (PRIMARY)
         if (nlpServiceUrl) {
             try {
-                console.log('🧠 Calling NLP service /generate-questions...')
+                console.log(`🧠 Calling NLP service /generate-questions (difficulty=${nlpDifficulty})...`)
                 const nlpStart = Date.now()
                 const timeoutMs = parseTimeoutMs(Deno.env.get('NLP_SERVICE_TIMEOUT_MS'), 60000)
+
+                const nlpPayload: Record<string, unknown> = {
+                    chunks: nlpChunks,
+                    all_keyphrases: allKeyphrases,
+                    question_types: questionTypes,
+                    max_questions_per_chunk: Math.min(5, Math.ceil(questionCount / Math.max(1, chunks.length)) + 1),
+                    max_total_questions: questionCount,
+                    difficulty: nlpDifficulty,
+                    concepts: conceptInfo,
+                }
+
+                // Phase 6.1: Pass mastery context to NLP service for adaptive generation
+                if (masteryMap.size > 0) {
+                    nlpPayload.mastery_context = activeConceptList.map(c => ({
+                        concept_name: c.name,
+                        mastery_level: masteryMap.get(c.id)?.mastery_level ?? 'unknown',
+                        mastery_score: masteryMap.get(c.id)?.mastery_score ?? null,
+                        adaptive_difficulty: getAdaptiveDifficulty(c.id),
+                    }))
+                    console.log(`📊 Sent mastery context for ${(nlpPayload.mastery_context as unknown[]).length} concepts`)
+
+                    // Adjust per-chunk quota based on whether chunk contains weak concepts
+                    const baseQpc = Math.ceil(questionCount / Math.max(1, chunks.length)) + 1
+                    for (const nlpChunk of nlpChunks as Array<Record<string, unknown>>) {
+                        const chunkConcepts = chunkConceptIndex.get(nlpChunk.chunk_id as string) || []
+                        const hasWeak = chunkConcepts.some(c => {
+                            const m = masteryMap.get(c.id)
+                            return !m || m.mastery_score < 60
+                        })
+                        const allMastered = chunkConcepts.every(c => {
+                            const m = masteryMap.get(c.id)
+                            return m && m.mastery_score >= 80
+                        })
+                        // 2x for weak, 0.5x for mastered
+                        nlpChunk.max_questions = Math.min(5, hasWeak ? baseQpc * 2 : (allMastered ? Math.max(1, Math.floor(baseQpc * 0.5)) : baseQpc))
+                    }
+                }
+
+                if (hasSlidePages) {
+                    nlpPayload.document_type = 'slides'
+                }
 
                 const nlpResponse = await fetchWithTimeout(
                     `${nlpServiceUrl}/generate-questions`,
                     {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            chunks: nlpChunks,
-                            all_keyphrases: allKeyphrases,
-                            question_types: questionTypes,
-                            max_questions_per_chunk: Math.min(5, Math.ceil(questionCount / Math.max(1, chunks.length)) + 1),
-                            max_total_questions: questionCount,
-                        }),
+                        body: JSON.stringify(nlpPayload),
                     },
                     timeoutMs
                 )
@@ -251,12 +415,28 @@ serve(async (req) => {
                 conceptList,
                 questionCount,
                 questionTypes,
-                geminiApiKey!
+                geminiApiKey!,
+                nlpDifficulty
             )
         } else if (questions.length > 0 && enhanceWithLlm && canUseGemini) {
             // Enhance template-generated questions with Gemini
             console.log('✨ Enhancing template questions with Gemini...')
             questions = await enhanceWithGeminiLlm(questions, chunks, geminiApiKey!)
+        }
+
+        // Post-enhancement quality gate: reject T/F questions that are interrogative
+        const preFilterCount = questions.length
+        questions = questions.filter(q => {
+            if (q.question_type === 'true_false') {
+                const text = q.question_text.trim()
+                if (text.endsWith('?')) return false
+                if (/^(how|what|why|when|where|who|which|can|could|should|would|is|are|do|does|did|will|has|have)\b/i.test(text)) return false
+                if (/\.\.\.|\u2026/.test(text)) return false
+            }
+            return true
+        })
+        if (preFilterCount > questions.length) {
+            console.log(`🧹 Post-enhancement filter removed ${preFilterCount - questions.length} invalid T/F questions`)
         }
 
         if (questions.length === 0) {
@@ -376,7 +556,8 @@ async function generateWithGemini(
     concepts: Array<{ name: string; description?: string; keywords?: string[] }>,
     questionCount: number,
     questionTypes: string[],
-    apiKey: string
+    apiKey: string,
+    difficulty: string = 'mixed'
 ): Promise<NlpQuestion[]> {
     const conceptSummary = concepts
         .slice(0, 15)
@@ -395,6 +576,10 @@ async function generateWithGemini(
         }
     }).join(', ')
 
+    const difficultyInstruction = difficulty === 'mixed'
+        ? 'Mix difficulty levels across beginner, intermediate, and advanced.'
+        : `Target difficulty level: ${difficulty}. Most questions should be ${difficulty}.`
+
     const prompt = `You are an expert academic tutor creating a quiz from a study document.
 
 DOCUMENT TITLE: ${document.title}
@@ -406,8 +591,11 @@ ${conceptSummary}
 DOCUMENT TEXT (excerpt):
 ${textSample.substring(0, 6000)}
 
+DIFFICULTY: ${difficultyInstruction}
+
 Generate exactly ${questionCount} quiz questions using these types: ${typeDescriptions}.
 Mix the types roughly evenly. Every question must be grounded in the document text above.
+Ensure questions cover different concepts — avoid asking multiple questions about the same topic.
 
 For each question provide:
 - question_type: one of ${JSON.stringify(questionTypes)}
@@ -427,7 +615,8 @@ Rules:
 - Correct answers must be factually supported by the document text
 - MCQ distractors must be plausible but clearly wrong
 - Fill-in-the-blank: use __________ for the blank
-- True/False: correct_answer must be "true" or "false"`
+- True/False: correct_answer must be "true" or "false"
+- True/False: question_text MUST be a declarative statement, NEVER a question ending with "?" or starting with "How", "What", etc.`
 
     const content = await callGemini(prompt, apiKey, 4096)
     try {
@@ -477,9 +666,11 @@ Your job is to IMPROVE them — better phrasing, better MCQ distractors, and add
 IMPORTANT RULES:
 - Do NOT change the correct_answer value
 - Do NOT invent new questions
-- Do NOT change the question_type
 - ONLY improve phrasing, distractors, and add explanations
 - Return the same number of questions
+- True/False questions MUST be declarative statements, NEVER questions ending with "?"
+- If a true_false question is actually a question (interrogative), either rephrase it into a declarative statement or change question_type to "identification"
+- If you change a true_false to identification, set correct_answer to the answer of the question and options to null
 
 QUESTIONS TO ENHANCE:
 ${JSON.stringify(questionsWithContext, null, 2)}

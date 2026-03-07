@@ -50,7 +50,23 @@ const EDGE_GENERIC_TAGS = new Set([
     'area', 'point', 'group', 'part', 'kind', 'thing', 'stuff',
     'state', 'need', 'change', 'note', 'item', 'term', 'unit',
     'you', 'your', 'something', 'anything', 'everything',
+    'agenda', 'outline', 'recap', 'overview', 'contents',
+    'objectives', 'topics', 'summary', 'review', 'introduction',
+    'references', 'bibliography', 'questions',
 ])
+
+function isNumericHeavy(text: string): boolean {
+    const stripped = text.replace(/\s/g, '')
+    if (stripped.length === 0) return true
+    const digitDots = (stripped.match(/[\d.]/g) || []).length
+    return digitDots / stripped.length > 0.4
+}
+
+function isCodeLikeContent(text: string): boolean {
+    return /\b(import\s+\w|from\s+\w+\.\w+\s+import|def\s+\w+\(|class\s+\w+[(:])/.test(text)
+        || /\b(Sequential|Dense|model\.\w+|\.fit\(|\.predict\(|\.compile\()/.test(text)
+        || (/[{};=]/.test(text) && (text.match(/[{};=]/g) || []).length >= 3)
+}
 
 let processedByColumnCache: boolean | null = null
 
@@ -107,6 +123,8 @@ interface Concept {
     importance: number
     difficulty_level: string
     keywords: string[]
+    source_pages?: number[]
+    chunk_id?: string
 }
 
 interface SummarySection {
@@ -227,7 +245,7 @@ serve(async (req) => {
             .download(document.file_path)
 
         if (downloadError || !fileData) {
-            throw new Error(`STORAGE_ERROR:Failed to download file. ${downloadError?.message || 'Please try uploading again.'}`)
+            throw new Error(`STORAGE_ERROR:We couldn't retrieve your file. Please try uploading it again.`)
         }
 
         // 3. Extract text based on file type
@@ -239,6 +257,10 @@ serve(async (req) => {
         let extractedClusters: SentenceCluster[] = []
         let extractedSummarySentences: SummarySentence[] = []
         let extractedClusterQuality: number | null = null
+        let extractedProcessingQuality: number | null = null
+        let extractedConceptRelationships: ConceptRelationship[] = []
+        let extractedDocumentType = 'prose'
+        let extractedSlides: SlideData[] = []
 
         if (nlpServiceUrl) {
             // Use NLP service for extraction + keywords + ranked sentences + clusters
@@ -252,6 +274,10 @@ serve(async (req) => {
             extractedClusters = nlpResult.sentenceClusters
             extractedSummarySentences = nlpResult.summarySentences
             extractedClusterQuality = nlpResult.clusterQuality
+            extractedProcessingQuality = nlpResult.processingQuality
+            extractedConceptRelationships = nlpResult.conceptRelationships
+            extractedDocumentType = nlpResult.documentType
+            extractedSlides = nlpResult.slides
             console.log('✅ NLP service extraction finished', {
                 durationMs: Date.now() - nlpStartTime,
                 charCount: textContent.length,
@@ -261,6 +287,10 @@ serve(async (req) => {
                 nounPhraseCount: extractedNounPhrases.length,
                 summarySentenceCount: extractedSummarySentences.length,
                 clusterQuality: extractedClusterQuality,
+                processingQuality: extractedProcessingQuality,
+                conceptRelationships: extractedConceptRelationships.length,
+                documentType: extractedDocumentType,
+                slideCount: extractedSlides.length,
             })
         } else if (document.file_type === 'pdf') {
             // Fallback: basic PDF extraction (may not work well)
@@ -318,7 +348,7 @@ serve(async (req) => {
             .select()
 
         if (chunkError) {
-            throw new Error(`DB_ERROR:Failed to save document chunks. ${chunkError.message}`)
+            throw new Error(`DB_ERROR:We couldn't save the processed content. Please try again.`)
         }
 
         // 7. Analyze document (Pure NLP default, Gemini optional)
@@ -332,7 +362,8 @@ serve(async (req) => {
         const pureNlpResult = buildPureNlpResult(
             textContent, derivedKeywords, derivedImportantSentences,
             extractedNounPhrases, extractedClusters,
-            extractedSummarySentences
+            extractedSummarySentences,
+            extractedDocumentType, extractedSlides
         )
 
         const runGeminiAnalysis = async (): Promise<GeminiResponse> => {
@@ -372,10 +403,21 @@ serve(async (req) => {
 
         console.log(`🧠 Extracted ${analysisResult.concepts.length} concepts`)
 
-        // 8. Save concepts to database
+        // 8. Save concepts to database (with chunk_id mapping)
+        let savedConceptIds: string[] = []
         if (analysisResult.concepts.length > 0) {
             console.log('💾 Saving concepts to database...')
-            const conceptRecords = analysisResult.concepts.map((concept) => ({
+
+            const chunkData = (savedChunks || []).map((c: { id: string; content: string; chunk_index?: number }) => ({
+                id: c.id,
+                content: c.content,
+                chunk_index: (c as Record<string, unknown>).chunk_index as number ?? 0,
+            }))
+            const mappedConcepts = mapConceptsToChunks(analysisResult.concepts, chunkData)
+            const chunksMapped = mappedConcepts.filter(c => c.chunk_id).length
+            console.log(`🔗 Mapped ${chunksMapped}/${mappedConcepts.length} concepts to chunks`)
+
+            const conceptRecords = mappedConcepts.map((concept) => ({
                 document_id: documentId,
                 name: concept.name,
                 description: concept.description,
@@ -383,15 +425,117 @@ serve(async (req) => {
                 importance: concept.importance,
                 difficulty_level: concept.difficulty_level,
                 keywords: concept.keywords,
+                ...(concept.source_pages ? { source_pages: concept.source_pages } : {}),
+                ...(concept.chunk_id ? { chunk_id: concept.chunk_id } : {}),
             }))
 
-            const { error: conceptError } = await supabase
+            const { data: savedConcepts, error: conceptError } = await supabase
                 .from('concepts')
                 .insert(conceptRecords)
+                .select('id')
 
             if (conceptError) {
                 console.error('⚠️ Failed to save concepts:', conceptError)
-                // Don't throw - continue processing
+            } else if (savedConcepts) {
+                savedConceptIds = savedConcepts.map((c: { id: string }) => c.id)
+            }
+
+            // 8b. Populate related_concepts using NLP relationship data
+            if (savedConceptIds.length > 0 && extractedConceptRelationships.length > 0) {
+                console.log(`🔗 Setting ${extractedConceptRelationships.length} concept relationships...`)
+                const relMap = new Map<number, Set<number>>()
+                for (const rel of extractedConceptRelationships) {
+                    const { source_idx, target_idx } = rel
+                    if (source_idx < savedConceptIds.length && target_idx < savedConceptIds.length) {
+                        if (!relMap.has(source_idx)) relMap.set(source_idx, new Set())
+                        if (!relMap.has(target_idx)) relMap.set(target_idx, new Set())
+                        relMap.get(source_idx)!.add(target_idx)
+                        relMap.get(target_idx)!.add(source_idx)
+                    }
+                }
+
+                for (const [idx, relatedIndices] of relMap) {
+                    const conceptId = savedConceptIds[idx]
+                    const relatedIds = [...relatedIndices].map(i => savedConceptIds[i]).filter(Boolean)
+                    if (conceptId && relatedIds.length > 0) {
+                        await supabase
+                            .from('concepts')
+                            .update({ related_concepts: relatedIds })
+                            .eq('id', conceptId)
+                    }
+                }
+            }
+        }
+
+        // 8c. Generate flashcards from concepts
+        if (nlpServiceUrl && analysisResult.concepts.length > 0 && document.user_id) {
+            try {
+                console.log('🃏 Generating flashcards...')
+                const flashcardInput = {
+                    concepts: analysisResult.concepts.map((c, idx) => ({
+                        concept_name: c.name,
+                        description: c.description,
+                        keywords: c.keywords,
+                        source_page: c.source_pages?.[0] ?? null,
+                    })),
+                    important_sentences: derivedImportantSentences.slice(0, 20),
+                    max_cards: 30,
+                }
+
+                const flashcardTimeoutMs = parseTimeoutMs(Deno.env.get('NLP_SERVICE_TIMEOUT_MS'), 30000)
+                const fcResponse = await fetchWithTimeout(
+                    `${nlpServiceUrl}/generate-flashcards`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(flashcardInput),
+                    },
+                    flashcardTimeoutMs
+                )
+
+                if (fcResponse.ok) {
+                    const fcResult = await fcResponse.json()
+                    if (fcResult.success && fcResult.flashcards?.length > 0) {
+                        // Delete old flashcards for this document/user
+                        await supabase
+                            .from('flashcards')
+                            .delete()
+                            .eq('document_id', documentId)
+                            .eq('user_id', document.user_id)
+
+                        // Build concept name → ID lookup
+                        const conceptNameToId = new Map<string, string>()
+                        if (savedConceptIds.length > 0) {
+                            analysisResult.concepts.forEach((c, idx) => {
+                                if (savedConceptIds[idx]) {
+                                    conceptNameToId.set(c.name.toLowerCase(), savedConceptIds[idx])
+                                }
+                            })
+                        }
+
+                        const flashcardRecords = fcResult.flashcards.map((fc: { front: string; back: string; concept_name: string; difficulty: string; source_page: number | null }) => ({
+                            document_id: documentId,
+                            user_id: document.user_id,
+                            front: fc.front,
+                            back: fc.back,
+                            concept_id: conceptNameToId.get(fc.concept_name?.toLowerCase()) ?? null,
+                            difficulty_level: fc.difficulty || 'intermediate',
+                            source_page: fc.source_page,
+                        }))
+
+                        const { error: fcInsertError } = await supabase
+                            .from('flashcards')
+                            .insert(flashcardRecords)
+
+                        if (fcInsertError) {
+                            console.error('⚠️ Failed to save flashcards:', fcInsertError.message)
+                        } else {
+                            console.log(`✅ Saved ${flashcardRecords.length} flashcards`)
+                        }
+                    }
+                }
+            } catch (fcErr) {
+                console.error('⚠️ Flashcard generation failed (non-blocking):', (fcErr as Error).message)
             }
         }
 
@@ -426,13 +570,17 @@ serve(async (req) => {
             updatePayload.processed_by = processedBy
         }
 
+        if (extractedProcessingQuality !== null) {
+            updatePayload.processing_quality = extractedProcessingQuality
+        }
+
         const { error: updateError } = await supabase
             .from('documents')
             .update(updatePayload)
             .eq('id', documentId)
 
         if (updateError) {
-            throw new Error(`DB_ERROR:Failed to update document. ${updateError.message}`)
+            throw new Error(`DB_ERROR:We couldn't finalize your document. Please try processing again.`)
         }
 
         const totalTime = Date.now() - startTime
@@ -508,6 +656,20 @@ interface SummarySentence {
     relevance_score: number
 }
 
+interface SlideData {
+    slide_number: number
+    title: string
+    bullets: string[]
+    keywords?: string[]
+}
+
+interface ConceptRelationship {
+    source_idx: number
+    target_idx: number
+    similarity: number
+    relationship_type: string
+}
+
 interface NlpExtractionResult {
     text: string
     keywords: string[]
@@ -516,6 +678,10 @@ interface NlpExtractionResult {
     sentenceClusters: SentenceCluster[]
     summarySentences: SummarySentence[]
     clusterQuality: number | null
+    processingQuality: number | null
+    conceptRelationships: ConceptRelationship[]
+    documentType: string
+    slides: SlideData[]
 }
 
 async function extractWithNlpService(
@@ -543,7 +709,7 @@ async function extractWithNlpService(
         if (!response.ok) {
             const errorText = await response.text()
             console.error('NLP service error:', errorText)
-            throw new Error(`NLP_SERVICE_ERROR:Failed to extract text. Status: ${response.status}`)
+            throw new Error(`NLP_SERVICE_ERROR:The text analysis service encountered an error. Please try again.`)
         }
 
         const result = await response.json()
@@ -562,16 +728,27 @@ async function extractWithNlpService(
             sentenceClusters: result.sentence_clusters || [],
             summarySentences: result.summary_sentences || [],
             clusterQuality: result.cluster_quality ?? null,
+            processingQuality: result.processing_quality ?? null,
+            conceptRelationships: result.concept_relationships || [],
+            documentType: result.document_type || 'prose',
+            slides: result.slides || [],
         }
     } catch (error) {
         const err = error as Error
         console.error('NLP service call failed:', err.message)
 
-        if (err.name === 'AbortError') {
-            throw new Error('NLP_SERVICE_TIMEOUT:Text extraction service timed out. Please try again.')
+        // Re-throw errors that already carry an NLP error code — they are
+        // intentional failures (e.g. empty document) thrown above, not
+        // connection/network errors.
+        if (err.message.startsWith('NLP_SERVICE_ERROR:') || err.message.startsWith('NLP_SERVICE_TIMEOUT:')) {
+            throw err
         }
 
-        throw new Error('NLP_SERVICE_ERROR:Could not connect to text extraction service. Please try again.')
+        if (err.name === 'AbortError') {
+            throw new Error('NLP_SERVICE_TIMEOUT:Text extraction is taking too long. The document may be very large — please try a smaller file or try again later.')
+        }
+
+        throw new Error('NLP_SERVICE_ERROR:Could not reach the text extraction service. Please try again in a moment.')
     }
 }
 
@@ -593,7 +770,7 @@ async function extractTextFromPdfFallback(blob: Blob): Promise<string> {
         return cleanedText
     }
 
-    throw new Error('PDF_ERROR:Could not extract text from PDF. Please ensure NLP service is running or upload a text file (.txt, .md) instead.')
+    throw new Error('PDF_ERROR:We couldn\'t extract text from this PDF. It may be image-based or protected. Try uploading a different version.')
 }
 
 /**
@@ -636,6 +813,55 @@ function chunkText(text: string, chunkSize: number, overlap: number): string[] {
     }
 
     return chunks.filter(chunk => chunk.length > 50) // Remove tiny chunks
+}
+
+/**
+ * Map each concept to its best-matching chunk by finding which chunk
+ * contains the concept's description or name. Uses keyword overlap as tiebreaker.
+ */
+function mapConceptsToChunks(
+    concepts: Concept[],
+    savedChunks: Array<{ id: string; content: string; chunk_index: number }>
+): Concept[] {
+    if (!savedChunks || savedChunks.length === 0) return concepts
+
+    return concepts.map((concept) => {
+        let bestChunkId: string | undefined
+        let bestScore = 0
+
+        const nameLower = concept.name.toLowerCase()
+        const descLower = (concept.description || '').toLowerCase()
+        const conceptKeywords = (concept.keywords || []).map(k => k.toLowerCase())
+
+        for (const chunk of savedChunks) {
+            const contentLower = chunk.content.toLowerCase()
+            let score = 0
+
+            if (contentLower.includes(descLower.substring(0, 80))) {
+                score += 5
+            }
+
+            if (contentLower.includes(nameLower)) {
+                score += 3
+            }
+
+            for (const kw of conceptKeywords) {
+                if (kw.length > 3 && contentLower.includes(kw)) {
+                    score += 1
+                }
+            }
+
+            if (score > bestScore) {
+                bestScore = score
+                bestChunkId = chunk.id
+            }
+        }
+
+        if (bestChunkId && bestScore > 0) {
+            return { ...concept, chunk_id: bestChunkId }
+        }
+        return concept
+    })
 }
 
 /**
@@ -718,6 +944,8 @@ function stripNoisyInlineContent(text: string): string {
         .replace(/www\.\S+/gi, ' ')
         // Common slide/page markers from PDFs.
         .replace(/\b(slide|page)\s*\d+\b/gi, ' ')
+        // Strip arrow characters that leak from slide notation
+        .replace(/[\u2190-\u21ff\u27f0-\u27ff\u2900-\u297f\u25b6\u25ba\u279c-\u279e]/g, ' ')
         // Strip residual mojibake: unicode control-range characters
         .replace(/\u00e2[\u0080-\u00bf]*/g, ' ')
         .replace(/[\u00c2\u00c3][\u0080-\u00bf]/g, ' ')
@@ -753,7 +981,8 @@ function filterKeywordsForStudy(keywords: string[]): string[] {
     const slidePageNumberRe = /\b(slide|page)\s*\d+\b/i
 
     for (const raw of keywords) {
-        const phrase = stripNoisyInlineContent(raw || '')
+        // Strip arrows, articles, and inline noise before evaluation
+        const phrase = stripArrowsAndArticles(stripNoisyInlineContent(raw || ''))
         if (!phrase) continue
 
         const lower = phrase.toLowerCase()
@@ -761,12 +990,15 @@ function filterKeywordsForStudy(keywords: string[]): string[] {
         if (lower.includes('http') || lower.includes('www')) continue
         if (slidePageNumberRe.test(lower) || lower === 'slide' || lower === 'page') continue
         if (phrase.length < 3) continue
+        if (isNumericHeavy(phrase)) continue
         // Reject single-word generic terms
         const words = lower.split(/\s+/)
         if (words.length === 1 && EDGE_GENERIC_TAGS.has(lower)) continue
         if (words.length === 1 && STOPWORDS.has(lower)) continue
         // Reject if ALL tokens are generic
         if (words.every(w => EDGE_GENERIC_TAGS.has(w) || STOPWORDS.has(w))) continue
+        // Reject 2-word phrases where one token is purely numeric
+        if (words.length === 2 && words.some(w => /^\d[\d.]*$/.test(w))) continue
 
         seen.add(lower)
         filtered.push(phrase)
@@ -876,23 +1108,66 @@ const KNOWN_ACRONYMS = new Set([
     'SGD', 'ADAM', 'ReLU', 'MSE', 'MAE', 'ROC', 'AUC', 'IoU',
 ])
 
+const PROTECTED_BIGRAMS = new Set([
+    'deep learning', 'machine learning', 'reinforcement learning',
+    'transfer learning', 'supervised learning', 'unsupervised learning',
+    'representation learning', 'active learning', 'online learning',
+    'federated learning', 'contrastive learning', 'curriculum learning',
+    'neural network', 'neural networks',
+    'data structure', 'data structures', 'data science',
+    'computer vision', 'computer science', 'natural language',
+    'operating system', 'operating systems',
+    'information retrieval', 'information theory',
+])
+
+const LEADING_PREPS = new Set([
+    'of', 'for', 'in', 'on', 'to', 'by', 'with', 'from', 'about', 'between',
+])
+
+const COMMON_SINGLE_WORDS = new Set([
+    'useful', 'connected', 'dense', 'important', 'similar',
+    'different', 'simple', 'complex', 'possible', 'available',
+    'necessary', 'better', 'worse', 'faster', 'slower',
+    'larger', 'smaller', 'higher', 'lower', 'common', 'typical',
+])
+
 function cleanConceptLabel(rawLabel: string): string {
-    const tokens = rawLabel.split(/\s+/).filter(Boolean)
-    // Strip leading articles
+    const stripped = stripArrowsAndArticles(rawLabel)
+    const tokens = stripped.split(/\s+/).filter(Boolean)
+
+    if (isNumericHeavy(stripped)) return ''
+
     const noArticles = tokens.filter(t => !LABEL_ARTICLES.has(t.toLowerCase()))
-    const cleaned = noArticles.filter(t => !LABEL_PENALTY_TERMS.has(t.toLowerCase()))
+
+    // Build protected token indices before penalty filtering
+    const protectedIndices = new Set<number>()
+    for (let i = 0; i < noArticles.length - 1; i++) {
+        const bigram = `${noArticles[i].toLowerCase()} ${noArticles[i + 1].toLowerCase()}`
+        if (PROTECTED_BIGRAMS.has(bigram)) {
+            protectedIndices.add(i)
+            protectedIndices.add(i + 1)
+        }
+    }
+
+    const cleaned = noArticles.filter((t, i) =>
+        protectedIndices.has(i) || !LABEL_PENALTY_TERMS.has(t.toLowerCase())
+    )
+
+    // Strip leading prepositions left behind after penalty removal
+    while (cleaned.length > 0 && LEADING_PREPS.has(cleaned[0].toLowerCase())) {
+        cleaned.shift()
+    }
 
     if (cleaned.length === 0) return ''
 
-    // Reject if remaining text contains mojibake-like characters
     const joined = cleaned.join(' ')
     if (/[\u00e2\u00c3\u00c2\u0080-\u009f]/.test(joined)) return ''
 
-    // Single-word labels: only accepted if they're known acronyms or long enough
     if (cleaned.length === 1) {
         const upper = cleaned[0].toUpperCase()
         if (KNOWN_ACRONYMS.has(upper)) return upper
         if (cleaned[0].length <= 4) return ''
+        if (COMMON_SINGLE_WORDS.has(cleaned[0].toLowerCase())) return ''
     }
 
     if (cleaned.length > 5) return toTitleCase(cleaned.slice(0, 4).join(' '))
@@ -1060,10 +1335,12 @@ const PEDAGOGICAL_SECTIONS = [
 const BULLET_LABEL_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
     { pattern: /\b(defin|is a\b|are a\b|refers to|means\b|known as)\b/i, label: 'DEFINITION' },
     { pattern: /\b(example|instance|such as|e\.g\.|for instance|illustrated by)\b/i, label: 'EXAMPLE' },
-    { pattern: /\b(step|process|procedure|build|create|implement|compil|train)\b/i, label: 'PROCESS' },
-    { pattern: /\b(challeng|problem|issue|difficult|limit|drawback|error)\b/i, label: 'CHALLENGE' },
-    { pattern: /\b(advantage|benefit|strength|useful|improve|efficient)\b/i, label: 'ADVANTAGE' },
-    { pattern: /\b(compar|differ|unlike|versus|vs\b|contrast|distinction)\b/i, label: 'KEY DISTINCTION' },
+    { pattern: /\b(step|process|procedure|build|create|implement|compil|train|algorithm|pipeline)\b/i, label: 'PROCESS' },
+    { pattern: /\b(challeng|problem|issue|difficult|limit|drawback|error|vanish|overfit|underfit)\b/i, label: 'CHALLENGE' },
+    { pattern: /\b(advantage|benefit|strength|useful|improve|efficient|reduce|fast|simple)\b/i, label: 'ADVANTAGE' },
+    { pattern: /\b(compar|differ|unlike|versus|vs\b|contrast|distinction|verses)\b/i, label: 'KEY DISTINCTION' },
+    { pattern: /\b(operation|convol|mathematical|computation|formula|calculat|transform|activation)\b/i, label: 'PROCESS' },
+    { pattern: /\b(architecture|network|layer|neuron|kernel|filter|channel|pool|stride)\b/i, label: 'KEY CONCEPT' },
     { pattern: /\b(key|important|fundamental|essential|core|critical|significant)\b/i, label: 'KEY CONCEPT' },
 ]
 
@@ -1071,6 +1348,8 @@ function detectBulletLabel(text: string): string {
     for (const { pattern, label } of BULLET_LABEL_PATTERNS) {
         if (pattern.test(text)) return label
     }
+    // Colon-separated "Term: explanation" is very common in slide bullets
+    if (/^[A-Z][A-Za-z\s-]{2,30}:/.test(text.trim())) return 'DEFINITION'
     return 'KEY CONCEPT'
 }
 
@@ -1210,24 +1489,240 @@ function filterConceptTags(tags: string[], labelLower: string): string[] {
     const seen = new Set<string>()
     const result: string[] = []
     for (const t of tags) {
-        const low = t.toLowerCase().trim()
+        const cleaned = stripArrowsAndArticles(t)
+        const low = cleaned.toLowerCase().trim()
         if (!low || low.length < 3) continue
         if (seen.has(low)) continue
+        if (isNumericHeavy(cleaned)) continue
         if (EDGE_GENERIC_TAGS.has(low)) continue
         if (labelLower.includes(low)) continue
         if (STOPWORDS.has(low)) continue
+        const words = low.split(/\s+/)
+        if (words.length === 1 && STOPWORDS.has(low)) continue
         seen.add(low)
-        result.push(t)
+        result.push(cleaned)
         if (result.length >= 4) break
     }
     return result
+}
+
+function stripArrowsAndArticles(text: string): string {
+    return text
+        .replace(/[\u2190-\u21ff\u27f0-\u27ff\u2900-\u297f\u25b6\u25ba\u279c-\u279e]/g, ' ')
+        .replace(/^\s*(the|a|an)\s+/i, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+}
+
+const META_SLIDE_TITLES = new Set([
+    'agenda', 'outline', 'table of contents', 'topics', 'overview',
+    'contents', 'objectives', 'learning objectives', 'recap',
+    'references', 'bibliography', 'thank you', 'questions',
+    'q&a', 'summary', 'review', 'end',
+])
+
+const COVER_SLIDE_RE = /^[A-Za-z\s]+:\s*\d+/
+
+function isMetaSlide(slide: SlideData): boolean {
+    const titleLower = (slide.title || '').trim().toLowerCase()
+    if (META_SLIDE_TITLES.has(titleLower)) return true
+    if (slide.slide_number === 1 && COVER_SLIDE_RE.test(slide.title || '')) return true
+    return false
+}
+
+function buildConceptsFromSlides(slides: SlideData[]): Concept[] {
+    const concepts: Concept[] = []
+    const usedNames = new Set<string>()
+
+    for (const slide of slides) {
+        if (concepts.length >= 12) break
+
+        if (isMetaSlide(slide)) continue
+
+        const rawTitle = (slide.title || '').trim()
+        if (!rawTitle || rawTitle.length < 3) continue
+
+        const name = cleanConceptLabel(stripArrowsAndArticles(rawTitle))
+        if (!name || name.length < 3) continue
+
+        const nameKey = normalizeForDedup(name)
+        if (usedNames.has(nameKey)) continue
+        usedNames.add(nameKey)
+
+        const cleanBullets = (slide.bullets || [])
+            .map(b => stripArrowsAndArticles(b).trim())
+            .filter(b => b.length > 5 && !isNumericHeavy(b) && !isCodeLikeContent(b))
+
+        if (cleanBullets.length === 0) continue
+
+        let description = cleanBullets.slice(0, 3).join('. ')
+        description = stripLeadingConjunctions(description)
+        if (description.length > 300) {
+            description = truncateOnSentenceBoundary(description, 300)
+        }
+        if (!description.endsWith('.') && !description.endsWith('!') && !description.endsWith('?')) {
+            description += '.'
+        }
+
+        const tags = filterConceptTags(
+            (slide.keywords || []).map(k => stripArrowsAndArticles(k)).filter(Boolean),
+            name.toLowerCase()
+        )
+
+        const importance = Math.min(10, Math.max(1, 10 - Math.floor((slide.slide_number - 1) / 3)))
+        const difficulty = estimateDifficulty(description, name)
+        const category = detectCategory(name, tags)
+
+        concepts.push({
+            name,
+            description,
+            category,
+            importance,
+            difficulty_level: difficulty,
+            keywords: tags,
+            source_pages: [slide.slide_number],
+        })
+    }
+
+    return concepts
+}
+
+function buildStructuredSummaryFromSlides(
+    slides: SlideData[]
+): { summary: string; structured: StructuredSummary } {
+    // Short summary: synthesized from first few slides with content
+    const introSlides = slides
+        .filter(s => (s.bullets || []).length > 0 && !isMetaSlide(s))
+        .slice(0, 4)
+    const shortParts: string[] = []
+    for (const slide of introSlides) {
+        const title = stripArrowsAndArticles(slide.title || '')
+        if (isNumericHeavy(title)) continue
+        const usableBullets = (slide.bullets || [])
+            .map(b => stripArrowsAndArticles(b))
+            .filter(b => b.length > 5 && !isNumericHeavy(b) && !isCodeLikeContent(b))
+        const firstBullet = usableBullets[0] || ''
+        if (title && firstBullet) {
+            shortParts.push(`${title}: ${firstBullet}`)
+        } else if (firstBullet) {
+            shortParts.push(firstBullet)
+        } else if (title) {
+            shortParts.push(title)
+        }
+    }
+    let short = shortParts.join('. ').replace(/\.\./g, '.').trim()
+    if (short && !short.endsWith('.')) short += '.'
+    if (!short) short = 'Document summary could not be generated.'
+
+    // Detailed sections: group slides into pedagogical categories
+    const sectionBuckets: Map<number, string[]> = new Map()
+
+    for (const slide of slides) {
+        if (isMetaSlide(slide)) continue
+        const title = stripArrowsAndArticles(slide.title || '')
+        const bullets = (slide.bullets || [])
+            .map(b => stripArrowsAndArticles(b))
+            .filter(b => b.length > 0 && !isNumericHeavy(b) && !isCodeLikeContent(b))
+        if (!title && bullets.length === 0) continue
+        if (isNumericHeavy(title) && bullets.length === 0) continue
+
+        const slideText = [title, ...bullets].join(' ')
+        const sectionIdx = classifyClusterToSection(slideText)
+
+        let content = (title && !isNumericHeavy(title)) ? `${title}: ` : ''
+        content += bullets.slice(0, 3).join('. ')
+        content = stripLeadingConjunctions(content.trim())
+        if (content.length > 400) {
+            content = truncateOnSentenceBoundary(content, 400)
+        }
+
+        const existing = sectionBuckets.get(sectionIdx) || []
+        existing.push(content)
+        sectionBuckets.set(sectionIdx, existing)
+    }
+
+    const detailed: SummarySection[] = []
+    for (let i = 0; i < PEDAGOGICAL_SECTIONS.length; i++) {
+        const contents = sectionBuckets.get(i)
+        if (!contents || contents.length === 0) continue
+
+        let merged = contents.join(' ')
+        if (merged.length > 600) {
+            merged = truncateOnSentenceBoundary(merged, 600)
+        }
+
+        detailed.push({
+            title: PEDAGOGICAL_SECTIONS[i].title,
+            icon: PEDAGOGICAL_SECTIONS[i].icon,
+            content: merged,
+        })
+    }
+
+    // If we ended up with fewer than 2 sections, create fallback sections
+    if (detailed.length < 2) {
+        detailed.length = 0
+        const contentSlides = slides.filter(s => (s.bullets || []).length > 0)
+        if (contentSlides.length >= 2) {
+            const first = contentSlides[0]
+            const rest = contentSlides.slice(1)
+            detailed.push({
+                title: 'Introduction',
+                icon: 'play',
+                content: stripArrowsAndArticles(
+                    [first.title, ...(first.bullets || []).slice(0, 2)].filter(Boolean).join('. ')
+                ),
+            })
+            const coreContent = rest.slice(0, 3)
+                .map(s => [s.title, ...(s.bullets || []).slice(0, 2)].filter(Boolean).join('. '))
+                .join(' ')
+            detailed.push({
+                title: 'Core Concepts',
+                icon: 'sparkles',
+                content: stripArrowsAndArticles(
+                    truncateOnSentenceBoundary(coreContent, 500)
+                ),
+            })
+        }
+    }
+
+    // Bullets: one per slide with substantive content
+    const bullets: SummaryBullet[] = []
+    for (const slide of slides) {
+        if (bullets.length >= 10) break
+        if (isMetaSlide(slide)) continue
+        const title = stripArrowsAndArticles(slide.title || '')
+        const usableBullets = (slide.bullets || [])
+            .map(b => stripArrowsAndArticles(b))
+            .filter(b => b.length > 5 && !isNumericHeavy(b) && !isCodeLikeContent(b))
+        const firstBullet = usableBullets[0] || ''
+        if (!firstBullet) continue
+        if (isNumericHeavy(title)) continue
+
+        const bulletText = title ? `${title}: ${firstBullet}` : firstBullet
+        const label = detectBulletLabel(bulletText)
+        bullets.push({ label, text: stripLeadingConjunctions(bulletText) })
+    }
+
+    return {
+        summary: short,
+        structured: { short, detailed, bullets },
+    }
+}
+
+function estimatePageFromPosition(text: string, sentence: string): number[] {
+    const CHARS_PER_PAGE = 3000
+    const pos = text.indexOf(sentence.substring(0, 60))
+    if (pos < 0) return []
+    const page = Math.floor(pos / CHARS_PER_PAGE) + 1
+    return [page]
 }
 
 function buildConceptsFromClusters(
     sentencePool: string[],
     clusters: SentenceCluster[],
     _nounPhrases: NounPhrase[],
-    _keywordPool: string[]
+    _keywordPool: string[],
+    fullText: string = ''
 ): Concept[] {
     const concepts: Concept[] = []
 
@@ -1265,6 +1760,10 @@ function buildConceptsFromClusters(
         const difficulty = estimateDifficulty(description, label)
         const category = detectCategory(label, tags)
 
+        const sourcePages = fullText
+            ? estimatePageFromPosition(fullText, representative)
+            : undefined
+
         concepts.push({
             name: label,
             description,
@@ -1272,6 +1771,7 @@ function buildConceptsFromClusters(
             importance,
             difficulty_level: difficulty,
             keywords: tags,
+            ...(sourcePages && sourcePages.length > 0 ? { source_pages: sourcePages } : {}),
         })
     }
 
@@ -1284,8 +1784,19 @@ function buildPureNlpResult(
     importantSentences: string[],
     nounPhrases: NounPhrase[] = [],
     sentenceClusters: SentenceCluster[] = [],
-    summarySentences: SummarySentence[] = []
+    summarySentences: SummarySentence[] = [],
+    documentType: string = 'prose',
+    slides: SlideData[] = []
 ): GeminiResponse {
+    // Slide-based path: use slide structure directly for best results
+    if (documentType === 'slides' && slides.length >= 3) {
+        console.log(`📊 Using slide-based concept extraction (${slides.length} slides)`)
+        const slideConcepts = buildConceptsFromSlides(slides)
+        const dedupedConcepts = deduplicateConcepts(slideConcepts)
+        const { summary, structured } = buildStructuredSummaryFromSlides(slides)
+        return { summary, structured_summary: structured, concepts: dedupedConcepts }
+    }
+
     const cleanedText = stripNoisyInlineContent(text)
     const baseSentences = importantSentences.length > 0 ? importantSentences : splitSentences(cleanedText)
 
@@ -1308,7 +1819,7 @@ function buildPureNlpResult(
 
     // Cluster-based path: semantic clusters from NLP service
     if (sentenceClusters.length >= 3) {
-        const clusterConcepts = buildConceptsFromClusters(sentencePool, sentenceClusters, nounPhrases, keywordPool)
+        const clusterConcepts = buildConceptsFromClusters(sentencePool, sentenceClusters, nounPhrases, keywordPool, text)
         const dedupedConcepts = deduplicateConcepts(clusterConcepts)
         const { summary, structured } = buildStructuredSummaryFromClusters(
             sentencePool, sentenceClusters, summarySentences, sentencePool

@@ -69,6 +69,12 @@ export interface GenerateQuizInput {
     enhanceWithLlm?: boolean
 }
 
+export interface GenerateReviewQuizInput {
+    documentId: string
+    focusConceptIds: string[]
+    questionCount?: number
+}
+
 export interface SubmitAttemptInput {
     quizId: string
     answers: AttemptAnswer[]
@@ -119,7 +125,7 @@ export function useQuizzes() {
 export function useQuiz(quizId: string | undefined) {
     const { user } = useAuth()
 
-    return useQuery({
+    const query = useQuery({
         queryKey: quizKeys.detail(quizId ?? ''),
         queryFn: async ({ signal }): Promise<Quiz | null> => {
             if (!quizId || !user) return null
@@ -139,7 +145,13 @@ export function useQuiz(quizId: string | undefined) {
             return data as Quiz
         },
         enabled: !!quizId && !!user,
+        refetchInterval: (query) => {
+            const quiz = query.state.data as Quiz | null | undefined
+            return quiz?.status === 'generating' ? 4000 : false
+        },
     })
+
+    return query
 }
 
 export function useQuizQuestions(quizId: string | undefined) {
@@ -246,29 +258,112 @@ export function useGenerateQuiz() {
                 throw new Error('Your session has expired — please log in again')
             }
 
-            const { data, error } = await supabase.functions.invoke('generate-quiz', {
-                body: {
-                    documentId: input.documentId,
-                    questionCount: input.questionCount ?? 10,
-                    difficulty: input.difficulty ?? 'mixed',
-                    questionTypes: input.questionTypes ?? ['multiple_choice', 'identification', 'true_false', 'fill_in_blank'],
-                    enhanceWithLlm: input.enhanceWithLlm ?? true,
-                },
-            })
+            // Guard: check if a quiz is already generating for this document
+            const { data: existing } = await supabase
+                .from('quizzes')
+                .select('id, status')
+                .eq('document_id', input.documentId)
+                .eq('status', 'generating')
+                .limit(1)
+                .maybeSingle()
 
-            if (error) {
-                console.error('[Quiz] Generation failed:', error.message)
-                throw new Error(error.message)
+            if (existing) {
+                console.log('[Quiz] Quiz already generating, reusing:', existing.id)
+                return { success: true, quizId: existing.id, questionCount: 0 }
             }
 
-            console.log('[Quiz] Generation successful:', data)
-            return data as { success: boolean; quizId: string; questionCount: number }
+            try {
+                const { data, error } = await supabase.functions.invoke('generate-quiz', {
+                    body: {
+                        documentId: input.documentId,
+                        questionCount: input.questionCount ?? 10,
+                        difficulty: input.difficulty ?? 'mixed',
+                        questionTypes: input.questionTypes ?? ['multiple_choice', 'identification', 'true_false', 'fill_in_blank'],
+                        enhanceWithLlm: input.enhanceWithLlm ?? true,
+                        userId: session.user.id,
+                    },
+                })
+
+                if (error) {
+                    console.error('[Quiz] Generation failed:', error.message)
+                    throw new Error(error.message)
+                }
+
+                console.log('[Quiz] Generation successful:', data)
+                return data as { success: boolean; quizId: string; questionCount: number }
+            } catch (err) {
+                // Recovery: if the fetch failed (timeout, network), the edge function
+                // may have already created the quiz record before the client gave up.
+                // Check the DB and recover instead of showing an error.
+                console.warn('[Quiz] Edge function call failed, checking for server-side quiz...', (err as Error).message)
+
+                const { data: recoveredQuiz } = await supabase
+                    .from('quizzes')
+                    .select('id, status')
+                    .eq('document_id', input.documentId)
+                    .in('status', ['generating', 'ready'])
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle()
+
+                if (recoveredQuiz) {
+                    console.log('[Quiz] Recovered quiz from DB:', recoveredQuiz.id, recoveredQuiz.status)
+                    return { success: true, quizId: recoveredQuiz.id, questionCount: 0 }
+                }
+
+                throw err
+            }
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: quizKeys.all })
         },
         onError: (error) => {
             console.error('[Quiz] Generation mutation error:', error)
+        },
+    })
+}
+
+/**
+ * Generate a targeted review quiz focusing on specific weak/due concepts.
+ * Used by the Learning Path "Start Review" button.
+ */
+export function useGenerateReviewQuiz() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: async (input: GenerateReviewQuizInput) => {
+            console.log('[Quiz] Starting review quiz generation...', input)
+
+            const session = await ensureFreshSession()
+            if (!session) {
+                throw new Error('Your session has expired — please log in again')
+            }
+
+            const { data, error } = await supabase.functions.invoke('generate-quiz', {
+                body: {
+                    documentId: input.documentId,
+                    questionCount: input.questionCount ?? 10,
+                    difficulty: 'mixed',
+                    questionTypes: ['multiple_choice', 'identification', 'true_false', 'fill_in_blank'],
+                    enhanceWithLlm: true,
+                    userId: session.user.id,
+                    focusConceptIds: input.focusConceptIds,
+                },
+            })
+
+            if (error) {
+                console.error('[Quiz] Review quiz generation failed:', error.message)
+                throw new Error(error.message)
+            }
+
+            console.log('[Quiz] Review quiz generation successful:', data)
+            return data as { success: boolean; quizId: string; questionCount: number }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: quizKeys.all })
+        },
+        onError: (error) => {
+            console.error('[Quiz] Review quiz generation error:', error)
         },
     })
 }

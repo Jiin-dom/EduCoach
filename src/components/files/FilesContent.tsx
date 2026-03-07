@@ -166,21 +166,21 @@ export function FilesContent() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                    <div className="w-12 h-12 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center">
                         <FolderOpen className="w-6 h-6 text-primary" />
                     </div>
                     <div>
-                        <h1 className="text-3xl font-bold">Study Materials</h1>
-                        <p className="text-muted-foreground">Manage and organize your learning resources</p>
+                        <h1 className="text-2xl sm:text-3xl font-bold">Study Materials</h1>
+                        <p className="text-sm sm:text-base text-muted-foreground">Manage and organize your learning resources</p>
                     </div>
                 </div>
-                <div className="flex items-center gap-2">
-                    <Button variant="outline" size="icon" onClick={() => refetch()}>
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                    <Button variant="outline" size="icon" onClick={() => refetch()} className="shrink-0">
                         <RefreshCw className="w-4 h-4" />
                     </Button>
-                    <Button onClick={() => setUploadDialogOpen(true)} className="gap-2">
+                    <Button onClick={() => setUploadDialogOpen(true)} className="gap-2 flex-1 sm:flex-none">
                         <Upload className="w-4 h-4" />
                         Upload File
                     </Button>
@@ -208,39 +208,43 @@ export function FilesContent() {
                             {files.map((file) => (
                                 <div
                                     key={file.id}
-                                    className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors group"
+                                    className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 gap-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors group"
                                 >
                                     {/* Clickable area - navigates to file detail */}
                                     <Link
                                         to={`/files/${file.id}`}
-                                        className="flex items-center gap-4 flex-1 cursor-pointer"
+                                        className="flex items-start sm:items-center gap-3 sm:gap-4 flex-1 cursor-pointer min-w-0 w-full"
                                     >
-                                        {getFileIcon(file.file_type)}
+                                        <div className="mt-1 sm:mt-0 shrink-0">
+                                            {getFileIcon(file.file_type)}
+                                        </div>
                                         <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2">
-                                                <h4 className="font-semibold truncate group-hover:text-primary transition-colors">{file.title}</h4>
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <h4 className="font-semibold truncate max-w-full group-hover:text-primary transition-colors">{file.title}</h4>
                                                 {getStatusBadge(file.status)}
                                             </div>
-                                            <div className="flex items-center gap-4 text-sm text-muted-foreground mt-1">
-                                                <span className="truncate">{file.file_name}</span>
-                                                <span>•</span>
-                                                <span>{formatFileSize(file.file_size)}</span>
-                                                <span>•</span>
-                                                <span>Uploaded {new Date(file.created_at).toLocaleDateString()}</span>
+                                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs sm:text-sm text-muted-foreground mt-1">
+                                                <span className="truncate max-w-[150px] sm:max-w-[200px]">{file.file_name}</span>
+                                                <span className="hidden sm:inline">•</span>
+                                                <span className="shrink-0">{formatFileSize(file.file_size)}</span>
+                                                <span className="hidden sm:inline">•</span>
+                                                <span className="shrink-0 truncate">Uploaded {new Date(file.created_at).toLocaleDateString()}</span>
                                                 {file.concept_count > 0 && (
                                                     <>
-                                                        <span>•</span>
-                                                        <span className="text-primary">{file.concept_count} concepts</span>
+                                                        <span className="hidden sm:inline">•</span>
+                                                        <span className="text-primary shrink-0">{file.concept_count} concepts</span>
                                                     </>
                                                 )}
                                             </div>
                                             {file.status === 'error' && file.error_message && (
-                                                <p className="text-sm text-destructive mt-1">{file.error_message}</p>
+                                                <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
+                                                    {file.error_message}
+                                                </p>
                                             )}
                                         </div>
                                     </Link>
                                     {/* Action buttons - separate from clickable area */}
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1 sm:gap-2 self-end sm:self-auto shrink-0 border-t pt-3 sm:border-0 sm:pt-0 w-full sm:w-auto justify-end">
 
                                         {file.status === 'pending' && (
                                             <TooltipProvider>

@@ -1,4 +1,4 @@
-import { BarChart3, LogOut, User, FileQuestion, Calendar, FolderOpen, Bell } from "lucide-react"
+import { BarChart3, LogOut, User, FileQuestion, Calendar, FolderOpen, Bell, Menu, X } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
 import { useState } from "react"
 import { useAuth } from "@/contexts/AuthContext"
@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge"
 export function DashboardHeader() {
     const navigate = useNavigate()
     const { signOut } = useAuth()
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
     const [notifications, setNotifications] = useState([
         { id: 1, title: "Quiz Completed", message: "You scored 85% on Physics Quiz", time: "2 hours ago", read: false },
         {
@@ -42,44 +43,56 @@ export function DashboardHeader() {
     }
 
     return (
-        <header className="border-b bg-card">
+        <header className="border-b bg-card sticky top-0 z-50">
             <div className="container mx-auto px-4 py-4">
                 <div className="flex items-center justify-between">
-                    <Link to="/dashboard" className="flex items-center gap-2">
-                        <img src="/images/educoach-logo.png" alt="EDUCOACH Logo" className="w-10 h-10" />
-                        <span className="text-xl font-bold">
-                            EDU<span className="text-primary">COACH</span>
-                        </span>
-                    </Link>
+                    <div className="flex items-center gap-2 md:gap-4">
+                        <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="md:hidden"
+                            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                        >
+                            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+                        </Button>
+                        <Link to="/dashboard" className="flex items-center gap-2">
+                            <img src="/images/educoach-logo.png" alt="EDUCOACH Logo" className="w-8 h-8 md:w-10 md:h-10" />
+                            <span className="text-lg md:text-xl font-bold">
+                                EDU<span className="text-primary">COACH</span>
+                            </span>
+                        </Link>
+                    </div>
 
-                    <nav className="flex items-center gap-4">
-                        <Link to="/dashboard">
-                            <Button variant="ghost">Dashboard</Button>
-                        </Link>
-                        <Link to="/files">
-                            <Button variant="ghost" className="gap-2">
-                                <FolderOpen className="w-4 h-4" />
-                                Files
-                            </Button>
-                        </Link>
-                        <Link to="/quizzes">
-                            <Button variant="ghost" className="gap-2">
-                                <FileQuestion className="w-4 h-4" />
-                                Quizzes
-                            </Button>
-                        </Link>
-                        <Link to="/learning-path">
-                            <Button variant="ghost" className="gap-2">
-                                <Calendar className="w-4 h-4" />
-                                Learning Path
-                            </Button>
-                        </Link>
-                        <Link to="/analytics">
-                            <Button variant="ghost" className="gap-2">
-                                <BarChart3 className="w-4 h-4" />
-                                Analytics
-                            </Button>
-                        </Link>
+                    <div className="flex items-center gap-2 md:gap-4">
+                        <nav className="hidden md:flex items-center gap-1 lg:gap-2">
+                            <Link to="/dashboard">
+                                <Button variant="ghost" className="text-sm">Dashboard</Button>
+                            </Link>
+                            <Link to="/files">
+                                <Button variant="ghost" className="gap-2 text-sm">
+                                    <FolderOpen className="w-4 h-4" />
+                                    Files
+                                </Button>
+                            </Link>
+                            <Link to="/quizzes">
+                                <Button variant="ghost" className="gap-2 text-sm">
+                                    <FileQuestion className="w-4 h-4" />
+                                    Quizzes
+                                </Button>
+                            </Link>
+                            <Link to="/learning-path">
+                                <Button variant="ghost" className="gap-2 text-sm">
+                                    <Calendar className="w-4 h-4" />
+                                    Path
+                                </Button>
+                            </Link>
+                            <Link to="/analytics">
+                                <Button variant="ghost" className="gap-2 text-sm">
+                                    <BarChart3 className="w-4 h-4" />
+                                    Analytics
+                                </Button>
+                            </Link>
+                        </nav>
 
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -92,7 +105,7 @@ export function DashboardHeader() {
                                     )}
                                 </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-80">
+                            <DropdownMenuContent align="end" className="w-[calc(100vw-2rem)] sm:w-80">
                                 <div className="flex items-center justify-between px-2 py-2">
                                     <DropdownMenuLabel className="p-0">Notifications</DropdownMenuLabel>
                                     <Button variant="ghost" size="sm" className="h-auto p-1 text-xs" onClick={handleMarkAllRead}>
@@ -144,8 +157,41 @@ export function DashboardHeader() {
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
-                    </nav>
+                    </div>
                 </div>
+
+                {/* Mobile Navigation */}
+                {isMobileMenuOpen && (
+                    <nav className="md:hidden py-4 border-t mt-4 flex flex-col gap-2">
+                        <Link to="/dashboard" onClick={() => setIsMobileMenuOpen(false)}>
+                            <Button variant="ghost" className="w-full justify-start text-base">Dashboard</Button>
+                        </Link>
+                        <Link to="/files" onClick={() => setIsMobileMenuOpen(false)}>
+                            <Button variant="ghost" className="w-full justify-start gap-3 text-base">
+                                <FolderOpen className="w-5 h-5" />
+                                Files
+                            </Button>
+                        </Link>
+                        <Link to="/quizzes" onClick={() => setIsMobileMenuOpen(false)}>
+                            <Button variant="ghost" className="w-full justify-start gap-3 text-base">
+                                <FileQuestion className="w-5 h-5" />
+                                Quizzes
+                            </Button>
+                        </Link>
+                        <Link to="/learning-path" onClick={() => setIsMobileMenuOpen(false)}>
+                            <Button variant="ghost" className="w-full justify-start gap-3 text-base">
+                                <Calendar className="w-5 h-5" />
+                                Learning Path
+                            </Button>
+                        </Link>
+                        <Link to="/analytics" onClick={() => setIsMobileMenuOpen(false)}>
+                            <Button variant="ghost" className="w-full justify-start gap-3 text-base">
+                                <BarChart3 className="w-5 h-5" />
+                                Analytics
+                            </Button>
+                        </Link>
+                    </nav>
+                )}
             </div>
         </header>
     )

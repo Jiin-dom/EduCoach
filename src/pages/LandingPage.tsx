@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { Link } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -12,37 +13,76 @@ import {
     Sparkles,
     ArrowRight,
     CheckCircle2,
+    Menu,
+    X,
 } from "lucide-react"
 
 export default function LandingPage() {
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+
     return (
         <div className="min-h-screen bg-background">
             {/* Header */}
             <header className="border-b sticky top-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-50">
-                <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-                    <Link to="/" className="flex items-center gap-3">
-                        <img src="/images/educoach-logo.png" alt="EduCoach" className="w-10 h-10" />
-                        <span className="text-2xl font-bold">EduCoach</span>
-                    </Link>
-                    <nav className="hidden md:flex items-center gap-6">
-                        <a href="#features" className="text-sm font-medium hover:text-primary transition-colors">
-                            Features
-                        </a>
-                        <a href="#how-it-works" className="text-sm font-medium hover:text-primary transition-colors">
-                            How It Works
-                        </a>
-                        <a href="#benefits" className="text-sm font-medium hover:text-primary transition-colors">
-                            Benefits
-                        </a>
-                    </nav>
-                    <div className="flex items-center gap-3">
-                        <Button variant="ghost" asChild>
-                            <Link to="/login">Log In</Link>
-                        </Button>
-                        <Button asChild>
-                            <Link to="/register">Get Started</Link>
-                        </Button>
+                <div className="container mx-auto px-4 py-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="md:hidden"
+                                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                            >
+                                {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+                            </Button>
+                            <Link to="/" className="flex items-center gap-3">
+                                <img src="/images/educoach-logo.png" alt="EduCoach" className="w-10 h-10" />
+                                <span className="text-2xl font-bold">EduCoach</span>
+                            </Link>
+                        </div>
+                        <nav className="hidden md:flex items-center gap-6">
+                            <a href="#features" className="text-sm font-medium hover:text-primary transition-colors">
+                                Features
+                            </a>
+                            <a href="#how-it-works" className="text-sm font-medium hover:text-primary transition-colors">
+                                How It Works
+                            </a>
+                            <a href="#benefits" className="text-sm font-medium hover:text-primary transition-colors">
+                                Benefits
+                            </a>
+                        </nav>
+                        <div className="hidden md:flex items-center gap-3">
+                            <Button variant="ghost" asChild>
+                                <Link to="/login">Log In</Link>
+                            </Button>
+                            <Button asChild>
+                                <Link to="/register">Get Started</Link>
+                            </Button>
+                        </div>
                     </div>
+
+                    {/* Mobile Navigation */}
+                    {isMobileMenuOpen && (
+                        <nav className="md:hidden py-4 border-t mt-4 flex flex-col gap-4">
+                            <a href="#features" onClick={() => setIsMobileMenuOpen(false)} className="text-sm font-medium hover:text-primary transition-colors px-2">
+                                Features
+                            </a>
+                            <a href="#how-it-works" onClick={() => setIsMobileMenuOpen(false)} className="text-sm font-medium hover:text-primary transition-colors px-2">
+                                How It Works
+                            </a>
+                            <a href="#benefits" onClick={() => setIsMobileMenuOpen(false)} className="text-sm font-medium hover:text-primary transition-colors px-2">
+                                Benefits
+                            </a>
+                            <div className="flex flex-col gap-2 pt-4 border-t">
+                                <Button variant="outline" className="w-full" asChild>
+                                    <Link to="/login">Log In</Link>
+                                </Button>
+                                <Button className="w-full" asChild>
+                                    <Link to="/register">Get Started</Link>
+                                </Button>
+                            </div>
+                        </nav>
+                    )}
                 </div>
             </header>
 

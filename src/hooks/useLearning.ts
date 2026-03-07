@@ -7,6 +7,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -14,7 +15,9 @@ import {
     calculateSM2,
     mapScoreToQuality,
     calculatePriorityScore,
+    getMasteryLevelWithDecay,
     conceptAccuracyPercent,
+    todayUTC,
     type AttemptLogEntry,
 } from '@/lib/learningAlgorithms'
 import type { AttemptAnswer, QuizQuestion } from '@/hooks/useQuizzes'
@@ -47,6 +50,10 @@ export interface ConceptMasteryWithDetails extends ConceptMasteryRow {
     concept_category: string | null
     concept_difficulty: string | null
     document_title: string | null
+    /** Mastery after time-based decay (display only, raw value unchanged) */
+    display_mastery_score: number
+    /** Mastery level after decay */
+    display_mastery_level: 'needs_review' | 'developing' | 'mastered'
 }
 
 export interface LearningStats {
@@ -66,18 +73,92 @@ export interface ProcessQuizResultsInput {
     answers: AttemptAnswer[]
     questions: QuizQuestion[]
     documentId: string
+    /** Per-question time in seconds, keyed by question_id. */
+    timePerQuestion?: Record<string, number>
+}
+
+export interface LearningConfig {
+    confidence_k: number
+    sm2_default_ef: number
+    quality_thresholds: number[]
+    priority_w_weakness: number
+    priority_w_deadline: number
+    priority_w_practice: number
+    mastery_threshold_mastered: number
+    mastery_threshold_developing: number
+    confidence_threshold_mastered: number
+}
+
+const DEFAULT_CONFIG: LearningConfig = {
+    confidence_k: 3,
+    sm2_default_ef: 2.5,
+    quality_thresholds: [90, 80, 65, 50, 30],
+    priority_w_weakness: 0.65,
+    priority_w_deadline: 0.25,
+    priority_w_practice: 0.10,
+    mastery_threshold_mastered: 80,
+    mastery_threshold_developing: 60,
+    confidence_threshold_mastered: 0.67,
 }
 
 // ─── Query Keys ─────────────────────────────────────────────────────────────
 
 export const learningKeys = {
     all: ['learning'] as const,
+    config: () => [...learningKeys.all, 'config'] as const,
     mastery: () => [...learningKeys.all, 'mastery'] as const,
     masteryByDocument: (docId: string) => [...learningKeys.mastery(), { docId }] as const,
     dueTopics: () => [...learningKeys.all, 'due'] as const,
     weakTopics: () => [...learningKeys.all, 'weak'] as const,
     stats: () => [...learningKeys.all, 'stats'] as const,
     attemptLog: (conceptId?: string) => [...learningKeys.all, 'log', conceptId] as const,
+    masteryTimeline: (conceptId?: string) => [...learningKeys.all, 'timeline', conceptId] as const,
+}
+
+// ─── Config Query ───────────────────────────────────────────────────────────
+
+/**
+ * Fetches the user's learning_config row (or falls back to defaults).
+ * Config is cached aggressively since it rarely changes.
+ */
+export function useLearningConfig() {
+    const { user } = useAuth()
+
+    return useQuery({
+        queryKey: learningKeys.config(),
+        queryFn: async (): Promise<LearningConfig> => {
+            if (!user) return DEFAULT_CONFIG
+
+            const { data, error } = await supabase
+                .from('learning_config')
+                .select('*')
+                .eq('user_id', user.id)
+                .maybeSingle()
+
+            if (error || !data) return DEFAULT_CONFIG
+
+            return {
+                confidence_k: data.confidence_k ?? DEFAULT_CONFIG.confidence_k,
+                sm2_default_ef: Number(data.sm2_default_ef) || DEFAULT_CONFIG.sm2_default_ef,
+                quality_thresholds: Array.isArray(data.quality_thresholds)
+                    ? data.quality_thresholds
+                    : DEFAULT_CONFIG.quality_thresholds,
+                priority_w_weakness: Number(data.priority_w_weakness) || DEFAULT_CONFIG.priority_w_weakness,
+                priority_w_deadline: Number(data.priority_w_deadline) || DEFAULT_CONFIG.priority_w_deadline,
+                priority_w_practice: Number(data.priority_w_practice) || DEFAULT_CONFIG.priority_w_practice,
+                mastery_threshold_mastered: data.mastery_threshold_mastered ?? DEFAULT_CONFIG.mastery_threshold_mastered,
+                mastery_threshold_developing: data.mastery_threshold_developing ?? DEFAULT_CONFIG.mastery_threshold_developing,
+                confidence_threshold_mastered: Number(data.confidence_threshold_mastered) || DEFAULT_CONFIG.confidence_threshold_mastered,
+            }
+        },
+        enabled: !!user,
+        staleTime: 1000 * 60 * 30, // 30 minutes
+    })
+}
+
+/** Synchronous accessor for config -- returns cached value or defaults. */
+export function getLearningConfigDefaults(): LearningConfig {
+    return DEFAULT_CONFIG
 }
 
 // ─── Queries ────────────────────────────────────────────────────────────────
@@ -120,12 +201,21 @@ export function useConceptMasteryList() {
             return masteryRows.map((row) => {
                 const concept = conceptMap.get(row.concept_id)
                 const doc = row.document_id ? docMap.get(row.document_id) : null
+                // Apply mastery decay for overdue concepts
+                const { displayMastery, displayLevel } = getMasteryLevelWithDecay(
+                    Number(row.mastery_score),
+                    Number(row.confidence),
+                    row.due_date,
+                    Number(row.interval_days) || 1,
+                )
                 return {
                     ...row,
                     concept_name: concept?.name ?? 'Unknown',
                     concept_category: concept?.category ?? null,
                     concept_difficulty: concept?.difficulty_level ?? null,
                     document_title: doc?.title ?? null,
+                    display_mastery_score: displayMastery,
+                    display_mastery_level: displayLevel,
                 } as ConceptMasteryWithDetails
             })
         },
@@ -152,7 +242,7 @@ export function useConceptMasteryByDocument(documentId: string | undefined) {
 export function useDueTopics() {
     const { data: all, ...rest } = useConceptMasteryList()
 
-    const today = new Date().toISOString().split('T')[0]
+    const today = todayUTC()
     const due = (all || []).filter((m) => m.due_date <= today)
         .sort((a, b) => b.priority_score - a.priority_score)
 
@@ -193,7 +283,7 @@ export function useLearningStats() {
             const [masteryRes, attemptsRes] = await Promise.all([
                 supabase
                     .from('user_concept_mastery')
-                    .select('mastery_score, mastery_level')
+                    .select('mastery_score, mastery_level, confidence, due_date, interval_days')
                     .eq('user_id', user.id)
                     .abortSignal(signal),
                 supabase
@@ -211,7 +301,18 @@ export function useLearningStats() {
             const mastery = masteryRes.data || []
             const attempts = attemptsRes.data || []
 
-            const scores = mastery.map((m) => Number(m.mastery_score))
+            // Apply mastery decay for stats — use display values
+            const decayed = mastery.map((m) => {
+                const { displayMastery, displayLevel } = getMasteryLevelWithDecay(
+                    Number(m.mastery_score),
+                    Number(m.confidence),
+                    m.due_date,
+                    Number(m.interval_days) || 1,
+                )
+                return { displayMastery, displayLevel }
+            })
+
+            const scores = decayed.map((m) => m.displayMastery)
             const avgMastery = scores.length > 0
                 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
                 : 0
@@ -221,7 +322,7 @@ export function useLearningStats() {
                 ? Math.round(attemptScores.reduce((a, b) => a + b, 0) / attemptScores.length)
                 : 0
 
-            // Study streak: count consecutive days with at least one attempt
+            // Study streak: consecutive UTC days with at least one attempt
             let streak = 0
             if (attempts.length > 0) {
                 const dates = [...new Set(
@@ -230,13 +331,12 @@ export function useLearningStats() {
                         .map((a) => new Date(a.completed_at!).toISOString().split('T')[0]),
                 )].sort().reverse()
 
-                const today = new Date()
-                today.setHours(0, 0, 0, 0)
+                const todayStr = todayUTC()
 
                 for (let i = 0; i < dates.length; i++) {
-                    const expected = new Date(today)
-                    expected.setDate(expected.getDate() - i)
-                    const expectedStr = expected.toISOString().split('T')[0]
+                    const d = new Date(todayStr + 'T00:00:00Z')
+                    d.setUTCDate(d.getUTCDate() - i)
+                    const expectedStr = d.toISOString().split('T')[0]
                     if (dates[i] === expectedStr) {
                         streak++
                     } else {
@@ -247,9 +347,9 @@ export function useLearningStats() {
 
             return {
                 totalConcepts: mastery.length,
-                masteredCount: mastery.filter((m) => m.mastery_level === 'mastered').length,
-                developingCount: mastery.filter((m) => m.mastery_level === 'developing').length,
-                needsReviewCount: mastery.filter((m) => m.mastery_level === 'needs_review').length,
+                masteredCount: decayed.filter((m) => m.displayLevel === 'mastered').length,
+                developingCount: decayed.filter((m) => m.displayLevel === 'developing').length,
+                needsReviewCount: decayed.filter((m) => m.displayLevel === 'needs_review').length,
                 averageMastery: avgMastery,
                 quizzesCompleted: attempts.length,
                 averageScore: avgScore,
@@ -258,6 +358,446 @@ export function useLearningStats() {
         },
         enabled: !!user,
     })
+}
+
+// ─── Analytics: Score Trend ──────────────────────────────────────────────────
+
+export interface ScoreTrendPoint {
+    date: string
+    score: number
+}
+
+/**
+ * Returns daily average quiz scores for the last 30 days.
+ * Used by the analytics LineChart.
+ */
+export function useScoreTrend() {
+    const { user } = useAuth()
+
+    return useQuery({
+        queryKey: [...learningKeys.all, 'score-trend'] as const,
+        queryFn: async (): Promise<ScoreTrendPoint[]> => {
+            if (!user) return []
+
+            const since = new Date()
+            since.setUTCDate(since.getUTCDate() - 30)
+
+            const { data, error } = await supabase
+                .from('attempts')
+                .select('score, completed_at')
+                .eq('user_id', user.id)
+                .not('completed_at', 'is', null)
+                .gte('completed_at', since.toISOString())
+                .order('completed_at')
+
+            if (error) throw new Error(error.message)
+
+            const dayMap = new Map<string, number[]>()
+            for (const a of data ?? []) {
+                if (a.score == null) continue
+                const day = new Date(a.completed_at!).toISOString().split('T')[0]
+                const existing = dayMap.get(day) || []
+                existing.push(Number(a.score))
+                dayMap.set(day, existing)
+            }
+
+            return Array.from(dayMap.entries())
+                .map(([date, scores]) => ({
+                    date,
+                    score: Math.round(scores.reduce((a, b) => a + b, 0) / scores.length),
+                }))
+                .sort((a, b) => a.date.localeCompare(b.date))
+        },
+        enabled: !!user,
+    })
+}
+
+// ─── Analytics: Study Activity ──────────────────────────────────────────────
+
+export interface ActivityDay {
+    date: string
+    count: number
+}
+
+/**
+ * Returns per-day question counts for the last 90 days.
+ * Used by the activity heatmap.
+ */
+export function useStudyActivity() {
+    const { user } = useAuth()
+
+    return useQuery({
+        queryKey: [...learningKeys.all, 'activity'] as const,
+        queryFn: async (): Promise<ActivityDay[]> => {
+            if (!user) return []
+
+            const since = new Date()
+            since.setUTCDate(since.getUTCDate() - 90)
+
+            const { data, error } = await supabase
+                .from('question_attempt_log')
+                .select('attempted_at')
+                .eq('user_id', user.id)
+                .gte('attempted_at', since.toISOString())
+
+            if (error) throw new Error(error.message)
+
+            const dayMap = new Map<string, number>()
+            for (const row of data ?? []) {
+                const day = new Date(row.attempted_at).toISOString().split('T')[0]
+                dayMap.set(day, (dayMap.get(day) ?? 0) + 1)
+            }
+
+            return Array.from(dayMap.entries())
+                .map(([date, count]) => ({ date, count }))
+                .sort((a, b) => a.date.localeCompare(b.date))
+        },
+        enabled: !!user,
+    })
+}
+
+// ─── Analytics: Mastery Timeline ─────────────────────────────────────────────
+
+export interface MasteryTimelinePoint {
+    date: string
+    mastery: number
+}
+
+/**
+ * Returns daily average mastery snapshots for the last 30 days.
+ * If conceptId is provided, returns that concept's timeline only.
+ * Otherwise, returns the aggregate (average across all concepts).
+ */
+export function useMasteryTimeline(conceptId?: string) {
+    const { user } = useAuth()
+
+    return useQuery({
+        queryKey: learningKeys.masteryTimeline(conceptId),
+        queryFn: async (): Promise<MasteryTimelinePoint[]> => {
+            if (!user) return []
+
+            const since = new Date()
+            since.setUTCDate(since.getUTCDate() - 30)
+
+            let query = supabase
+                .from('mastery_snapshots')
+                .select('mastery_score, recorded_at')
+                .eq('user_id', user.id)
+                .gte('recorded_at', since.toISOString())
+                .order('recorded_at')
+
+            if (conceptId) {
+                query = query.eq('concept_id', conceptId)
+            }
+
+            const { data, error } = await query
+
+            if (error) throw new Error(error.message)
+
+            const dayMap = new Map<string, number[]>()
+            for (const row of data ?? []) {
+                const day = new Date(row.recorded_at).toISOString().split('T')[0]
+                const existing = dayMap.get(day) || []
+                existing.push(Number(row.mastery_score))
+                dayMap.set(day, existing)
+            }
+
+            return Array.from(dayMap.entries())
+                .map(([date, scores]) => ({
+                    date,
+                    mastery: Math.round(scores.reduce((a, b) => a + b, 0) / scores.length),
+                }))
+                .sort((a, b) => a.date.localeCompare(b.date))
+        },
+        enabled: !!user,
+    })
+}
+
+// ─── Analytics: Study Efficiency ─────────────────────────────────────────────
+
+export interface StudyEfficiencyData {
+    totalTimeMinutes: number
+    totalMasteryGained: number
+    mostEfficientCategory: string | null
+    categoryEfficiency: { category: string; timeMinutes: number; masteryGained: number }[]
+}
+
+/**
+ * Computes study efficiency: time spent vs mastery gained.
+ * Uses question_attempt_log time data and mastery_snapshots.
+ */
+export function useStudyEfficiency() {
+    const { user } = useAuth()
+
+    return useQuery({
+        queryKey: [...learningKeys.all, 'efficiency'] as const,
+        queryFn: async (): Promise<StudyEfficiencyData> => {
+            const empty: StudyEfficiencyData = {
+                totalTimeMinutes: 0, totalMasteryGained: 0,
+                mostEfficientCategory: null, categoryEfficiency: [],
+            }
+            if (!user) return empty
+
+            const since = new Date()
+            since.setUTCDate(since.getUTCDate() - 30)
+
+            const [logsRes, conceptsRes] = await Promise.all([
+                supabase
+                    .from('question_attempt_log')
+                    .select('concept_id, time_spent_seconds, is_correct')
+                    .eq('user_id', user.id)
+                    .gte('created_at', since.toISOString()),
+                supabase
+                    .from('user_concept_mastery')
+                    .select('concept_id, mastery_score')
+                    .eq('user_id', user.id),
+            ])
+
+            if (logsRes.error || conceptsRes.error) return empty
+
+            const logs = logsRes.data || []
+            const mastery = conceptsRes.data || []
+
+            const conceptIds = [...new Set(logs.map(l => l.concept_id).filter(Boolean))]
+            if (conceptIds.length === 0) return empty
+
+            // Fetch concept categories
+            const { data: conceptDetails } = await supabase
+                .from('concepts')
+                .select('id, category')
+                .in('id', conceptIds)
+
+            const categoryMap = new Map((conceptDetails || []).map(c => [c.id, c.category || 'Uncategorized']))
+            const masteryMap = new Map(mastery.map(m => [m.concept_id, Number(m.mastery_score)]))
+
+            // Aggregate time per category
+            const catTime = new Map<string, number>()
+            const catMastery = new Map<string, number[]>()
+            let totalTime = 0
+
+            for (const log of logs) {
+                if (!log.concept_id) continue
+                const cat = categoryMap.get(log.concept_id) || 'Uncategorized'
+                const time = log.time_spent_seconds || 0
+                totalTime += time
+                catTime.set(cat, (catTime.get(cat) || 0) + time)
+
+                const ms = masteryMap.get(log.concept_id)
+                if (ms != null) {
+                    const existing = catMastery.get(cat) || []
+                    existing.push(ms)
+                    catMastery.set(cat, existing)
+                }
+            }
+
+            const categoryEfficiency = Array.from(catTime.entries()).map(([category, timeSec]) => {
+                const scores = catMastery.get(category) || []
+                const avgMastery = scores.length > 0
+                    ? scores.reduce((a, b) => a + b, 0) / scores.length
+                    : 0
+                return {
+                    category,
+                    timeMinutes: Math.round(timeSec / 60),
+                    masteryGained: Math.round(avgMastery),
+                }
+            }).sort((a, b) => {
+                const effA = a.timeMinutes > 0 ? a.masteryGained / a.timeMinutes : 0
+                const effB = b.timeMinutes > 0 ? b.masteryGained / b.timeMinutes : 0
+                return effB - effA
+            })
+
+            const totalMasteryGained = mastery.length > 0
+                ? Math.round(mastery.reduce((s, m) => s + Number(m.mastery_score), 0) / mastery.length)
+                : 0
+
+            return {
+                totalTimeMinutes: Math.round(totalTime / 60),
+                totalMasteryGained,
+                mostEfficientCategory: categoryEfficiency.length > 0 ? categoryEfficiency[0].category : null,
+                categoryEfficiency,
+            }
+        },
+        enabled: !!user,
+        staleTime: 1000 * 60 * 5,
+    })
+}
+
+// ─── Analytics: Concept Velocity ─────────────────────────────────────────────
+
+export interface ConceptVelocity {
+    avgDaysToReview: number | null
+    avgDaysToDeveloping: number | null
+    avgDaysToMastered: number | null
+}
+
+/**
+ * Computes average "velocity" metrics:
+ * how fast concepts move through mastery stages.
+ */
+export function useConceptVelocity() {
+    const { user } = useAuth()
+
+    return useQuery({
+        queryKey: [...learningKeys.all, 'velocity'] as const,
+        queryFn: async (): Promise<ConceptVelocity> => {
+            const empty: ConceptVelocity = { avgDaysToReview: null, avgDaysToDeveloping: null, avgDaysToMastered: null }
+            if (!user) return empty
+
+            const { data: snapshots, error } = await supabase
+                .from('mastery_snapshots')
+                .select('concept_id, mastery_level, recorded_at')
+                .eq('user_id', user.id)
+                .order('recorded_at')
+
+            if (error || !snapshots || snapshots.length === 0) return empty
+
+            // Group snapshots by concept, find first time each level was reached
+            const conceptTimelines = new Map<string, { level: string; at: Date }[]>()
+            for (const snap of snapshots) {
+                const timeline = conceptTimelines.get(snap.concept_id) || []
+                timeline.push({ level: snap.mastery_level, at: new Date(snap.recorded_at) })
+                conceptTimelines.set(snap.concept_id, timeline)
+            }
+
+            const daysToDeveloping: number[] = []
+            const daysToMastered: number[] = []
+
+            for (const [, timeline] of conceptTimelines) {
+                if (timeline.length < 2) continue
+                const firstAt = timeline[0].at
+                const firstDeveloping = timeline.find(t => t.level === 'developing')
+                const firstMastered = timeline.find(t => t.level === 'mastered')
+
+                if (firstDeveloping) {
+                    const days = (firstDeveloping.at.getTime() - firstAt.getTime()) / (1000 * 60 * 60 * 24)
+                    daysToDeveloping.push(Math.max(0, Math.round(days)))
+                }
+                if (firstMastered) {
+                    const days = (firstMastered.at.getTime() - firstAt.getTime()) / (1000 * 60 * 60 * 24)
+                    daysToMastered.push(Math.max(0, Math.round(days)))
+                }
+            }
+
+            const avg = (arr: number[]) => arr.length > 0
+                ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length * 10) / 10
+                : null
+
+            return {
+                avgDaysToReview: null,
+                avgDaysToDeveloping: avg(daysToDeveloping),
+                avgDaysToMastered: avg(daysToMastered),
+            }
+        },
+        enabled: !!user,
+        staleTime: 1000 * 60 * 10,
+    })
+}
+
+// ─── Shared: Recompute mastery for a single concept ─────────────────────────
+
+/**
+ * Fetches recent logs, runs WMS + SM-2, and upserts into user_concept_mastery.
+ * Used by both quiz processing and flashcard review.
+ * Accepts optional config for tunable algorithm parameters.
+ */
+export async function recomputeConceptMastery(
+    userId: string,
+    conceptId: string,
+    documentId: string | null,
+    sm2Quality: number,
+    config: LearningConfig = DEFAULT_CONFIG,
+) {
+    const { data: allLogs, error: logsError } = await supabase
+        .from('question_attempt_log')
+        .select('is_correct, question_difficulty, time_spent_seconds, attempted_at')
+        .eq('user_id', userId)
+        .eq('concept_id', conceptId)
+        .order('attempted_at', { ascending: false })
+        .limit(10)
+
+    if (logsError) {
+        console.error('[Learning] Failed to fetch logs for concept:', conceptId, logsError)
+        return
+    }
+
+    const attemptLogs: AttemptLogEntry[] = (allLogs || []).map((l) => ({
+        is_correct: l.is_correct,
+        question_difficulty: l.question_difficulty as AttemptLogEntry['question_difficulty'],
+        time_spent_seconds: l.time_spent_seconds,
+        attempted_at: l.attempted_at,
+    }))
+
+    const wmsResult = computeMastery(attemptLogs, config.confidence_k)
+
+    const { data: existing } = await supabase
+        .from('user_concept_mastery')
+        .select('repetition, interval_days, ease_factor')
+        .eq('user_id', userId)
+        .eq('concept_id', conceptId)
+        .maybeSingle()
+
+    const sm2Result = calculateSM2({
+        quality: sm2Quality,
+        repetition: existing?.repetition ?? 0,
+        interval: existing?.interval_days ?? 0,
+        easeFactor: existing?.ease_factor ?? config.sm2_default_ef,
+    })
+
+    const priorityResult = calculatePriorityScore(
+        wmsResult.finalMastery,
+        sm2Result.dueDate,
+        wmsResult.confidence,
+        {
+            weakness: config.priority_w_weakness,
+            deadline: config.priority_w_deadline,
+            practice: config.priority_w_practice,
+        },
+    )
+
+    const totalAttempts = attemptLogs.length
+    const correctAttempts = attemptLogs.filter((l) => l.is_correct).length
+
+    const { error: upsertError } = await supabase
+        .from('user_concept_mastery')
+        .upsert(
+            {
+                user_id: userId,
+                concept_id: conceptId,
+                document_id: documentId,
+                mastery_score: wmsResult.finalMastery,
+                confidence: wmsResult.confidence,
+                mastery_level: wmsResult.masteryLevel,
+                total_attempts: totalAttempts,
+                correct_attempts: correctAttempts,
+                last_attempt_at: new Date().toISOString(),
+                repetition: sm2Result.repetition,
+                interval_days: sm2Result.interval,
+                ease_factor: sm2Result.easeFactor,
+                due_date: sm2Result.dueDate,
+                last_reviewed_at: new Date().toISOString(),
+                priority_score: priorityResult.priorityScore,
+            },
+            { onConflict: 'user_id,concept_id' },
+        )
+
+    if (upsertError) {
+        console.error('[Learning] Failed to upsert mastery for concept:', conceptId, upsertError)
+        return
+    }
+
+    // Phase 6.4: Record a mastery snapshot for timeline analytics
+    const { error: snapError } = await supabase
+        .from('mastery_snapshots')
+        .insert({
+            user_id: userId,
+            concept_id: conceptId,
+            mastery_score: wmsResult.finalMastery,
+            mastery_level: wmsResult.masteryLevel,
+        })
+
+    if (snapError) {
+        console.warn('[Learning] Failed to insert mastery snapshot (non-fatal):', snapError.message)
+    }
 }
 
 // ─── Mutations ──────────────────────────────────────────────────────────────
@@ -279,7 +819,7 @@ export function useProcessQuizResults() {
         mutationFn: async (input: ProcessQuizResultsInput) => {
             if (!user) throw new Error('Not authenticated')
 
-            const { attemptId, quizId, answers, questions, documentId } = input
+            const { attemptId, quizId, answers, questions, documentId, timePerQuestion } = input
 
             // Build a lookup: question_id -> question metadata
             const questionMap = new Map(questions.map((q) => [q.id, q]))
@@ -321,20 +861,47 @@ export function useProcessQuizResults() {
                 return fallbackConceptId
             }
 
-            // ── Step 2: Fan out per-question logs ───────────────────────
+            // ── Step 2: Compute attempt_index per concept ────────────────
+            const conceptIdsForIndex = new Set<string>()
+            for (const ans of answers) {
+                const cid = resolveConceptId(questionMap.get(ans.question_id))
+                if (cid) conceptIdsForIndex.add(cid)
+            }
+
+            const attemptIndexMap = new Map<string, number>()
+            if (conceptIdsForIndex.size > 0) {
+                const { data: countRows } = await supabase
+                    .from('question_attempt_log')
+                    .select('concept_id')
+                    .eq('user_id', user.id)
+                    .in('concept_id', [...conceptIdsForIndex])
+
+                const counts = new Map<string, number>()
+                for (const row of countRows ?? []) {
+                    if (row.concept_id) counts.set(row.concept_id, (counts.get(row.concept_id) ?? 0) + 1)
+                }
+                for (const [cid, cnt] of counts) attemptIndexMap.set(cid, cnt)
+            }
+
+            // ── Step 3: Fan out per-question logs ───────────────────────
             const logRows = answers.map((ans) => {
                 const q = questionMap.get(ans.question_id)
+                const cid = resolveConceptId(q)
+                const prevCount = cid ? (attemptIndexMap.get(cid) ?? 0) : 0
+                if (cid) attemptIndexMap.set(cid, prevCount + 1)
+
                 return {
                     user_id: user.id,
                     question_id: ans.question_id,
                     quiz_id: quizId,
                     attempt_id: attemptId,
-                    concept_id: resolveConceptId(q),
+                    concept_id: cid,
                     document_id: documentId,
                     is_correct: ans.is_correct,
                     user_answer: ans.user_answer,
                     question_difficulty: q?.difficulty_level ?? null,
-                    time_spent_seconds: null,
+                    time_spent_seconds: timePerQuestion?.[ans.question_id] ?? null,
+                    attempt_index: prevCount + 1,
                 }
             })
 
@@ -347,7 +914,7 @@ export function useProcessQuizResults() {
                 throw new Error(logError.message)
             }
 
-            // ── Step 3: Group answers by concept ────────────────────────
+            // ── Step 4: Group answers by concept ────────────────────────
             const conceptAnswers = new Map<string, typeof logRows>()
             for (const row of logRows) {
                 if (!row.concept_id) continue
@@ -361,97 +928,28 @@ export function useProcessQuizResults() {
                 return { processedConcepts: 0 }
             }
 
-            // ── Step 4: For each concept, recompute WMS + SM-2 ─────────
+            // ── Step 5: For each concept, recompute WMS + SM-2 ─────────
             for (const [conceptId, currentAnswers] of conceptAnswers.entries()) {
-                // Fetch ALL recent logs for this concept (not just this quiz)
-                const { data: allLogs, error: logsError } = await supabase
-                    .from('question_attempt_log')
-                    .select('is_correct, question_difficulty, time_spent_seconds, attempted_at')
-                    .eq('user_id', user.id)
-                    .eq('concept_id', conceptId)
-                    .order('attempted_at', { ascending: false })
-                    .limit(10)
-
-                if (logsError) {
-                    console.error('[Learning] Failed to fetch logs for concept:', conceptId, logsError)
-                    continue
-                }
-
-                const attemptLogs: AttemptLogEntry[] = (allLogs || []).map((l) => ({
-                    is_correct: l.is_correct,
-                    question_difficulty: l.question_difficulty as AttemptLogEntry['question_difficulty'],
-                    time_spent_seconds: l.time_spent_seconds,
-                    attempted_at: l.attempted_at,
-                }))
-
-                // WMS computation
-                const wmsResult = computeMastery(attemptLogs)
-
-                // SM-2: compute quality from this quiz's concept accuracy
                 const quizAccuracy = conceptAccuracyPercent(currentAnswers)
                 const quality = mapScoreToQuality(quizAccuracy)
-
-                // Fetch existing mastery row (for SM-2 state)
-                const { data: existing } = await supabase
-                    .from('user_concept_mastery')
-                    .select('repetition, interval_days, ease_factor')
-                    .eq('user_id', user.id)
-                    .eq('concept_id', conceptId)
-                    .maybeSingle()
-
-                const sm2Result = calculateSM2({
-                    quality,
-                    repetition: existing?.repetition ?? 0,
-                    interval: existing?.interval_days ?? 0,
-                    easeFactor: existing?.ease_factor ?? 2.5,
-                })
-
-                // Priority score
-                const priorityResult = calculatePriorityScore(
-                    wmsResult.finalMastery,
-                    sm2Result.dueDate,
-                    wmsResult.confidence,
-                )
-
-                const totalAttempts = attemptLogs.length
-                const correctAttempts = attemptLogs.filter((l) => l.is_correct).length
-
-                // ── Step 5: Upsert into user_concept_mastery ────────────
-                const { error: upsertError } = await supabase
-                    .from('user_concept_mastery')
-                    .upsert(
-                        {
-                            user_id: user.id,
-                            concept_id: conceptId,
-                            document_id: documentId,
-                            mastery_score: wmsResult.finalMastery,
-                            confidence: wmsResult.confidence,
-                            mastery_level: wmsResult.masteryLevel,
-                            total_attempts: totalAttempts,
-                            correct_attempts: correctAttempts,
-                            last_attempt_at: new Date().toISOString(),
-                            repetition: sm2Result.repetition,
-                            interval_days: sm2Result.interval,
-                            ease_factor: sm2Result.easeFactor,
-                            due_date: sm2Result.dueDate,
-                            last_reviewed_at: new Date().toISOString(),
-                            priority_score: priorityResult.priorityScore,
-                        },
-                        { onConflict: 'user_id,concept_id' },
-                    )
-
-                if (upsertError) {
-                    console.error('[Learning] Failed to upsert mastery for concept:', conceptId, upsertError)
-                }
+                await recomputeConceptMastery(user.id, conceptId, documentId, quality)
             }
 
             return { processedConcepts: conceptAnswers.size }
         },
-        onSuccess: () => {
+        onSuccess: (result) => {
             queryClient.invalidateQueries({ queryKey: learningKeys.all })
+            if (result && result.processedConcepts > 0) {
+                toast.success('Mastery scores updated', {
+                    description: `${result.processedConcepts} concept${result.processedConcepts > 1 ? 's' : ''} updated based on your quiz performance.`,
+                })
+            }
         },
         onError: (error) => {
             console.error('[Learning] Process quiz results failed:', error)
+            toast.warning('Learning progress could not be updated', {
+                description: 'Your quiz was scored but mastery tracking failed. It will update on your next quiz.',
+            })
         },
     })
 }

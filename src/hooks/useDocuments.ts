@@ -44,6 +44,7 @@ export interface Document {
     structured_summary?: StructuredSummary | null
     concept_count: number
     processed_by?: 'pure_nlp' | 'gemini' | null
+    processing_quality?: number | null
     created_at: string
     updated_at: string
 }
@@ -69,10 +70,12 @@ export const documentKeys = {
 /**
  * Hook to fetch all documents for the current user
  */
+const PROCESSING_POLL_MS = 5000
+
 export function useDocuments() {
     const { user } = useAuth()
 
-    return useQuery({
+    const query = useQuery({
         queryKey: documentKeys.lists(),
         queryFn: async ({ signal }): Promise<Document[]> => {
             if (!user) {
@@ -113,8 +116,19 @@ export function useDocuments() {
 
             return data as Document[]
         },
-        enabled: !!user, // Only run query when user is logged in
+        enabled: !!user,
+        // Auto-poll while any document is still processing so the UI
+        // picks up the final status without a manual page refresh.
+        refetchInterval: (query) => {
+            const docs = query.state.data
+            if (docs?.some((d: Document) => d.status === 'processing')) {
+                return PROCESSING_POLL_MS
+            }
+            return false
+        },
     })
+
+    return query
 }
 
 /**
@@ -134,13 +148,12 @@ export function useDocument(documentId: string | undefined) {
                 .from('documents')
                 .select('*')
                 .eq('id', documentId)
-                .eq('user_id', user.id) // Ensure user owns document
+                .eq('user_id', user.id)
                 .abortSignal(signal)
                 .single()
 
             if (error) {
                 if (error.code === 'PGRST116') {
-                    // No document found
                     return null
                 }
                 throw new Error(error.message)
@@ -149,6 +162,13 @@ export function useDocument(documentId: string | undefined) {
             return data as Document
         },
         enabled: !!documentId && !!user,
+        refetchInterval: (query) => {
+            const doc = query.state.data
+            if (doc?.status === 'processing') {
+                return PROCESSING_POLL_MS
+            }
+            return false
+        },
     })
 }
 
@@ -283,20 +303,58 @@ export function useProcessDocument() {
             const edgeFunctionDuration = (performance.now() - edgeFunctionStartTime).toFixed(2)
 
             if (error) {
-                console.error('[DocumentProcessing] ❌ Edge Function failed:', {
+                console.error('[DocumentProcessing] ❌ Edge Function client error:', {
                     error: error.message,
                     duration: `${edgeFunctionDuration}ms`,
                     documentId
                 })
 
-                // Revert status on error
-                console.log('[DocumentProcessing] 🔄 Reverting document status to "error"...')
+                // The Edge Function may have returned a user-friendly error in
+                // the response body, or it may have already updated the DB.
+                // Extract the friendly message when available.
+                const serverMessage = (data as Record<string, unknown>)?.error as string | undefined
+
+                // Re-check the actual document status before overwriting.
+                const { data: currentDoc } = await supabase
+                    .from('documents')
+                    .select('status, error_message')
+                    .eq('id', documentId)
+                    .single()
+
+                const currentStatus = currentDoc?.status
+
+                if (currentStatus === 'ready') {
+                    console.log('[DocumentProcessing] ✅ Edge Function already completed (recovered from client timeout)')
+                    return { success: true, message: 'Document processed successfully (recovered from timeout)' }
+                }
+
+                if (currentStatus === 'processing') {
+                    console.log('[DocumentProcessing] ⏳ Edge Function still running, not overwriting status')
+                    throw new Error(
+                        'Processing is taking longer than expected. ' +
+                        'The document will update automatically when ready.'
+                    )
+                }
+
+                // If the Edge Function already saved a friendly error_message
+                // to the DB, don't overwrite it with the generic SDK message.
+                if (currentStatus === 'error' && currentDoc?.error_message) {
+                    console.log('[DocumentProcessing] Edge Function already set error in DB, preserving it')
+                    throw new Error(currentDoc.error_message)
+                }
+
+                // Edge Function didn't run — use the server response message
+                // if available, otherwise fall back to a friendly default.
+                const friendlyMsg = serverMessage
+                    || 'Something went wrong while processing your document. Please try again.'
+
+                console.log('[DocumentProcessing] 🔄 Setting document error status...')
                 await supabase
                     .from('documents')
-                    .update({ status: 'error', error_message: error.message })
+                    .update({ status: 'error', error_message: friendlyMsg })
                     .eq('id', documentId)
 
-                throw new Error(error.message)
+                throw new Error(friendlyMsg)
             }
 
             console.log('[DocumentProcessing] 🎉 Edge Function completed successfully!', {
@@ -329,6 +387,10 @@ export function useProcessDocument() {
                 error: error instanceof Error ? error.message : 'Unknown error',
                 documentId
             })
+
+            // Always refresh from DB so the UI shows the real status,
+            // not the stale optimistic state from the mutation.
+            queryClient.invalidateQueries({ queryKey: documentKeys.all })
         }
     })
 }

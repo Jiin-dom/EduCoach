@@ -1,9 +1,11 @@
+import { useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Button } from "@/components/ui/button"
 import { Clock, BookOpen, Brain, Loader2, Calendar } from "lucide-react"
-import { useDueTopics } from "@/hooks/useLearning"
+import { useDueTopics, useConceptMasteryList } from "@/hooks/useLearning"
+import { todayUTC } from "@/lib/learningAlgorithms"
 import { Link } from "react-router-dom"
 
 function masteryBadge(level: string) {
@@ -19,8 +21,22 @@ function masteryBadge(level: string) {
 
 export function TodaysStudyPlan() {
     const { data: dueTopics, isLoading } = useDueTopics()
+    const { data: allMastery } = useConceptMasteryList()
 
     const topItems = (dueTopics || []).slice(0, 5)
+
+    const completionPercent = useMemo(() => {
+        const all = allMastery || []
+        if (all.length === 0) return 0
+        const today = todayUTC()
+        const totalDue = all.filter((m) => m.due_date <= today).length
+        if (totalDue === 0) return 100
+        const reviewedToday = all.filter(
+            (m) => m.due_date <= today && m.last_reviewed_at &&
+                   m.last_reviewed_at.split('T')[0] === today
+        ).length
+        return Math.round((reviewedToday / totalDue) * 100)
+    }, [allMastery])
 
     return (
         <Card>
@@ -38,7 +54,7 @@ export function TodaysStudyPlan() {
                 </div>
                 {topItems.length > 0 && (
                     <Progress
-                        value={0}
+                        value={completionPercent}
                         className="mt-2"
                     />
                 )}
@@ -70,7 +86,7 @@ export function TodaysStudyPlan() {
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2 mb-1">
                                         <p className="font-medium truncate">{topic.concept_name}</p>
-                                        {masteryBadge(topic.mastery_level)}
+                                        {masteryBadge(topic.display_mastery_level)}
                                     </div>
                                     <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                         {topic.document_title && (
@@ -78,7 +94,7 @@ export function TodaysStudyPlan() {
                                         )}
                                         <span className="flex items-center gap-1">
                                             <Clock className="w-3 h-3" />
-                                            {Math.round(topic.mastery_score)}% mastery
+                                            {Math.round(topic.display_mastery_score)}% mastery
                                         </span>
                                     </div>
                                 </div>

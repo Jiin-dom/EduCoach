@@ -21,6 +21,7 @@ export interface Concept {
     related_concepts: string[]
     difficulty_level: 'beginner' | 'intermediate' | 'advanced' | null
     keywords: string[]
+    source_pages?: number[] | null
     created_at: string
     updated_at: string
 }

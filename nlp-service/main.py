@@ -23,6 +23,7 @@ from sentence_transformers import SentenceTransformer
 from threading import Lock
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics.pairwise import cosine_distances
+from bs4 import BeautifulSoup
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -76,6 +77,13 @@ _NON_LETTER_RE = re.compile(r"[^a-zA-Z]+")
 
 _STRAY_ACCENT_RE = re.compile(r"\xe2[\x80-\xbf]*")
 _LEFTOVER_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+_ARROW_RE = re.compile(r'[\u2190-\u21ff\u27f0-\u27ff\u2900-\u297f\u25b6\u25ba\u279c-\u279e]')
+_LEADING_ARTICLE_RE = re.compile(r'^(the|a|an)\s+', re.IGNORECASE)
+_PPTX_CONTENT_TYPES = frozenset([
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+])
 
 def _repair_encoding(text: str) -> str:
     """
@@ -95,6 +103,183 @@ def _repair_encoding(text: str) -> str:
     text = _LEFTOVER_CONTROL_RE.sub("", text)
     text = re.sub(r"  +", " ", text)
     return text
+
+
+def _is_numeric_heavy(text: str) -> bool:
+    """True when >40% of non-space characters are digits or decimal points."""
+    stripped = re.sub(r'\s', '', text)
+    if not stripped:
+        return True
+    digit_dots = sum(1 for c in stripped if c.isdigit() or c == '.')
+    return digit_dots / len(stripped) > 0.4
+
+
+_CODE_LIKE_RE = re.compile(
+    r'\b(import\s+\w|from\s+\w+\.\w+\s+import|def\s+\w+\(|class\s+\w+[(:])' 
+    r'|Sequential|Dense|model\.\w+|\.fit\(|\.predict\(|\.compile\(',
+    re.IGNORECASE,
+)
+
+def _is_code_like(text: str) -> bool:
+    """True when text looks like a code snippet rather than prose."""
+    if _CODE_LIKE_RE.search(text):
+        return True
+    special = sum(1 for c in text if c in '{};=')
+    return special >= 3
+
+
+def _strip_arrows(text: str) -> str:
+    """Remove arrow characters and normalize surrounding whitespace."""
+    result = _ARROW_RE.sub(' ', text)
+    return _MULTISPACE_RE.sub(' ', result).strip()
+
+
+def _extract_slides_from_html(html_content: str) -> List[dict]:
+    """
+    Parse Tika's XHTML output to extract slide boundaries and content.
+    Works for PPTX (div.slide-content) and PDF pages (div.page).
+    """
+    try:
+        soup = BeautifulSoup(html_content, 'lxml')
+    except Exception:
+        return []
+
+    slides: List[dict] = []
+
+    # PPTX: Tika wraps each slide in <div class="slide-content">
+    slide_divs = soup.find_all('div', class_='slide-content')
+
+    if not slide_divs:
+        # PDF: Tika wraps each page in <div class="page">
+        slide_divs = soup.find_all('div', class_='page')
+
+    if not slide_divs:
+        return []
+
+    for i, div in enumerate(slide_divs):
+        # Skip master-slide content (PPTX template headers/footers)
+        if 'slide-master-content' in (div.get('class') or []):
+            continue
+
+        paragraphs: List[str] = []
+        for el in div.find_all(['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+            # Skip master-slide child elements
+            parent_classes = ' '.join(el.parent.get('class', []) if el.parent else [])
+            if 'slide-master' in parent_classes:
+                continue
+
+            text = el.get_text(strip=True)
+            if text and len(text) > 1:
+                paragraphs.append(_repair_encoding(text))
+
+        if not paragraphs:
+            continue
+
+        # First short paragraph is likely the slide title
+        title = ''
+        bullets: List[str] = []
+        for j, para in enumerate(paragraphs):
+            if j == 0 and len(para) < 150 and not para.startswith(('-', '*', '\u2022')):
+                title = para
+            else:
+                bullets.append(para)
+
+        if title or bullets:
+            slides.append({
+                'slide_number': i + 1,
+                'title': _strip_arrows(title),
+                'bullets': [_strip_arrows(b) for b in bullets],
+            })
+
+    return slides
+
+
+def _detect_document_type(raw_text: str, slides: List[dict], content_type: str = '') -> str:
+    """
+    Detect whether a document is slide-based or prose.
+    Uses content type, HTML structure, and text heuristics.
+    """
+    # Definitive: PPTX MIME type
+    ct_lower = (content_type or '').lower()
+    if any(pt in ct_lower for pt in _PPTX_CONTENT_TYPES):
+        return 'slides'
+
+    # Definitive: HTML parsing found multiple slide boundaries
+    if len(slides) >= 3:
+        return 'slides'
+
+    # Heuristic: analyze raw text characteristics
+    lines = [ln.strip() for ln in raw_text.split('\n') if ln.strip()]
+    if not lines:
+        return 'prose'
+
+    short_line_count = sum(1 for ln in lines if len(ln) < 60)
+    arrow_count = len(_ARROW_RE.findall(raw_text))
+    avg_line_len = sum(len(ln) for ln in lines) / len(lines)
+
+    # Slides tend to have many short lines, arrows, and low avg line length
+    slide_score = 0
+    if len(lines) > 5 and short_line_count / len(lines) > 0.5:
+        slide_score += 2
+    if arrow_count > 3:
+        slide_score += 1
+    if avg_line_len < 50:
+        slide_score += 2
+    if len(lines) > 10 and all(len(ln) < 120 for ln in lines[:10]):
+        slide_score += 1
+
+    return 'slides' if slide_score >= 3 else 'prose'
+
+
+def _process_slides_keywords(slides: List[dict]) -> List[str]:
+    """
+    Run KeyBERT per-slide for better keyword relevance.
+    Also attaches a 'keywords' list to each slide dict in-place.
+    Returns merged global keywords.
+    """
+    all_keywords: List[str] = []
+    seen: set = set()
+
+    for slide in slides:
+        # Filter out code-like and numeric-heavy bullets before keyword extraction
+        usable_bullets = [
+            b for b in slide.get('bullets', [])
+            if not _is_numeric_heavy(b) and not _is_code_like(b)
+        ]
+        slide_text = ' '.join([slide.get('title', '')] + usable_bullets)
+        slide_text = _strip_arrows(slide_text)
+        if len(slide_text) < 20:
+            slide['keywords'] = []
+            continue
+
+        try:
+            kws = kw_model.extract_keywords(
+                slide_text[:KEYBERT_INPUT_MAX_CHARS],
+                keyphrase_ngram_range=(1, 2),
+                stop_words='english',
+                top_n=5,
+                use_maxsum=True,
+                nr_candidates=15,
+            )
+            slide_kws: List[str] = []
+            for phrase, score in kws:
+                if score < 0.15:
+                    continue
+                clean = _strip_arrows(phrase)
+                low = clean.lower()
+                if not low or len(low) < 3:
+                    continue
+                if _is_numeric_heavy(clean):
+                    continue
+                slide_kws.append(clean)
+                if low not in seen:
+                    seen.add(low)
+                    all_keywords.append(clean)
+            slide['keywords'] = filter_keywords(slide_kws)[:5]
+        except Exception:
+            slide['keywords'] = []
+
+    return filter_keywords(all_keywords)[:KEYBERT_TOP_N]
 
 
 def _is_noise_line(line: str) -> bool:
@@ -137,18 +322,20 @@ def _merge_short_lines(lines: List[str], min_len: int = 60) -> List[str]:
     return merged
 
 
-def clean_extracted_text(text: str) -> str:
+def clean_extracted_text(text: str, skip_merge: bool = False) -> str:
     """
     Make Tika output more study-friendly:
     - remove URLs and obvious slide/page markers
+    - strip arrow characters
     - reduce PDF mojibake artifacts
-    - merge short lines from PDF slides
+    - merge short lines from PDF slides (skipped for slide-type documents)
     - collapse whitespace while keeping sentence boundaries mostly intact
     """
     if not text:
         return ""
 
     text = _repair_encoding(text)
+    text = _strip_arrows(text)
 
     # Work line-by-line to drop obvious junk early.
     lines = [ln.strip() for ln in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
@@ -173,8 +360,10 @@ def clean_extracted_text(text: str) -> str:
         seen.add(key)
         kept.append(ln)
 
-    # Merge consecutive short fragments from PDF slides into coherent sentences
-    kept = _merge_short_lines(kept, min_len=60)
+    # Merge consecutive short fragments — but NOT for slide-type documents
+    # where merging destroys the natural slide-boundary structure.
+    if not skip_merge:
+        kept = _merge_short_lines(kept, min_len=60)
 
     cleaned = " ".join(kept)
     cleaned = _MULTISPACE_RE.sub(" ", cleaned).strip()
@@ -188,9 +377,41 @@ _CONJUNCTION_PREPS = frozenset([
 
 _CONSECUTIVE_CAPS_RE = re.compile(r"(?:\b[A-Z][a-z]*\s+){5,}")
 
+_INTERROGATIVE_STARTS = re.compile(
+    r"^(how|what|why|when|where|who|which|can|could|should|would|"
+    r"is|are|do|does|did|will|has|have|shall|may|might)\b",
+    re.IGNORECASE,
+)
+
+_ELLIPSIS_RE = re.compile(r"\.\.\.|[\u2026]")
+
+
+def _is_declarative_statement(sentence: str) -> bool:
+    """True only for declarative sentences suitable for True/False questions."""
+    s = sentence.strip()
+    if s.endswith("?"):
+        return False
+    if _INTERROGATIVE_STARTS.match(s):
+        return False
+    if _ELLIPSIS_RE.search(s):
+        return False
+    try:
+        doc = nlp(s[:200])
+        if doc and doc[0].pos_ == "VERB" and doc[0].dep_ == "ROOT":
+            return False
+    except Exception:
+        pass
+    return True
+
+
 def is_good_sentence(sentence: str) -> bool:
     s = sentence.strip()
     if len(s) < 40 or len(s) > 400:
+        return False
+
+    if s.endswith("?"):
+        return False
+    if _ELLIPSIS_RE.search(s):
         return False
 
     words = s.split()
@@ -228,6 +449,8 @@ _GENERIC_STOPWORDS = frozenset([
     "example", "examples", "instance", "figure", "table", "section",
     "chapter", "slide", "page", "unit", "module", "lecture", "review",
     "overview", "introduction", "conclusion", "summary", "note", "notes",
+    "agenda", "outline", "recap", "contents", "objectives", "topics",
+    "references", "bibliography", "questions",
     "step", "steps", "item", "items", "list", "issue", "issues",
     "you", "your", "we", "our", "they", "their", "one", "ones",
     "portion", "portions", "function", "method", "approach", "process",
@@ -242,6 +465,11 @@ def filter_keywords(phrases: list) -> list:
         phrase = (p or "").strip()
         if not phrase:
             continue
+        # Strip arrows and leading articles before evaluation
+        phrase = _strip_arrows(phrase)
+        phrase = _LEADING_ARTICLE_RE.sub('', phrase).strip()
+        if not phrase:
+            continue
         low = phrase.lower()
         if low in seen:
             continue
@@ -250,6 +478,8 @@ def filter_keywords(phrases: list) -> list:
         if _SLIDE_RE.search(low) or low in ("slide", "page"):
             continue
         if len(phrase) < 3:
+            continue
+        if _is_numeric_heavy(phrase):
             continue
         # Reject single-word generic terms
         words = low.split()
@@ -260,6 +490,12 @@ def filter_keywords(phrases: list) -> list:
             continue
         # Reject very short single words that aren't acronyms
         if len(words) == 1 and len(phrase) <= 3 and not phrase.isupper():
+            continue
+        # Reject phrases that are just connectors/prepositions
+        if all(w in _CONJUNCTION_PREPS for w in words):
+            continue
+        # Reject 2-word phrases where one token is purely numeric
+        if len(words) == 2 and any(w.replace('.', '').isdigit() for w in words):
             continue
         seen.add(low)
         filtered.append(phrase)
@@ -557,7 +793,169 @@ class ProcessResponse(BaseModel):
     sentence_clusters: Optional[List[dict]] = None
     summary_sentences: Optional[List[dict]] = None
     cluster_quality: Optional[float] = None
+    processing_quality: Optional[float] = None
+    concept_relationships: Optional[List[dict]] = None
+    document_type: str = "prose"
+    slides: Optional[List[dict]] = None
     error: Optional[str] = None
+
+# ============================================
+# Processing Quality Score
+# ============================================
+
+def compute_processing_quality(
+    text: str,
+    important_sentences: List[str],
+    keywords: List[str],
+    sentence_clusters: List[dict],
+    cluster_quality: Optional[float],
+    document_type: str,
+    slides: Optional[List[dict]],
+) -> float:
+    """
+    Composite 0-1 quality score that tells users how useful the
+    extracted study material is likely to be.
+
+    Components (weighted):
+      - cluster_coherence   0.25  — average intra-cluster similarity
+      - sentence_coverage   0.25  — fraction of document represented in pool
+      - keyword_diversity    0.20  — unique keyword roots / total keywords
+      - concept_density      0.15  — clusters or slides / expected for doc length
+      - content_length       0.15  — penalise very short documents
+    """
+    scores: Dict[str, float] = {}
+
+    # 1. Cluster coherence (already computed, 0-1)
+    scores["cluster_coherence"] = min(1.0, cluster_quality or 0.0)
+
+    # 2. Sentence coverage
+    all_sents_approx = max(1, text.count(". ") + text.count("! ") + text.count("? "))
+    pool_size = len(important_sentences)
+    coverage = min(1.0, pool_size / max(1, min(30, all_sents_approx)))
+    scores["sentence_coverage"] = coverage
+
+    # 3. Keyword diversity
+    if keywords:
+        roots = set()
+        for kw in keywords:
+            tokens = kw.lower().split()
+            roots.add(tokens[-1] if tokens else kw.lower())
+        scores["keyword_diversity"] = min(1.0, len(roots) / max(1, len(keywords)))
+    else:
+        scores["keyword_diversity"] = 0.0
+
+    # 4. Concept density
+    if document_type == "slides" and slides:
+        actual = len([s for s in slides if len(s.get("bullets", [])) > 0])
+        expected = max(3, len(slides) * 0.6)
+    else:
+        actual = len(sentence_clusters)
+        chars = len(text)
+        expected = max(3, min(12, chars / 3000))
+    scores["concept_density"] = min(1.0, actual / max(1, expected))
+
+    # 5. Content length penalty
+    char_count = len(text)
+    if char_count < 200:
+        scores["content_length"] = 0.1
+    elif char_count < 1000:
+        scores["content_length"] = 0.5
+    else:
+        scores["content_length"] = min(1.0, char_count / 5000)
+
+    weights = {
+        "cluster_coherence": 0.25,
+        "sentence_coverage": 0.25,
+        "keyword_diversity": 0.20,
+        "concept_density": 0.15,
+        "content_length": 0.15,
+    }
+
+    quality = sum(scores[k] * weights[k] for k in weights)
+    return round(min(1.0, max(0.0, quality)), 3)
+
+
+# ============================================
+# Concept Relationship Extraction
+# ============================================
+
+def extract_concept_relationships(
+    sentence_clusters: List[dict],
+    important_sentences: List[str],
+    keywords: List[str],
+) -> List[dict]:
+    """
+    Find relationships between clusters using:
+    1. Semantic similarity between cluster centroids (via st_model)
+    2. Keyword co-occurrence in the same sentences
+
+    Returns [{source_idx, target_idx, similarity, relationship_type}]
+    where indices map to the cluster list order (same order as concepts).
+    """
+    if len(sentence_clusters) < 2:
+        return []
+
+    relationships: List[dict] = []
+
+    try:
+        # Build per-cluster text for embedding
+        cluster_texts: List[str] = []
+        for cluster in sentence_clusters:
+            indices = cluster.get("sentence_indices", [])
+            sents = [important_sentences[i] for i in indices if i < len(important_sentences)]
+            cluster_texts.append(" ".join(sents) if sents else "")
+
+        # Semantic similarity between cluster centroids
+        if any(t for t in cluster_texts):
+            embeddings = st_model.encode(cluster_texts)
+            sim_matrix = 1.0 - cosine_distances(embeddings)
+
+            for i in range(len(sentence_clusters)):
+                for j in range(i + 1, len(sentence_clusters)):
+                    sim = float(sim_matrix[i][j])
+                    if sim > 0.35:
+                        relationships.append({
+                            "source_idx": i,
+                            "target_idx": j,
+                            "similarity": round(sim, 3),
+                            "relationship_type": "semantic",
+                        })
+
+        # Keyword co-occurrence: if keywords from two clusters appear in the same sentence
+        cluster_keyword_sets: List[set] = []
+        for cluster in sentence_clusters:
+            terms = set(t.lower() for t in cluster.get("key_terms", []))
+            label_words = set(cluster.get("label", "").lower().split())
+            cluster_keyword_sets.append(terms | label_words)
+
+        for sent in important_sentences:
+            lower_sent = sent.lower()
+            present_clusters: List[int] = []
+            for idx, kw_set in enumerate(cluster_keyword_sets):
+                if any(kw in lower_sent for kw in kw_set if len(kw) > 3):
+                    present_clusters.append(idx)
+
+            for a in range(len(present_clusters)):
+                for b in range(a + 1, len(present_clusters)):
+                    ci, cj = present_clusters[a], present_clusters[b]
+                    already = any(
+                        r for r in relationships
+                        if (r["source_idx"] == ci and r["target_idx"] == cj)
+                        or (r["source_idx"] == cj and r["target_idx"] == ci)
+                    )
+                    if not already:
+                        relationships.append({
+                            "source_idx": ci,
+                            "target_idx": cj,
+                            "similarity": 0.3,
+                            "relationship_type": "co_occurrence",
+                        })
+
+    except Exception as e:
+        print(f"[nlp-service] relationship extraction failed gracefully: {e}", flush=True)
+
+    return relationships
+
 
 # ============================================
 # Health Check
@@ -719,7 +1117,7 @@ def process_document(file: UploadFile = File(...)):
         PROCESS_LOCK.acquire()
         acquired = True
 
-        # Step 1: Extract text with Tika
+        # Step 1: Extract XHTML from Tika (preserves slide/page structure)
         content = file.file.read()
         print(f"[nlp-service] /process start filename={file.filename} type={file.content_type} size_bytes={len(content)}", flush=True)
         
@@ -727,7 +1125,7 @@ def process_document(file: UploadFile = File(...)):
             f"{TIKA_URL}/tika",
             data=content,
             headers={
-                "Accept": "text/plain",
+                "Accept": "text/html",
                 "Content-Type": file.content_type or "application/octet-stream"
             },
             timeout=60
@@ -740,14 +1138,31 @@ def process_document(file: UploadFile = File(...)):
                 keywords=[],
                 important_sentences=[],
                 char_count=0,
-                error=f"Tika extraction failed: {response.status_code}"
+                error="The document could not be read. It may be corrupted or in an unsupported format. Please try re-uploading or converting it to PDF first."
             )
         
-        raw_text = response.text.strip()
-        text = clean_extracted_text(raw_text)
+        html_content = response.text.strip()
+
+        # Step 1b: Parse HTML for slide/page boundaries
+        slides = _extract_slides_from_html(html_content)
+
+        # Step 1c: Extract plain text from the HTML
+        try:
+            html_soup = BeautifulSoup(html_content, 'lxml')
+            body = html_soup.find('body')
+            raw_text = body.get_text('\n').strip() if body else html_soup.get_text('\n').strip()
+        except Exception:
+            raw_text = html_content
+
+        # Step 1d: Detect document type before cleaning
+        document_type = _detect_document_type(raw_text, slides, file.content_type or '')
+
+        # Clean text — skip destructive short-line merging for slides
+        text = clean_extracted_text(raw_text, skip_merge=(document_type == 'slides'))
         print(
             f"[nlp-service] tika done seconds={(time.time() - start):.2f} "
-            f"text_chars={len(text)} raw_chars={len(raw_text)}",
+            f"text_chars={len(text)} raw_chars={len(raw_text)} "
+            f"document_type={document_type} slides_found={len(slides)}",
             flush=True
         )
         
@@ -758,7 +1173,7 @@ def process_document(file: UploadFile = File(...)):
                 keywords=[],
                 important_sentences=[],
                 char_count=0,
-                error="Document appears to be empty or unreadable"
+                error="Not enough readable text found in this document. It may contain mostly images, scanned pages, or non-text content. Try uploading a text-based version instead."
             )
         
         analysis_text = text
@@ -806,6 +1221,18 @@ def process_document(file: UploadFile = File(...)):
         keywords = filter_keywords([kw[0] for kw in keywords_deduped])[:KEYBERT_TOP_N]
         print(f"[nlp-service] keybert done seconds={(time.time() - keybert_start):.2f} keywords={len(keywords)}", flush=True)
 
+        # Step 3b: Per-slide keyword extraction (slide documents only)
+        slide_keywords: List[str] = []
+        if document_type == 'slides' and slides:
+            slide_kw_start = time.time()
+            slide_keywords = _process_slides_keywords(slides)
+            merged_kw_set = set(k.lower() for k in keywords)
+            for sk in slide_keywords:
+                if sk.lower() not in merged_kw_set:
+                    keywords.append(sk)
+                    merged_kw_set.add(sk.lower())
+            print(f"[nlp-service] slide_keywords done seconds={(time.time() - slide_kw_start):.2f} slide_keywords={len(slide_keywords)}", flush=True)
+
         # Step 4: Noun phrases (reuse spaCy doc from step 2)
         np_start = time.time()
         noun_phrases = extract_noun_phrases(doc)
@@ -844,6 +1271,22 @@ def process_document(file: UploadFile = File(...)):
                 flush=True
             )
 
+        # Step 7: Composite processing quality score
+        processing_quality = compute_processing_quality(
+            text, important_sentences, keywords,
+            sentence_clusters, cluster_quality,
+            document_type, slides,
+        )
+
+        # Step 8: Concept relationship extraction
+        concept_relationships = extract_concept_relationships(
+            sentence_clusters, important_sentences, keywords,
+        )
+        print(
+            f"[nlp-service] quality={processing_quality} relationships={len(concept_relationships)}",
+            flush=True,
+        )
+
         print(f"[nlp-service] /process done total_seconds={(time.time() - start):.2f}", flush=True)
         
         return ProcessResponse(
@@ -856,25 +1299,31 @@ def process_document(file: UploadFile = File(...)):
             sentence_clusters=sentence_clusters,
             summary_sentences=summary_sentences,
             cluster_quality=cluster_quality,
+            processing_quality=processing_quality,
+            concept_relationships=concept_relationships,
+            document_type=document_type,
+            slides=slides if document_type == 'slides' and slides else None,
         )
         
     except requests.exceptions.RequestException as e:
+        print(f"[nlp-service] Tika connection error: {e}", flush=True)
         return ProcessResponse(
             success=False,
             text="",
             keywords=[],
             important_sentences=[],
             char_count=0,
-            error=f"Tika connection error: {str(e)}"
+            error="The text extraction service is temporarily unavailable. Please try again in a few moments."
         )
     except Exception as e:
+        print(f"[nlp-service] /process unexpected error: {e}", flush=True)
         return ProcessResponse(
             success=False,
             text="",
             keywords=[],
             important_sentences=[],
             char_count=0,
-            error=str(e)
+            error="Something unexpected happened while analyzing your document. Please try again."
         )
     finally:
         try:
@@ -885,9 +1334,141 @@ def process_document(file: UploadFile = File(...)):
 
 
 # ============================================
+# Flashcard Generation
+# ============================================
+
+class FlashcardInput(BaseModel):
+    concept_name: str
+    description: str = ""
+    keywords: List[str] = []
+    source_page: Optional[int] = None
+
+class GenerateFlashcardsInput(BaseModel):
+    concepts: List[FlashcardInput]
+    important_sentences: List[str] = []
+    max_cards: int = 30
+
+class FlashcardOutput(BaseModel):
+    front: str
+    back: str
+    concept_name: str
+    difficulty: str = "intermediate"
+    source_page: Optional[int] = None
+
+class GenerateFlashcardsResponse(BaseModel):
+    success: bool
+    flashcards: List[FlashcardOutput] = []
+    error: Optional[str] = None
+
+FLASHCARD_LOCK = Lock()
+
+def _build_definition_card(concept: FlashcardInput) -> Optional[FlashcardOutput]:
+    """'What is X?' / description answer."""
+    desc = (concept.description or "").strip()
+    if len(desc) < 20:
+        return None
+    templates = [
+        f"What is {concept.concept_name}?",
+        f"Define {concept.concept_name}.",
+    ]
+    return FlashcardOutput(
+        front=random.choice(templates),
+        back=desc,
+        concept_name=concept.concept_name,
+        difficulty="beginner",
+        source_page=concept.source_page,
+    )
+
+
+def _build_cloze_card(
+    concept: FlashcardInput,
+    sentences: List[str],
+) -> Optional[FlashcardOutput]:
+    """Blank a keyphrase in a supporting sentence."""
+    name_lower = concept.concept_name.lower()
+    for sent in sentences:
+        if name_lower in sent.lower() and len(sent) > 30:
+            pattern = re.compile(re.escape(concept.concept_name), re.IGNORECASE)
+            blanked = pattern.sub("__________", sent, count=1)
+            return FlashcardOutput(
+                front=blanked,
+                back=concept.concept_name,
+                concept_name=concept.concept_name,
+                difficulty="intermediate",
+                source_page=concept.source_page,
+            )
+    return None
+
+
+def _build_keyword_card(concept: FlashcardInput) -> Optional[FlashcardOutput]:
+    """'Name key aspects of X' / keyword list."""
+    if len(concept.keywords) < 2:
+        return None
+    return FlashcardOutput(
+        front=f"Name the key aspects or components of {concept.concept_name}.",
+        back=", ".join(concept.keywords),
+        concept_name=concept.concept_name,
+        difficulty="intermediate",
+        source_page=concept.source_page,
+    )
+
+
+@app.post("/generate-flashcards", response_model=GenerateFlashcardsResponse)
+def generate_flashcards(input: GenerateFlashcardsInput):
+    """
+    Generate study flashcards from extracted concepts.
+    Three card types: definition, cloze (fill-in-blank), keyword recall.
+    """
+    try:
+        start = time.time()
+        FLASHCARD_LOCK.acquire()
+        acquired = True
+
+        cards: List[FlashcardOutput] = []
+        seen_fronts: set = set()
+
+        for concept in input.concepts:
+            if len(cards) >= input.max_cards:
+                break
+
+            # Definition card
+            defn = _build_definition_card(concept)
+            if defn and defn.front.lower() not in seen_fronts:
+                seen_fronts.add(defn.front.lower())
+                cards.append(defn)
+
+            # Cloze card
+            cloze = _build_cloze_card(concept, input.important_sentences)
+            if cloze and cloze.front.lower() not in seen_fronts:
+                seen_fronts.add(cloze.front.lower())
+                cards.append(cloze)
+
+            # Keyword recall card
+            kw_card = _build_keyword_card(concept)
+            if kw_card and kw_card.front.lower() not in seen_fronts:
+                seen_fronts.add(kw_card.front.lower())
+                cards.append(kw_card)
+
+        elapsed = time.time() - start
+        print(f"[nlp-service] /generate-flashcards done seconds={elapsed:.2f} cards={len(cards)}", flush=True)
+
+        return GenerateFlashcardsResponse(success=True, flashcards=cards)
+
+    except Exception as e:
+        print(f"[nlp-service] /generate-flashcards error: {e}", flush=True)
+        return GenerateFlashcardsResponse(success=False, error=str(e))
+    finally:
+        try:
+            if 'acquired' in locals() and acquired:
+                FLASHCARD_LOCK.release()
+        except Exception:
+            pass
+
+
+# ============================================
 # Automatic Question Generation (AQG)
 # Template-driven, grounded in source text.
-# Per Obj3 sections 6-8.
+# Per Obj3 sections 6-8, upgraded in Phase 4.2.
 # ============================================
 
 AQG_LOCK = Lock()
@@ -896,6 +1477,14 @@ _AMBIGUOUS_QUALIFIERS = re.compile(
     r"probably|generally|typically|possibly|approximately|almost|nearly)\b",
     re.IGNORECASE,
 )
+
+class ConceptInput(BaseModel):
+    name: str
+    importance: int = 5
+    difficulty_level: str = "intermediate"
+    keywords: List[str] = []
+    description: str = ""
+    source_pages: Optional[List[int]] = None
 
 class ChunkInput(BaseModel):
     chunk_id: str
@@ -909,6 +1498,9 @@ class GenerateQuestionsInput(BaseModel):
     question_types: List[str] = ["identification", "true_false", "multiple_choice", "fill_in_blank"]
     max_questions_per_chunk: int = 3
     max_total_questions: int = 15
+    difficulty: str = "mixed"
+    concepts: List[ConceptInput] = []
+    document_type: str = "prose"
 
 class GeneratedQuestion(BaseModel):
     chunk_id: str
@@ -917,12 +1509,38 @@ class GeneratedQuestion(BaseModel):
     options: Optional[List[str]] = None
     correct_answer: str
     difficulty_label: str = "intermediate"
+    explanation: Optional[str] = None
 
 class GenerateQuestionsResponse(BaseModel):
     success: bool
     questions: List[GeneratedQuestion] = []
     stats: Optional[dict] = None
     error: Optional[str] = None
+
+_IDENTIFICATION_TEMPLATES_BEGINNER = [
+    "What is {kp}?",
+    "Define {kp}.",
+    "What does {kp} refer to?",
+]
+_IDENTIFICATION_TEMPLATES_INTERMEDIATE = [
+    "Explain {kp} in detail.",
+    "What is the purpose of {kp}?",
+    "How does {kp} work?",
+    "Describe the role of {kp}.",
+]
+_IDENTIFICATION_TEMPLATES_ADVANCED = [
+    "What are the key characteristics of {kp}?",
+    "Compare and contrast {kp} with related concepts.",
+    "What are the implications of {kp}?",
+    "Analyze how {kp} relates to the broader topic.",
+]
+
+_DIFFICULTY_TYPE_WEIGHTS = {
+    "beginner":     {"identification": 3, "true_false": 4, "multiple_choice": 2, "fill_in_blank": 1},
+    "intermediate": {"identification": 2, "true_false": 2, "multiple_choice": 3, "fill_in_blank": 3},
+    "advanced":     {"identification": 1, "true_false": 1, "multiple_choice": 4, "fill_in_blank": 4},
+    "mixed":        {"identification": 2, "true_false": 2, "multiple_choice": 3, "fill_in_blank": 3},
+}
 
 
 def _get_sentences(text: str) -> List:
@@ -940,25 +1558,21 @@ def _find_keyphrase_in_sentence(sentence_text: str, keyphrases: List[str]) -> Op
     return None
 
 
-def _pick_distractors(correct: str, chunk_keyphrases: List[str],
-                      all_keyphrases: List[str], count: int = 3) -> List[str]:
+def _pick_distractors_semantic(correct: str, chunk_keyphrases: List[str],
+                               all_keyphrases: List[str], count: int = 3) -> List[str]:
     """
-    Build MCQ distractors per Obj3 section 7:
-    - Primary: other keyphrases from the same chunk
-    - Fallback: keyphrases from the full document pool
-    - Filters: unique, not the correct answer, similar length
+    Build MCQ distractors using semantic similarity (sentence-transformers).
+    Picks keyphrases that are related but distinct from the correct answer.
+    Falls back to length-based sorting if embedding fails.
     """
     correct_lower = correct.lower().strip()
-    correct_len = len(correct)
-    candidates = []
+    candidates: List[str] = []
     seen = {correct_lower}
 
     def _try_add(phrase: str):
         p = phrase.strip()
         low = p.lower()
-        if low in seen or not p:
-            return
-        if len(p) < 2:
+        if low in seen or not p or len(p) < 2:
             return
         seen.add(low)
         candidates.append(p)
@@ -967,43 +1581,90 @@ def _pick_distractors(correct: str, chunk_keyphrases: List[str],
         _try_add(kp)
     for kp in all_keyphrases:
         _try_add(kp)
-        if len(candidates) >= count * 3:
+        if len(candidates) >= count * 5:
             break
 
-    # Rank by similarity in length to the correct answer 
-    candidates.sort(key=lambda c: abs(len(c) - correct_len))
-    return candidates[:count]
+    if not candidates:
+        return []
+
+    try:
+        correct_emb = st_model.encode([correct])
+        cand_embs = st_model.encode(candidates)
+        sims = (1.0 - cosine_distances(correct_emb, cand_embs))[0]
+        scored = sorted(zip(candidates, sims), key=lambda x: x[1], reverse=True)
+        # Pick the most semantically similar (plausible) but not identical
+        result = [c for c, s in scored if 0.15 < s < 0.85]
+        return result[:count]
+    except Exception:
+        correct_len = len(correct)
+        candidates.sort(key=lambda c: abs(len(c) - correct_len))
+        return candidates[:count]
+
+
+def _build_explanation(sentence_text: str, keyphrase: str = "") -> str:
+    """Build a source-grounded explanation from the supporting sentence."""
+    clean = sentence_text.strip()
+    if len(clean) > 200:
+        clean = clean[:197] + "..."
+    if keyphrase:
+        return f"The answer is '{keyphrase}'. According to the document: {clean}"
+    return f"According to the document: {clean}"
+
+
+def _select_difficulty_label(target_difficulty: str, question_type: str) -> str:
+    """Pick a difficulty label consistent with the target and question type."""
+    if target_difficulty in ("beginner", "intermediate", "advanced"):
+        return target_difficulty
+    # 'mixed' - vary by question type
+    defaults = {
+        "true_false": "beginner",
+        "identification": "intermediate",
+        "multiple_choice": "intermediate",
+        "fill_in_blank": "intermediate",
+    }
+    return defaults.get(question_type, "intermediate")
 
 
 def _generate_identification(sentence_text: str, keyphrase: str,
-                             chunk_id: str) -> Optional[GeneratedQuestion]:
-    """Template: 'What is [keyphrase]?' / 'Define [keyphrase].'"""
+                             chunk_id: str, difficulty: str = "mixed") -> Optional[GeneratedQuestion]:
+    """Template-based identification question with difficulty-varied templates."""
     answer = sentence_text.strip()
     if len(answer) < 20:
         return None
-    templates = [
-        f"What is {keyphrase}?",
-        f"Define {keyphrase}.",
-        f"Explain {keyphrase}.",
-    ]
-    q_text = random.choice(templates)
+
+    diff_label = _select_difficulty_label(difficulty, "identification")
+    if diff_label == "beginner":
+        templates = _IDENTIFICATION_TEMPLATES_BEGINNER
+    elif diff_label == "advanced":
+        templates = _IDENTIFICATION_TEMPLATES_ADVANCED
+    else:
+        templates = _IDENTIFICATION_TEMPLATES_INTERMEDIATE
+
+    q_text = random.choice(templates).format(kp=keyphrase)
     return GeneratedQuestion(
         chunk_id=chunk_id,
         question_type="identification",
         question_text=q_text,
         correct_answer=answer,
-        difficulty_label="intermediate",
+        difficulty_label=diff_label,
+        explanation=_build_explanation(answer, keyphrase),
     )
 
 
-def _generate_true_false(sentence_text: str, chunk_id: str) -> Optional[GeneratedQuestion]:
+def _generate_true_false(sentence_text: str, chunk_id: str,
+                         keyphrases: List[str] = [],
+                         difficulty: str = "mixed") -> Optional[GeneratedQuestion]:
     """
-    Present a key sentence as True, or negate it for False.
-    Reject ambiguous sentences (Obj3 section 8).
+    Present a key sentence as True, or create a False variant.
+    Uses entity/keyphrase swapping for more natural False statements.
+    Falls back to verb negation if swapping fails.
     """
+    if not _is_declarative_statement(sentence_text):
+        return None
     if _AMBIGUOUS_QUALIFIERS.search(sentence_text):
         return None
 
+    diff_label = _select_difficulty_label(difficulty, "true_false")
     make_false = random.random() < 0.5
 
     if not make_false:
@@ -1012,10 +1673,23 @@ def _generate_true_false(sentence_text: str, chunk_id: str) -> Optional[Generate
             question_type="true_false",
             question_text=sentence_text.strip(),
             correct_answer="true",
-            difficulty_label="beginner",
+            difficulty_label=diff_label,
+            explanation=_build_explanation(sentence_text),
         )
 
-    # Negate by inserting "not" after the main verb using spaCy
+    # Strategy 1: Entity/keyphrase swapping (more natural)
+    swapped = _try_entity_swap(sentence_text, keyphrases)
+    if swapped:
+        return GeneratedQuestion(
+            chunk_id=chunk_id,
+            question_type="true_false",
+            question_text=swapped.strip(),
+            correct_answer="false",
+            difficulty_label=diff_label,
+            explanation=f"This statement is false. {_build_explanation(sentence_text)}",
+        )
+
+    # Strategy 2: Verb negation fallback
     doc = nlp(sentence_text)
     negated = None
     for token in doc:
@@ -1033,52 +1707,91 @@ def _generate_true_false(sentence_text: str, chunk_id: str) -> Optional[Generate
         question_type="true_false",
         question_text=negated.strip(),
         correct_answer="false",
-        difficulty_label="beginner",
+        difficulty_label=diff_label,
+        explanation=f"This statement is false because 'not' changes the meaning. {_build_explanation(sentence_text)}",
     )
 
 
+def _try_entity_swap(sentence_text: str, keyphrases: List[str]) -> Optional[str]:
+    """Try to swap a named entity or keyphrase with another to create a false statement."""
+    doc = nlp(sentence_text)
+    entities = [(ent.text, ent.start_char, ent.end_char, ent.label_)
+                for ent in doc.ents if len(ent.text) > 2]
+
+    if entities:
+        target = random.choice(entities)
+        target_text, start, end, label = target
+        # Find a different entity of the same type
+        same_type = [e for e in entities if e[3] == label and e[0] != target_text]
+        if same_type:
+            replacement = random.choice(same_type)[0]
+            return sentence_text[:start] + replacement + sentence_text[end:]
+
+    # Try keyphrase swapping
+    sent_lower = sentence_text.lower()
+    found_kps = [(kp, sent_lower.find(kp.lower())) for kp in keyphrases
+                 if kp.lower() in sent_lower]
+    if len(found_kps) >= 1:
+        target_kp, pos = found_kps[0]
+        # Find a different keyphrase to swap in
+        others = [kp for kp in keyphrases if kp.lower() != target_kp.lower()
+                  and abs(len(kp) - len(target_kp)) < len(target_kp)]
+        if others:
+            replacement = random.choice(others)
+            pattern = re.compile(re.escape(target_kp), re.IGNORECASE)
+            return pattern.sub(replacement, sentence_text, count=1)
+
+    return None
+
+
 def _generate_mcq(sentence_text: str, keyphrase: str, chunk_keyphrases: List[str],
-                   all_keyphrases: List[str], chunk_id: str) -> Optional[GeneratedQuestion]:
+                   all_keyphrases: List[str], chunk_id: str,
+                   difficulty: str = "mixed") -> Optional[GeneratedQuestion]:
     """
-    Blank the keyphrase in the sentence to form the stem, use other keyphrases
-    as distractors (Obj3 section 7).
+    Blank the keyphrase in the sentence to form the stem, use semantically
+    similar keyphrases as distractors.
     """
     pattern = re.compile(re.escape(keyphrase), re.IGNORECASE)
     if not pattern.search(sentence_text):
         return None
 
     stem = pattern.sub("__________", sentence_text, count=1).strip()
-    distractors = _pick_distractors(keyphrase, chunk_keyphrases, all_keyphrases, count=3)
+    distractors = _pick_distractors_semantic(keyphrase, chunk_keyphrases, all_keyphrases, count=3)
     if len(distractors) < 2:
         return None
 
     options = distractors[:3] + [keyphrase]
     random.shuffle(options)
 
+    diff_label = _select_difficulty_label(difficulty, "multiple_choice")
     return GeneratedQuestion(
         chunk_id=chunk_id,
         question_type="multiple_choice",
         question_text=stem,
         options=options,
         correct_answer=keyphrase,
-        difficulty_label="intermediate",
+        difficulty_label=diff_label,
+        explanation=_build_explanation(sentence_text, keyphrase),
     )
 
 
 def _generate_fill_in_blank(sentence_text: str, keyphrase: str,
-                            chunk_id: str) -> Optional[GeneratedQuestion]:
+                            chunk_id: str,
+                            difficulty: str = "mixed") -> Optional[GeneratedQuestion]:
     """Remove a keyphrase from the sentence to create a blank."""
     pattern = re.compile(re.escape(keyphrase), re.IGNORECASE)
     if not pattern.search(sentence_text):
         return None
 
     blanked = pattern.sub("__________", sentence_text, count=1).strip()
+    diff_label = _select_difficulty_label(difficulty, "fill_in_blank")
     return GeneratedQuestion(
         chunk_id=chunk_id,
         question_type="fill_in_blank",
         question_text=blanked,
         correct_answer=keyphrase,
-        difficulty_label="intermediate",
+        difficulty_label=diff_label,
+        explanation=_build_explanation(sentence_text, keyphrase),
     )
 
 
@@ -1095,26 +1808,198 @@ def _deduplicate_questions(questions: List[GeneratedQuestion]) -> List[Generated
     return result
 
 
+def _validate_question(q: GeneratedQuestion) -> bool:
+    """Quality gate: reject questions that are too short, trivial, or malformed."""
+    if len(q.question_text) < 15:
+        return False
+    if len(q.correct_answer) < 2:
+        return False
+    if q.question_type == "true_false":
+        text = q.question_text.strip()
+        if text.endswith("?"):
+            return False
+        if _INTERROGATIVE_STARTS.match(text):
+            return False
+        if _ELLIPSIS_RE.search(text):
+            return False
+    if q.question_type == "multiple_choice":
+        if not q.options or len(q.options) < 3:
+            return False
+        unique_opts = set(o.lower().strip() for o in q.options)
+        if len(unique_opts) < 3:
+            return False
+    if q.question_type == "fill_in_blank":
+        if "__________" not in q.question_text:
+            return False
+    return True
+
+
+def _generate_slide_questions(
+    concepts: List[ConceptInput],
+    all_keyphrases: List[str],
+    difficulty: str,
+    question_types: List[str],
+    max_questions: int,
+) -> List[GeneratedQuestion]:
+    """
+    Generate questions specifically from slide-based concept data.
+    Uses concept names as natural topic stems and descriptions as answer material.
+    """
+    questions: List[GeneratedQuestion] = []
+    type_set = set(question_types)
+
+    _SLIDE_IDENT_TEMPLATES = [
+        "What is covered in the section on {name}?",
+        "Summarize the key points about {name}.",
+        "What are the main ideas related to {name}?",
+    ]
+    _SLIDE_MCQ_TEMPLATES = [
+        "Which of the following best describes {name}?",
+        "What is the main purpose of {name}?",
+    ]
+
+    sorted_concepts = sorted(concepts, key=lambda c: c.importance, reverse=True)
+
+    for concept in sorted_concepts:
+        if len(questions) >= max_questions:
+            break
+
+        name = concept.name
+        desc = concept.description.strip()
+        if not desc or len(desc) < 20:
+            continue
+
+        diff_label = _select_difficulty_label(difficulty, "identification")
+
+        # Identification from slide topic
+        if "identification" in type_set and len(questions) < max_questions:
+            template = random.choice(_SLIDE_IDENT_TEMPLATES)
+            q = GeneratedQuestion(
+                chunk_id="",
+                question_type="identification",
+                question_text=template.format(name=name),
+                correct_answer=desc[:300],
+                difficulty_label=diff_label,
+                explanation=f"This is covered in the slide on '{name}': {desc[:150]}",
+            )
+            if _validate_question(q):
+                questions.append(q)
+
+        # MCQ using concept name and other concepts as distractors
+        if "multiple_choice" in type_set and len(questions) < max_questions:
+            other_names = [c.name for c in sorted_concepts if c.name != name]
+            if len(other_names) >= 2:
+                distractors = random.sample(other_names, min(3, len(other_names)))
+                desc_short = desc.split('.')[0].strip()
+                if len(desc_short) > 15:
+                    template = random.choice(_SLIDE_MCQ_TEMPLATES)
+                    options = distractors[:3] + [desc_short]
+                    random.shuffle(options)
+                    q = GeneratedQuestion(
+                        chunk_id="",
+                        question_type="multiple_choice",
+                        question_text=template.format(name=name),
+                        options=options,
+                        correct_answer=desc_short,
+                        difficulty_label=_select_difficulty_label(difficulty, "multiple_choice"),
+                        explanation=f"The correct answer describes {name}: {desc[:150]}",
+                    )
+                    if _validate_question(q):
+                        questions.append(q)
+
+        # Fill-in-blank from description
+        if "fill_in_blank" in type_set and len(questions) < max_questions:
+            name_lower = name.lower()
+            desc_lower = desc.lower()
+            if name_lower in desc_lower:
+                pattern = re.compile(re.escape(name), re.IGNORECASE)
+                blanked = pattern.sub("__________", desc, count=1)
+                q = GeneratedQuestion(
+                    chunk_id="",
+                    question_type="fill_in_blank",
+                    question_text=blanked[:300],
+                    correct_answer=name,
+                    difficulty_label=_select_difficulty_label(difficulty, "fill_in_blank"),
+                    explanation=f"The blank should be filled with '{name}'.",
+                )
+                if _validate_question(q):
+                    questions.append(q)
+
+    return questions
+
+
+def _balance_by_concept_coverage(
+    all_questions: List[GeneratedQuestion],
+    max_total: int,
+    concept_names: List[str],
+) -> List[GeneratedQuestion]:
+    """
+    Reorder questions to ensure coverage across concepts.
+    Prioritizes one question per concept before duplicating.
+    """
+    if not concept_names or len(all_questions) <= max_total:
+        return all_questions
+
+    concept_lower = [c.lower() for c in concept_names]
+    concept_buckets: Dict[str, List[GeneratedQuestion]] = {c: [] for c in concept_lower}
+    unbucketed: List[GeneratedQuestion] = []
+
+    for q in all_questions:
+        q_text_lower = q.question_text.lower() + " " + q.correct_answer.lower()
+        placed = False
+        for cn in concept_lower:
+            if cn in q_text_lower:
+                concept_buckets[cn].append(q)
+                placed = True
+                break
+        if not placed:
+            unbucketed.append(q)
+
+    result: List[GeneratedQuestion] = []
+    round_num = 0
+    while len(result) < max_total:
+        added_this_round = False
+        for cn in concept_lower:
+            if round_num < len(concept_buckets[cn]) and len(result) < max_total:
+                result.append(concept_buckets[cn][round_num])
+                added_this_round = True
+        round_num += 1
+        if not added_this_round:
+            break
+
+    for q in unbucketed:
+        if len(result) >= max_total:
+            break
+        result.append(q)
+
+    return result[:max_total]
+
+
 @app.post("/generate-questions", response_model=GenerateQuestionsResponse)
 def generate_questions(input: GenerateQuestionsInput):
     """
     Template-driven Automatic Question Generation (AQG).
     Generates grounded questions from chunk text using spaCy NLP.
-    This is the core of Obj3 -- no free LLM generation.
+    Supports difficulty targeting and concept coverage balancing.
     """
     try:
         start = time.time()
         AQG_LOCK.acquire()
         acquired = True
 
+        difficulty = input.difficulty or "mixed"
+        type_weights = _DIFFICULTY_TYPE_WEIGHTS.get(difficulty, _DIFFICULTY_TYPE_WEIGHTS["mixed"])
+
         print(f"[nlp-service] /generate-questions start chunks={len(input.chunks)} "
-              f"types={input.question_types} max_total={input.max_total_questions}", flush=True)
+              f"types={input.question_types} difficulty={difficulty} "
+              f"max_total={input.max_total_questions} concepts={len(input.concepts)}", flush=True)
 
         all_questions: List[GeneratedQuestion] = []
         type_set = set(input.question_types)
+        used_keyphrases: set = set()
 
         for chunk in input.chunks:
-            if len(all_questions) >= input.max_total_questions:
+            if len(all_questions) >= input.max_total_questions * 2:
                 break
 
             chunk_questions: List[GeneratedQuestion] = []
@@ -1122,13 +2007,11 @@ def generate_questions(input: GenerateQuestionsInput):
             if len(text) < 50:
                 continue
 
-            # Get sentences via spaCy
             sentences = _get_sentences(text)
             good_sentences = [
                 str(s).strip() for s in sentences if is_good_sentence(str(s))
             ]
 
-            # Resolve keyphrases: use provided ones, or re-extract with KeyBERT
             keyphrases = filter_keywords(chunk.keyphrases) if chunk.keyphrases else []
             if not keyphrases:
                 try:
@@ -1145,10 +2028,14 @@ def generate_questions(input: GenerateQuestionsInput):
                 except Exception:
                     keyphrases = []
 
-            # Resolve important sentences: use provided or derive from good_sentences
             imp_sentences = chunk.important_sentences if chunk.important_sentences else good_sentences[:5]
 
-            # --- Generate each question type ---
+            # Build a weighted type order based on difficulty
+            weighted_types = []
+            for qt in input.question_types:
+                w = type_weights.get(qt, 1)
+                weighted_types.extend([qt] * w)
+            random.shuffle(weighted_types)
 
             for sent in imp_sentences:
                 if len(chunk_questions) >= input.max_questions_per_chunk:
@@ -1156,51 +2043,79 @@ def generate_questions(input: GenerateQuestionsInput):
 
                 kp = _find_keyphrase_in_sentence(sent, keyphrases)
 
-                # Identification
-                if "identification" in type_set and kp and len(chunk_questions) < input.max_questions_per_chunk:
-                    q = _generate_identification(sent, kp, chunk.chunk_id)
-                    if q:
-                        chunk_questions.append(q)
+                # Prefer keyphrases not yet used (for diversity)
+                if kp and kp.lower() in used_keyphrases:
+                    alt_kp = None
+                    for other_kp in keyphrases:
+                        if other_kp.lower() not in used_keyphrases and other_kp.lower() in sent.lower():
+                            alt_kp = other_kp
+                            break
+                    if alt_kp:
+                        kp = alt_kp
 
-                # True/False
-                if "true_false" in type_set and len(chunk_questions) < input.max_questions_per_chunk:
-                    q = _generate_true_false(sent, chunk.chunk_id)
-                    if q:
-                        chunk_questions.append(q)
+                # Pick question type from weighted rotation
+                for qt in weighted_types:
+                    if len(chunk_questions) >= input.max_questions_per_chunk:
+                        break
+                    if qt not in type_set:
+                        continue
 
-                # MCQ
-                if "multiple_choice" in type_set and kp and len(chunk_questions) < input.max_questions_per_chunk:
-                    q = _generate_mcq(sent, kp, keyphrases, input.all_keyphrases, chunk.chunk_id)
-                    if q:
-                        chunk_questions.append(q)
+                    q = None
+                    if qt == "identification" and kp:
+                        q = _generate_identification(sent, kp, chunk.chunk_id, difficulty)
+                    elif qt == "true_false":
+                        if not _is_declarative_statement(sent):
+                            continue
+                        q = _generate_true_false(sent, chunk.chunk_id, keyphrases, difficulty)
+                    elif qt == "multiple_choice" and kp:
+                        q = _generate_mcq(sent, kp, keyphrases, input.all_keyphrases, chunk.chunk_id, difficulty)
+                    elif qt == "fill_in_blank" and kp:
+                        q = _generate_fill_in_blank(sent, kp, chunk.chunk_id, difficulty)
 
-                # Fill-in-the-Blank
-                if "fill_in_blank" in type_set and kp and len(chunk_questions) < input.max_questions_per_chunk:
-                    q = _generate_fill_in_blank(sent, kp, chunk.chunk_id)
-                    if q:
+                    if q and _validate_question(q):
                         chunk_questions.append(q)
+                        if kp:
+                            used_keyphrases.add(kp.lower())
+                        break
 
             all_questions.extend(chunk_questions)
 
-        # Validation: dedup, cap at max_total_questions
+        # Supplement with slide-specific questions when document is slide-based
+        if input.document_type == "slides" and input.concepts:
+            slide_questions = _generate_slide_questions(
+                input.concepts,
+                input.all_keyphrases,
+                difficulty,
+                input.question_types,
+                max(3, input.max_total_questions - len(all_questions)),
+            )
+            all_questions.extend(slide_questions)
+            if slide_questions:
+                print(f"[nlp-service] added {len(slide_questions)} slide-specific questions", flush=True)
+
+        # Validation: dedup, quality filter, concept balancing
         all_questions = _deduplicate_questions(all_questions)
+
+        concept_names = [c.name for c in input.concepts] if input.concepts else []
+        all_questions = _balance_by_concept_coverage(
+            all_questions, input.max_total_questions, concept_names
+        )
+
         if len(all_questions) > input.max_total_questions:
-            random.shuffle(all_questions)
             all_questions = all_questions[:input.max_total_questions]
 
-        # Compute stats
         by_type: dict = {}
         for q in all_questions:
             by_type[q.question_type] = by_type.get(q.question_type, 0) + 1
 
         elapsed = time.time() - start
         print(f"[nlp-service] /generate-questions done seconds={elapsed:.2f} "
-              f"total={len(all_questions)} by_type={by_type}", flush=True)
+              f"total={len(all_questions)} by_type={by_type} difficulty={difficulty}", flush=True)
 
         return GenerateQuestionsResponse(
             success=True,
             questions=all_questions,
-            stats={"total": len(all_questions), "by_type": by_type},
+            stats={"total": len(all_questions), "by_type": by_type, "difficulty": difficulty},
         )
 
     except Exception as e:

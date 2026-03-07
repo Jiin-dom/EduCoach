@@ -122,6 +122,12 @@ async function warmConnection(): Promise<void> {
 // connection to force the browser to create a fresh socket, and retries.
 // ---------------------------------------------------------------------------
 const SUPABASE_FETCH_TIMEOUT_MS = 10_000
+const EDGE_FUNCTION_TIMEOUT_MS = 120_000
+
+function isEdgeFunctionRequest(input: RequestInfo | URL): boolean {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    return url.includes('/functions/v1/')
+}
 
 async function resilientFetch(
     input: RequestInfo | URL,
@@ -131,9 +137,11 @@ async function resilientFetch(
         return globalThis.fetch(input, { ...init, signal })
     }
 
+    const timeoutMs = isEdgeFunctionRequest(input) ? EDGE_FUNCTION_TIMEOUT_MS : SUPABASE_FETCH_TIMEOUT_MS
+
     const makeTimeoutController = (): { controller: AbortController; cleanup: () => void } => {
         const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), SUPABASE_FETCH_TIMEOUT_MS)
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
         if (init?.signal) {
             const onCallerAbort = () => controller.abort()
@@ -161,7 +169,7 @@ async function resilientFetch(
         if (init?.signal?.aborted) throw err
 
         if (err instanceof DOMException && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
-            console.warn('[Supabase] ⏰ Request timed out after', SUPABASE_FETCH_TIMEOUT_MS / 1000, 's — warming connection and retrying…')
+            console.warn('[Supabase] ⏰ Request timed out after', timeoutMs / 1000, 's — warming connection and retrying…')
             await warmConnection()
 
             const retry = makeTimeoutController()
