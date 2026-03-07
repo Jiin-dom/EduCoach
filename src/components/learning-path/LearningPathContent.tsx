@@ -143,8 +143,8 @@ function SectionBlock({
 }
 
 export function LearningPathContent() {
-    const { data: masteryList, isLoading: masteryLoading } = useConceptMasteryList()
-    const { data: stats, isLoading: statsLoading } = useLearningStats()
+    const { data: masteryList, isLoading: masteryLoading, isError: masteryError } = useConceptMasteryList()
+    const { data: stats, isLoading: statsLoading, isError: statsError } = useLearningStats()
 
     const sections: TopicSections = useMemo(() => {
         const all = masteryList || []
@@ -191,6 +191,19 @@ export function LearningPathContent() {
                     <div className="flex items-center justify-center py-16">
                         <Loader2 className="w-8 h-8 animate-spin text-primary" />
                     </div>
+                ) : (masteryError || statsError) ? (
+                    <Card>
+                        <CardContent className="text-center py-16">
+                            <AlertTriangle className="w-16 h-16 mx-auto text-amber-500 mb-4" />
+                            <h3 className="text-lg font-semibold mb-2">Could not load learning path</h3>
+                            <p className="text-muted-foreground mb-4">
+                                Something went wrong fetching your data. Please try refreshing.
+                            </p>
+                            <Button variant="outline" onClick={() => window.location.reload()}>
+                                Refresh Page
+                            </Button>
+                        </CardContent>
+                    </Card>
                 ) : (masteryList || []).length === 0 ? (
                     <Card>
                         <CardContent className="text-center py-16">

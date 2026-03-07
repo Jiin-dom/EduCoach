@@ -66,17 +66,33 @@ const RECENCY_WEIGHTS = [1.0, 0.85, 0.70]
  * AttemptScore = Correct × DiffWeight × TimeWeight
  *
  * Correct answers on harder questions yield higher scores.
- * Time weight is optional — defaults to 1.0 when not tracked.
+ * Fast correct answers get a small bonus (up to 1.1×), very slow
+ * answers get a mild penalty (down to 0.85×). When time is unknown
+ * the weight defaults to 1.0.
  */
 export function calculateAttemptScore(
     isCorrect: boolean,
     difficulty: DifficultyLevel | null,
-    _timeSpentSeconds?: number | null,
+    timeSpentSeconds?: number | null,
 ): number {
     if (!isCorrect) return 0
 
     const diffWeight = DIFFICULTY_WEIGHTS[difficulty ?? 'intermediate']
-    const timeWeight = 1.0
+
+    let timeWeight = 1.0
+    if (timeSpentSeconds != null && timeSpentSeconds > 0) {
+        if (timeSpentSeconds <= 15) {
+            timeWeight = 1.1
+        } else if (timeSpentSeconds <= 30) {
+            timeWeight = 1.05
+        } else if (timeSpentSeconds <= 60) {
+            timeWeight = 1.0
+        } else if (timeSpentSeconds <= 120) {
+            timeWeight = 0.95
+        } else {
+            timeWeight = 0.85
+        }
+    }
 
     return Math.min(1, diffWeight * timeWeight)
 }
@@ -172,10 +188,11 @@ export function getMasteryLevel(
 /**
  * Run the complete WMS pipeline on a set of attempt log entries.
  * Entries should be sorted newest-first.
+ * `confidenceK` controls how many attempts are needed for full confidence (default 3).
  */
-export function computeMastery(attempts: AttemptLogEntry[]): MasteryResult {
+export function computeMastery(attempts: AttemptLogEntry[], confidenceK = 3): MasteryResult {
     const rawMastery = calculateTopicMastery(attempts)
-    const confidence = calculateConfidence(attempts.length)
+    const confidence = calculateConfidence(attempts.length, confidenceK)
     const finalMastery = calculateFinalMastery(rawMastery, confidence)
     const masteryLevel = getMasteryLevel(finalMastery, confidence)
 
@@ -241,7 +258,7 @@ export function calculateSM2(input: SM2Input): SM2Result {
     ef = Math.max(1.3, Math.round(ef * 100) / 100)
 
     const due = new Date()
-    due.setDate(due.getDate() + interval)
+    due.setUTCDate(due.getUTCDate() + interval)
     const dueDate = due.toISOString().split('T')[0]
 
     return { repetition: rep, interval, easeFactor: ef, dueDate }
@@ -264,12 +281,10 @@ export function calculatePriorityScore(
 ): PriorityResult {
     const weaknessComponent = 1 - finalMastery / 100
 
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const dueDate = new Date(dueDateStr + 'T00:00:00')
-    const daysUntilDue = Math.floor(
-        (dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
-    )
+    const todayStr = new Date().toISOString().split('T')[0]
+    const todayMs = Date.UTC(+todayStr.slice(0, 4), +todayStr.slice(5, 7) - 1, +todayStr.slice(8, 10))
+    const dueMs = Date.UTC(+dueDateStr.slice(0, 4), +dueDateStr.slice(5, 7) - 1, +dueDateStr.slice(8, 10))
+    const daysUntilDue = Math.floor((dueMs - todayMs) / (1000 * 60 * 60 * 24))
     const deadlinePressure = Math.max(0, Math.min(1, 1 - daysUntilDue / 14))
 
     const lowPracticePenalty = 1 - confidence
@@ -284,6 +299,13 @@ export function calculatePriorityScore(
         deadlinePressure,
         lowPracticePenalty,
     }
+}
+
+// ─── Date Helpers ───────────────────────────────────────────────────────────
+
+/** Returns today's date as a UTC YYYY-MM-DD string, avoiding timezone drift. */
+export function todayUTC(): string {
+    return new Date().toISOString().split('T')[0]
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

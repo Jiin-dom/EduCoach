@@ -110,6 +110,10 @@ export function QuizView() {
     const [showResults, setShowResults] = useState(false)
     const [elapsedSeconds, setElapsedSeconds] = useState(0)
 
+    // Per-question time tracking
+    const questionStartRef = useRef(Date.now())
+    const questionTimeMap = useRef<Record<string, number>>({})
+
     // Timer: track elapsed time while taking the quiz
     useEffect(() => {
         if (showResults || !quiz || quiz.status !== 'ready' || !questions?.length) return
@@ -236,19 +240,30 @@ export function QuizView() {
         setAnswers({ ...answers, [question.id]: answer })
     }
 
+    const recordQuestionTime = () => {
+        const elapsed = Math.floor((Date.now() - questionStartRef.current) / 1000)
+        const prev = questionTimeMap.current[question.id] ?? 0
+        questionTimeMap.current[question.id] = prev + elapsed
+        questionStartRef.current = Date.now()
+    }
+
     const handleNext = () => {
         if (currentQuestion < questions.length - 1) {
+            recordQuestionTime()
             setCurrentQuestion(currentQuestion + 1)
         }
     }
 
     const handlePrevious = () => {
         if (currentQuestion > 0) {
+            recordQuestionTime()
             setCurrentQuestion(currentQuestion - 1)
         }
     }
 
     const handleSubmit = () => {
+        recordQuestionTime()
+
         const timeTaken = Math.floor((Date.now() - startTimestampRef.current) / 1000)
         const attemptAnswers: AttemptAnswer[] = questions.map((q) => ({
             question_id: q.id,
@@ -276,6 +291,7 @@ export function QuizView() {
                         answers: attemptAnswers,
                         questions,
                         documentId: quiz.document_id,
+                        timePerQuestion: { ...questionTimeMap.current },
                     })
                 },
             },
@@ -371,6 +387,8 @@ export function QuizView() {
                                     setShowResults(false)
                                     startedAtRef.current = new Date().toISOString()
                                     startTimestampRef.current = Date.now()
+                                    questionStartRef.current = Date.now()
+                                    questionTimeMap.current = {}
                                     setElapsedSeconds(0)
                                 }}
                                 variant="outline"

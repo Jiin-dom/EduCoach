@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { recomputeConceptMastery, learningKeys } from '@/hooks/useLearning'
+import { mapScoreToQuality } from '@/lib/learningAlgorithms'
 
 export interface Flashcard {
     id: string
@@ -128,6 +130,7 @@ function computeSM2(card: Flashcard, rating: ReviewRating) {
 
 export function useReviewFlashcard() {
     const queryClient = useQueryClient()
+    const { user } = useAuth()
 
     return useMutation({
         mutationFn: async ({ card, rating }: { card: Flashcard; rating: ReviewRating }) => {
@@ -139,10 +142,36 @@ export function useReviewFlashcard() {
                 .eq('id', card.id)
 
             if (error) throw new Error(error.message)
+
+            // Unify with concept mastery: flashcard review feeds WMS + SM-2
+            if (user && card.concept_id) {
+                const qualityMap: Record<ReviewRating, number> = { again: 0, hard: 2, good: 4, easy: 5 }
+                const q = qualityMap[rating]
+                const isCorrect = q >= 3
+
+                await supabase.from('question_attempt_log').insert({
+                    user_id: user.id,
+                    question_id: card.id,
+                    quiz_id: card.id,
+                    attempt_id: card.id,
+                    concept_id: card.concept_id,
+                    document_id: card.document_id,
+                    is_correct: isCorrect,
+                    user_answer: rating,
+                    question_difficulty: card.difficulty_level as 'beginner' | 'intermediate' | 'advanced' | null,
+                    time_spent_seconds: null,
+                    attempt_index: 1,
+                })
+
+                const sm2Quality = mapScoreToQuality(isCorrect ? (q === 5 ? 95 : 75) : (q === 2 ? 55 : 20))
+                await recomputeConceptMastery(user.id, card.concept_id, card.document_id, sm2Quality)
+            }
+
             return { ...card, ...updates }
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: flashcardKeys.all })
+            queryClient.invalidateQueries({ queryKey: learningKeys.all })
         },
     })
 }
