@@ -123,6 +123,7 @@ interface Concept {
     importance: number
     difficulty_level: string
     keywords: string[]
+    source_pages?: number[]
 }
 
 interface SummarySection {
@@ -255,6 +256,8 @@ serve(async (req) => {
         let extractedClusters: SentenceCluster[] = []
         let extractedSummarySentences: SummarySentence[] = []
         let extractedClusterQuality: number | null = null
+        let extractedProcessingQuality: number | null = null
+        let extractedConceptRelationships: ConceptRelationship[] = []
         let extractedDocumentType = 'prose'
         let extractedSlides: SlideData[] = []
 
@@ -270,6 +273,8 @@ serve(async (req) => {
             extractedClusters = nlpResult.sentenceClusters
             extractedSummarySentences = nlpResult.summarySentences
             extractedClusterQuality = nlpResult.clusterQuality
+            extractedProcessingQuality = nlpResult.processingQuality
+            extractedConceptRelationships = nlpResult.conceptRelationships
             extractedDocumentType = nlpResult.documentType
             extractedSlides = nlpResult.slides
             console.log('✅ NLP service extraction finished', {
@@ -281,6 +286,8 @@ serve(async (req) => {
                 nounPhraseCount: extractedNounPhrases.length,
                 summarySentenceCount: extractedSummarySentences.length,
                 clusterQuality: extractedClusterQuality,
+                processingQuality: extractedProcessingQuality,
+                conceptRelationships: extractedConceptRelationships.length,
                 documentType: extractedDocumentType,
                 slideCount: extractedSlides.length,
             })
@@ -396,6 +403,7 @@ serve(async (req) => {
         console.log(`🧠 Extracted ${analysisResult.concepts.length} concepts`)
 
         // 8. Save concepts to database
+        let savedConceptIds: string[] = []
         if (analysisResult.concepts.length > 0) {
             console.log('💾 Saving concepts to database...')
             const conceptRecords = analysisResult.concepts.map((concept) => ({
@@ -406,15 +414,116 @@ serve(async (req) => {
                 importance: concept.importance,
                 difficulty_level: concept.difficulty_level,
                 keywords: concept.keywords,
+                ...(concept.source_pages ? { source_pages: concept.source_pages } : {}),
             }))
 
-            const { error: conceptError } = await supabase
+            const { data: savedConcepts, error: conceptError } = await supabase
                 .from('concepts')
                 .insert(conceptRecords)
+                .select('id')
 
             if (conceptError) {
                 console.error('⚠️ Failed to save concepts:', conceptError)
-                // Don't throw - continue processing
+            } else if (savedConcepts) {
+                savedConceptIds = savedConcepts.map((c: { id: string }) => c.id)
+            }
+
+            // 8b. Populate related_concepts using NLP relationship data
+            if (savedConceptIds.length > 0 && extractedConceptRelationships.length > 0) {
+                console.log(`🔗 Setting ${extractedConceptRelationships.length} concept relationships...`)
+                const relMap = new Map<number, Set<number>>()
+                for (const rel of extractedConceptRelationships) {
+                    const { source_idx, target_idx } = rel
+                    if (source_idx < savedConceptIds.length && target_idx < savedConceptIds.length) {
+                        if (!relMap.has(source_idx)) relMap.set(source_idx, new Set())
+                        if (!relMap.has(target_idx)) relMap.set(target_idx, new Set())
+                        relMap.get(source_idx)!.add(target_idx)
+                        relMap.get(target_idx)!.add(source_idx)
+                    }
+                }
+
+                for (const [idx, relatedIndices] of relMap) {
+                    const conceptId = savedConceptIds[idx]
+                    const relatedIds = [...relatedIndices].map(i => savedConceptIds[i]).filter(Boolean)
+                    if (conceptId && relatedIds.length > 0) {
+                        await supabase
+                            .from('concepts')
+                            .update({ related_concepts: relatedIds })
+                            .eq('id', conceptId)
+                    }
+                }
+            }
+        }
+
+        // 8c. Generate flashcards from concepts
+        if (nlpServiceUrl && analysisResult.concepts.length > 0 && document.user_id) {
+            try {
+                console.log('🃏 Generating flashcards...')
+                const flashcardInput = {
+                    concepts: analysisResult.concepts.map((c, idx) => ({
+                        concept_name: c.name,
+                        description: c.description,
+                        keywords: c.keywords,
+                        source_page: c.source_pages?.[0] ?? null,
+                    })),
+                    important_sentences: derivedImportantSentences.slice(0, 20),
+                    max_cards: 30,
+                }
+
+                const flashcardTimeoutMs = parseTimeoutMs(Deno.env.get('NLP_SERVICE_TIMEOUT_MS'), 30000)
+                const fcResponse = await fetchWithTimeout(
+                    `${nlpServiceUrl}/generate-flashcards`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(flashcardInput),
+                    },
+                    flashcardTimeoutMs
+                )
+
+                if (fcResponse.ok) {
+                    const fcResult = await fcResponse.json()
+                    if (fcResult.success && fcResult.flashcards?.length > 0) {
+                        // Delete old flashcards for this document/user
+                        await supabase
+                            .from('flashcards')
+                            .delete()
+                            .eq('document_id', documentId)
+                            .eq('user_id', document.user_id)
+
+                        // Build concept name → ID lookup
+                        const conceptNameToId = new Map<string, string>()
+                        if (savedConceptIds.length > 0) {
+                            analysisResult.concepts.forEach((c, idx) => {
+                                if (savedConceptIds[idx]) {
+                                    conceptNameToId.set(c.name.toLowerCase(), savedConceptIds[idx])
+                                }
+                            })
+                        }
+
+                        const flashcardRecords = fcResult.flashcards.map((fc: { front: string; back: string; concept_name: string; difficulty: string; source_page: number | null }) => ({
+                            document_id: documentId,
+                            user_id: document.user_id,
+                            front: fc.front,
+                            back: fc.back,
+                            concept_id: conceptNameToId.get(fc.concept_name?.toLowerCase()) ?? null,
+                            difficulty_level: fc.difficulty || 'intermediate',
+                            source_page: fc.source_page,
+                        }))
+
+                        const { error: fcInsertError } = await supabase
+                            .from('flashcards')
+                            .insert(flashcardRecords)
+
+                        if (fcInsertError) {
+                            console.error('⚠️ Failed to save flashcards:', fcInsertError.message)
+                        } else {
+                            console.log(`✅ Saved ${flashcardRecords.length} flashcards`)
+                        }
+                    }
+                }
+            } catch (fcErr) {
+                console.error('⚠️ Flashcard generation failed (non-blocking):', (fcErr as Error).message)
             }
         }
 
@@ -447,6 +556,10 @@ serve(async (req) => {
 
         if (await hasProcessedByColumn(supabase)) {
             updatePayload.processed_by = processedBy
+        }
+
+        if (extractedProcessingQuality !== null) {
+            updatePayload.processing_quality = extractedProcessingQuality
         }
 
         const { error: updateError } = await supabase
@@ -538,6 +651,13 @@ interface SlideData {
     keywords?: string[]
 }
 
+interface ConceptRelationship {
+    source_idx: number
+    target_idx: number
+    similarity: number
+    relationship_type: string
+}
+
 interface NlpExtractionResult {
     text: string
     keywords: string[]
@@ -546,6 +666,8 @@ interface NlpExtractionResult {
     sentenceClusters: SentenceCluster[]
     summarySentences: SummarySentence[]
     clusterQuality: number | null
+    processingQuality: number | null
+    conceptRelationships: ConceptRelationship[]
     documentType: string
     slides: SlideData[]
 }
@@ -594,6 +716,8 @@ async function extractWithNlpService(
             sentenceClusters: result.sentence_clusters || [],
             summarySentences: result.summary_sentences || [],
             clusterQuality: result.cluster_quality ?? null,
+            processingQuality: result.processing_quality ?? null,
+            conceptRelationships: result.concept_relationships || [],
             documentType: result.document_type || 'prose',
             slides: result.slides || [],
         }
@@ -1388,6 +1512,7 @@ function buildConceptsFromSlides(slides: SlideData[]): Concept[] {
             importance,
             difficulty_level: difficulty,
             keywords: tags,
+            source_pages: [slide.slide_number],
         })
     }
 
@@ -1516,11 +1641,20 @@ function buildStructuredSummaryFromSlides(
     }
 }
 
+function estimatePageFromPosition(text: string, sentence: string): number[] {
+    const CHARS_PER_PAGE = 3000
+    const pos = text.indexOf(sentence.substring(0, 60))
+    if (pos < 0) return []
+    const page = Math.floor(pos / CHARS_PER_PAGE) + 1
+    return [page]
+}
+
 function buildConceptsFromClusters(
     sentencePool: string[],
     clusters: SentenceCluster[],
     _nounPhrases: NounPhrase[],
-    _keywordPool: string[]
+    _keywordPool: string[],
+    fullText: string = ''
 ): Concept[] {
     const concepts: Concept[] = []
 
@@ -1558,6 +1692,10 @@ function buildConceptsFromClusters(
         const difficulty = estimateDifficulty(description, label)
         const category = detectCategory(label, tags)
 
+        const sourcePages = fullText
+            ? estimatePageFromPosition(fullText, representative)
+            : undefined
+
         concepts.push({
             name: label,
             description,
@@ -1565,6 +1703,7 @@ function buildConceptsFromClusters(
             importance,
             difficulty_level: difficulty,
             keywords: tags,
+            ...(sourcePages && sourcePages.length > 0 ? { source_pages: sourcePages } : {}),
         })
     }
 
@@ -1612,7 +1751,7 @@ function buildPureNlpResult(
 
     // Cluster-based path: semantic clusters from NLP service
     if (sentenceClusters.length >= 3) {
-        const clusterConcepts = buildConceptsFromClusters(sentencePool, sentenceClusters, nounPhrases, keywordPool)
+        const clusterConcepts = buildConceptsFromClusters(sentencePool, sentenceClusters, nounPhrases, keywordPool, text)
         const dedupedConcepts = deduplicateConcepts(clusterConcepts)
         const { summary, structured } = buildStructuredSummaryFromClusters(
             sentencePool, sentenceClusters, summarySentences, sentencePool

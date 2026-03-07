@@ -19,6 +19,7 @@ export function FileViewer() {
     const { id } = useParams<{ id: string }>()
     const [activeTab, setActiveTab] = useState('guide')
     const [currentPage, setCurrentPage] = useState(1)
+    const [tutorPrompt, setTutorPrompt] = useState<string | null>(null)
 
     const { data: document, isLoading: docLoading, error: docError, refetch: refetchDoc } = useDocument(id)
     const { data: concepts, isLoading: conceptsLoading } = useDocumentConcepts(id)
@@ -119,6 +120,9 @@ export function FileViewer() {
                                 concepts={concepts || []}
                                 isLoading={conceptsLoading}
                                 documentStatus={document.status}
+                                onPageJump={handlePageJump}
+                                onAskTutor={(prompt: string) => setTutorPrompt(prompt)}
+                                documentId={document.id}
                             />
                         </TabsContent>
 
@@ -149,7 +153,11 @@ export function FileViewer() {
                 </div>
             </div>
 
-            <AiTutorChat documentId={id} />
+            <AiTutorChat
+                documentId={id}
+                pendingPrompt={tutorPrompt}
+                onPromptConsumed={() => setTutorPrompt(null)}
+            />
         </div>
     )
 }

@@ -761,9 +761,169 @@ class ProcessResponse(BaseModel):
     sentence_clusters: Optional[List[dict]] = None
     summary_sentences: Optional[List[dict]] = None
     cluster_quality: Optional[float] = None
+    processing_quality: Optional[float] = None
+    concept_relationships: Optional[List[dict]] = None
     document_type: str = "prose"
     slides: Optional[List[dict]] = None
     error: Optional[str] = None
+
+# ============================================
+# Processing Quality Score
+# ============================================
+
+def compute_processing_quality(
+    text: str,
+    important_sentences: List[str],
+    keywords: List[str],
+    sentence_clusters: List[dict],
+    cluster_quality: Optional[float],
+    document_type: str,
+    slides: Optional[List[dict]],
+) -> float:
+    """
+    Composite 0-1 quality score that tells users how useful the
+    extracted study material is likely to be.
+
+    Components (weighted):
+      - cluster_coherence   0.25  — average intra-cluster similarity
+      - sentence_coverage   0.25  — fraction of document represented in pool
+      - keyword_diversity    0.20  — unique keyword roots / total keywords
+      - concept_density      0.15  — clusters or slides / expected for doc length
+      - content_length       0.15  — penalise very short documents
+    """
+    scores: Dict[str, float] = {}
+
+    # 1. Cluster coherence (already computed, 0-1)
+    scores["cluster_coherence"] = min(1.0, cluster_quality or 0.0)
+
+    # 2. Sentence coverage
+    all_sents_approx = max(1, text.count(". ") + text.count("! ") + text.count("? "))
+    pool_size = len(important_sentences)
+    coverage = min(1.0, pool_size / max(1, min(30, all_sents_approx)))
+    scores["sentence_coverage"] = coverage
+
+    # 3. Keyword diversity
+    if keywords:
+        roots = set()
+        for kw in keywords:
+            tokens = kw.lower().split()
+            roots.add(tokens[-1] if tokens else kw.lower())
+        scores["keyword_diversity"] = min(1.0, len(roots) / max(1, len(keywords)))
+    else:
+        scores["keyword_diversity"] = 0.0
+
+    # 4. Concept density
+    if document_type == "slides" and slides:
+        actual = len([s for s in slides if len(s.get("bullets", [])) > 0])
+        expected = max(3, len(slides) * 0.6)
+    else:
+        actual = len(sentence_clusters)
+        chars = len(text)
+        expected = max(3, min(12, chars / 3000))
+    scores["concept_density"] = min(1.0, actual / max(1, expected))
+
+    # 5. Content length penalty
+    char_count = len(text)
+    if char_count < 200:
+        scores["content_length"] = 0.1
+    elif char_count < 1000:
+        scores["content_length"] = 0.5
+    else:
+        scores["content_length"] = min(1.0, char_count / 5000)
+
+    weights = {
+        "cluster_coherence": 0.25,
+        "sentence_coverage": 0.25,
+        "keyword_diversity": 0.20,
+        "concept_density": 0.15,
+        "content_length": 0.15,
+    }
+
+    quality = sum(scores[k] * weights[k] for k in weights)
+    return round(min(1.0, max(0.0, quality)), 3)
+
+
+# ============================================
+# Concept Relationship Extraction
+# ============================================
+
+def extract_concept_relationships(
+    sentence_clusters: List[dict],
+    important_sentences: List[str],
+    keywords: List[str],
+) -> List[dict]:
+    """
+    Find relationships between clusters using:
+    1. Semantic similarity between cluster centroids (via st_model)
+    2. Keyword co-occurrence in the same sentences
+
+    Returns [{source_idx, target_idx, similarity, relationship_type}]
+    where indices map to the cluster list order (same order as concepts).
+    """
+    if len(sentence_clusters) < 2:
+        return []
+
+    relationships: List[dict] = []
+
+    try:
+        # Build per-cluster text for embedding
+        cluster_texts: List[str] = []
+        for cluster in sentence_clusters:
+            indices = cluster.get("sentence_indices", [])
+            sents = [important_sentences[i] for i in indices if i < len(important_sentences)]
+            cluster_texts.append(" ".join(sents) if sents else "")
+
+        # Semantic similarity between cluster centroids
+        if any(t for t in cluster_texts):
+            embeddings = st_model.encode(cluster_texts)
+            sim_matrix = 1.0 - cosine_distances(embeddings)
+
+            for i in range(len(sentence_clusters)):
+                for j in range(i + 1, len(sentence_clusters)):
+                    sim = float(sim_matrix[i][j])
+                    if sim > 0.35:
+                        relationships.append({
+                            "source_idx": i,
+                            "target_idx": j,
+                            "similarity": round(sim, 3),
+                            "relationship_type": "semantic",
+                        })
+
+        # Keyword co-occurrence: if keywords from two clusters appear in the same sentence
+        cluster_keyword_sets: List[set] = []
+        for cluster in sentence_clusters:
+            terms = set(t.lower() for t in cluster.get("key_terms", []))
+            label_words = set(cluster.get("label", "").lower().split())
+            cluster_keyword_sets.append(terms | label_words)
+
+        for sent in important_sentences:
+            lower_sent = sent.lower()
+            present_clusters: List[int] = []
+            for idx, kw_set in enumerate(cluster_keyword_sets):
+                if any(kw in lower_sent for kw in kw_set if len(kw) > 3):
+                    present_clusters.append(idx)
+
+            for a in range(len(present_clusters)):
+                for b in range(a + 1, len(present_clusters)):
+                    ci, cj = present_clusters[a], present_clusters[b]
+                    already = any(
+                        r for r in relationships
+                        if (r["source_idx"] == ci and r["target_idx"] == cj)
+                        or (r["source_idx"] == cj and r["target_idx"] == ci)
+                    )
+                    if not already:
+                        relationships.append({
+                            "source_idx": ci,
+                            "target_idx": cj,
+                            "similarity": 0.3,
+                            "relationship_type": "co_occurrence",
+                        })
+
+    except Exception as e:
+        print(f"[nlp-service] relationship extraction failed gracefully: {e}", flush=True)
+
+    return relationships
+
 
 # ============================================
 # Health Check
@@ -1079,6 +1239,22 @@ def process_document(file: UploadFile = File(...)):
                 flush=True
             )
 
+        # Step 7: Composite processing quality score
+        processing_quality = compute_processing_quality(
+            text, important_sentences, keywords,
+            sentence_clusters, cluster_quality,
+            document_type, slides,
+        )
+
+        # Step 8: Concept relationship extraction
+        concept_relationships = extract_concept_relationships(
+            sentence_clusters, important_sentences, keywords,
+        )
+        print(
+            f"[nlp-service] quality={processing_quality} relationships={len(concept_relationships)}",
+            flush=True,
+        )
+
         print(f"[nlp-service] /process done total_seconds={(time.time() - start):.2f}", flush=True)
         
         return ProcessResponse(
@@ -1091,6 +1267,8 @@ def process_document(file: UploadFile = File(...)):
             sentence_clusters=sentence_clusters,
             summary_sentences=summary_sentences,
             cluster_quality=cluster_quality,
+            processing_quality=processing_quality,
+            concept_relationships=concept_relationships,
             document_type=document_type,
             slides=slides if document_type == 'slides' and slides else None,
         )
@@ -1117,6 +1295,138 @@ def process_document(file: UploadFile = File(...)):
         try:
             if 'acquired' in locals() and acquired:
                 PROCESS_LOCK.release()
+        except Exception:
+            pass
+
+
+# ============================================
+# Flashcard Generation
+# ============================================
+
+class FlashcardInput(BaseModel):
+    concept_name: str
+    description: str = ""
+    keywords: List[str] = []
+    source_page: Optional[int] = None
+
+class GenerateFlashcardsInput(BaseModel):
+    concepts: List[FlashcardInput]
+    important_sentences: List[str] = []
+    max_cards: int = 30
+
+class FlashcardOutput(BaseModel):
+    front: str
+    back: str
+    concept_name: str
+    difficulty: str = "intermediate"
+    source_page: Optional[int] = None
+
+class GenerateFlashcardsResponse(BaseModel):
+    success: bool
+    flashcards: List[FlashcardOutput] = []
+    error: Optional[str] = None
+
+FLASHCARD_LOCK = Lock()
+
+def _build_definition_card(concept: FlashcardInput) -> Optional[FlashcardOutput]:
+    """'What is X?' / description answer."""
+    desc = (concept.description or "").strip()
+    if len(desc) < 20:
+        return None
+    templates = [
+        f"What is {concept.concept_name}?",
+        f"Define {concept.concept_name}.",
+    ]
+    return FlashcardOutput(
+        front=random.choice(templates),
+        back=desc,
+        concept_name=concept.concept_name,
+        difficulty="beginner",
+        source_page=concept.source_page,
+    )
+
+
+def _build_cloze_card(
+    concept: FlashcardInput,
+    sentences: List[str],
+) -> Optional[FlashcardOutput]:
+    """Blank a keyphrase in a supporting sentence."""
+    name_lower = concept.concept_name.lower()
+    for sent in sentences:
+        if name_lower in sent.lower() and len(sent) > 30:
+            pattern = re.compile(re.escape(concept.concept_name), re.IGNORECASE)
+            blanked = pattern.sub("__________", sent, count=1)
+            return FlashcardOutput(
+                front=blanked,
+                back=concept.concept_name,
+                concept_name=concept.concept_name,
+                difficulty="intermediate",
+                source_page=concept.source_page,
+            )
+    return None
+
+
+def _build_keyword_card(concept: FlashcardInput) -> Optional[FlashcardOutput]:
+    """'Name key aspects of X' / keyword list."""
+    if len(concept.keywords) < 2:
+        return None
+    return FlashcardOutput(
+        front=f"Name the key aspects or components of {concept.concept_name}.",
+        back=", ".join(concept.keywords),
+        concept_name=concept.concept_name,
+        difficulty="intermediate",
+        source_page=concept.source_page,
+    )
+
+
+@app.post("/generate-flashcards", response_model=GenerateFlashcardsResponse)
+def generate_flashcards(input: GenerateFlashcardsInput):
+    """
+    Generate study flashcards from extracted concepts.
+    Three card types: definition, cloze (fill-in-blank), keyword recall.
+    """
+    try:
+        start = time.time()
+        FLASHCARD_LOCK.acquire()
+        acquired = True
+
+        cards: List[FlashcardOutput] = []
+        seen_fronts: set = set()
+
+        for concept in input.concepts:
+            if len(cards) >= input.max_cards:
+                break
+
+            # Definition card
+            defn = _build_definition_card(concept)
+            if defn and defn.front.lower() not in seen_fronts:
+                seen_fronts.add(defn.front.lower())
+                cards.append(defn)
+
+            # Cloze card
+            cloze = _build_cloze_card(concept, input.important_sentences)
+            if cloze and cloze.front.lower() not in seen_fronts:
+                seen_fronts.add(cloze.front.lower())
+                cards.append(cloze)
+
+            # Keyword recall card
+            kw_card = _build_keyword_card(concept)
+            if kw_card and kw_card.front.lower() not in seen_fronts:
+                seen_fronts.add(kw_card.front.lower())
+                cards.append(kw_card)
+
+        elapsed = time.time() - start
+        print(f"[nlp-service] /generate-flashcards done seconds={elapsed:.2f} cards={len(cards)}", flush=True)
+
+        return GenerateFlashcardsResponse(success=True, flashcards=cards)
+
+    except Exception as e:
+        print(f"[nlp-service] /generate-flashcards error: {e}", flush=True)
+        return GenerateFlashcardsResponse(success=False, error=str(e))
+    finally:
+        try:
+            if 'acquired' in locals() and acquired:
+                FLASHCARD_LOCK.release()
         except Exception:
             pass
 

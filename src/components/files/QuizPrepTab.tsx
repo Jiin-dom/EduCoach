@@ -29,7 +29,7 @@ export function QuizPrepTab({ documentId, concepts, documentStatus }: QuizPrepTa
 
     const handleGenerate = () => {
         generateQuiz.mutate(
-            { documentId, questionCount: 10, enhanceWithLlm: true },
+            { documentId, questionCount: 10, difficulty, enhanceWithLlm: true },
             { onSuccess: (data) => navigate(data?.quizId ? `/quizzes/${data.quizId}` : '/quizzes') }
         )
     }

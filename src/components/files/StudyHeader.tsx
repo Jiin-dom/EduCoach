@@ -15,6 +15,7 @@ import {
     ShieldCheck,
     Scissors,
     Wand2,
+    Gauge,
 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { Document } from '@/hooks/useDocuments'
@@ -52,6 +53,29 @@ function QualityBadge({ processedBy }: { processedBy?: string | null }) {
                     </Badge>
                 </TooltipTrigger>
                 <TooltipContent><p className="max-w-[200px] text-xs">{config.tip}</p></TooltipContent>
+            </Tooltip>
+        </TooltipProvider>
+    )
+}
+
+function ProcessingQualityBadge({ quality }: { quality: number }) {
+    const pct = Math.round(quality * 100)
+    const config = quality >= 0.7
+        ? { color: 'text-green-600 border-green-300 bg-green-50', tip: `Quality: ${pct}%. Extracted study material looks comprehensive.` }
+        : quality >= 0.4
+            ? { color: 'text-amber-600 border-amber-300 bg-amber-50', tip: `Quality: ${pct}%. Some concepts may be missing. Consider refining with AI.` }
+            : { color: 'text-red-600 border-red-300 bg-red-50', tip: `Quality: ${pct}%. Limited extraction. Refine with AI for better results.` }
+
+    return (
+        <TooltipProvider>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <Badge variant="outline" className={`gap-1 text-xs ${config.color}`}>
+                        <Gauge className="w-3 h-3" />
+                        {pct}%
+                    </Badge>
+                </TooltipTrigger>
+                <TooltipContent><p className="max-w-[220px] text-xs">{config.tip}</p></TooltipContent>
             </Tooltip>
         </TooltipProvider>
     )
@@ -109,6 +133,9 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
                                 {status.label}
                             </Badge>
                             {document.status === 'ready' && <QualityBadge processedBy={document.processed_by} />}
+                            {document.status === 'ready' && document.processing_quality != null && (
+                                <ProcessingQualityBadge quality={document.processing_quality} />
+                            )}
                         </div>
                         <div className="flex items-center gap-3 text-muted-foreground text-sm mt-1">
                             <span>{document.file_name}</span>

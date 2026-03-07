@@ -4,22 +4,29 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Search, Brain, ArrowUpDown, X, Sparkles, MessageCircle } from 'lucide-react'
+import { Search, Brain, ArrowUpDown, X, Sparkles, MessageCircle, FileText, Loader2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import type { Concept } from '@/hooks/useConcepts'
 import { getDifficultyColor, getImportanceColor } from '@/hooks/useConcepts'
+import { useGenerateQuiz } from '@/hooks/useQuizzes'
 import { cleanDisplayText } from '@/lib/studyUtils'
 
 interface ConceptsTabProps {
     concepts: Concept[]
     isLoading: boolean
     documentStatus: string
+    onPageJump?: (page: number) => void
+    onAskTutor?: (prompt: string) => void
+    documentId?: string
 }
 
 type SortField = 'importance' | 'difficulty' | 'name'
 
 const DIFFICULTY_ORDER: Record<string, number> = { beginner: 0, intermediate: 1, advanced: 2 }
 
-export function ConceptsTab({ concepts, isLoading, documentStatus }: ConceptsTabProps) {
+export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, onAskTutor, documentId }: ConceptsTabProps) {
+    const navigate = useNavigate()
+    const generateQuiz = useGenerateQuiz()
     const [search, setSearch] = useState('')
     const [sortBy, setSortBy] = useState<SortField>('importance')
     const [selectedConcept, setSelectedConcept] = useState<Concept | null>(null)
@@ -135,6 +142,16 @@ export function ConceptsTab({ concepts, isLoading, documentStatus }: ConceptsTab
                                     {(concept.keywords || []).slice(0, 3).map((kw) => (
                                         <Badge key={kw} variant="secondary" className="text-[10px] hidden sm:inline-flex">{kw}</Badge>
                                     ))}
+                                    {concept.source_pages?.map((p) => (
+                                        <Badge
+                                            key={p}
+                                            variant="outline"
+                                            className="text-[10px] gap-0.5 cursor-pointer hover:bg-primary/10 hidden sm:inline-flex"
+                                            onClick={(e) => { e.stopPropagation(); onPageJump?.(p) }}
+                                        >
+                                            <FileText className="w-2.5 h-2.5" />p.{p}
+                                        </Badge>
+                                    ))}
                                 </div>
                             </div>
                         </button>
@@ -192,13 +209,55 @@ export function ConceptsTab({ concepts, isLoading, documentStatus }: ConceptsTab
                                 </div>
                             )}
 
+                            {selectedConcept.source_pages && selectedConcept.source_pages.length > 0 && (
+                                <div>
+                                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Source</span>
+                                    <div className="flex flex-wrap gap-1.5 mt-1">
+                                        {selectedConcept.source_pages.map((p) => (
+                                            <Badge
+                                                key={p}
+                                                variant="outline"
+                                                className="text-xs gap-1 cursor-pointer hover:bg-primary/10"
+                                                onClick={() => onPageJump?.(p)}
+                                            >
+                                                <FileText className="w-3 h-3" />Page {p}
+                                            </Badge>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="flex gap-2 pt-2 border-t">
-                                <Button variant="outline" size="sm" className="gap-1.5 text-xs flex-1">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="gap-1.5 text-xs flex-1"
+                                    onClick={() => {
+                                        const name = cleanDisplayText(selectedConcept.name)
+                                        onAskTutor?.(`Explain "${name}" like I'm a complete beginner. Use simple analogies and everyday examples.`)
+                                        setSelectedConcept(null)
+                                    }}
+                                >
                                     <MessageCircle className="w-3.5 h-3.5" />
                                     Explain like I&apos;m new
                                 </Button>
-                                <Button variant="outline" size="sm" className="gap-1.5 text-xs flex-1">
-                                    <Sparkles className="w-3.5 h-3.5" />
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="gap-1.5 text-xs flex-1"
+                                    disabled={!documentId || generateQuiz.isPending}
+                                    onClick={() => {
+                                        if (!documentId) return
+                                        generateQuiz.mutate(
+                                            { documentId, questionCount: 5, enhanceWithLlm: true },
+                                            { onSuccess: (data) => navigate(data?.quizId ? `/quizzes/${data.quizId}` : '/quizzes') }
+                                        )
+                                    }}
+                                >
+                                    {generateQuiz.isPending
+                                        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        : <Sparkles className="w-3.5 h-3.5" />
+                                    }
                                     Quiz me on this
                                 </Button>
                             </div>

@@ -32,13 +32,15 @@ interface DisplayMessage {
 
 interface AiTutorChatProps {
     documentId?: string
+    pendingPrompt?: string | null
+    onPromptConsumed?: () => void
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function AiTutorChat({ documentId: propDocumentId }: AiTutorChatProps) {
+export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromptConsumed }: AiTutorChatProps) {
     const [isOpen, setIsOpen] = useState(false)
     const [inputMessage, setInputMessage] = useState("")
     const [bloomLevel, setBloomLevel] = useState("understand")
@@ -82,6 +84,17 @@ export function AiTutorChat({ documentId: propDocumentId }: AiTutorChatProps) {
             setHasAutoLoaded(true)
         }
     }, [isOpen, hasAutoLoaded, conversationId, filteredConversations])
+
+    // Auto-open chat and pre-fill when a pendingPrompt arrives from outside
+    useEffect(() => {
+        if (pendingPrompt && !sendMessage.isPending) {
+            setIsOpen(true)
+            setBloomLevel("understand")
+            setInputMessage(pendingPrompt)
+            onPromptConsumed?.()
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pendingPrompt])
 
     // Derive display messages from DB + pending (no setState in effect)
     const dbDisplayMessages: DisplayMessage[] = useMemo(() => {
