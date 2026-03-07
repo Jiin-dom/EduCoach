@@ -301,6 +301,64 @@ export function calculatePriorityScore(
     }
 }
 
+// ─── Mastery Decay ──────────────────────────────────────────────────────────
+
+/**
+ * Apply time-based decay to a mastery score when a concept is overdue.
+ *
+ * The idea: if you haven't reviewed something past its SM-2 due date,
+ * your *displayed* mastery gradually decreases to encourage review.
+ * The stored value stays the same — this is display-only.
+ *
+ * Formula:
+ *   if not overdue → return mastery unchanged
+ *   overdueFactor = min(1, daysOverdue / (intervalDays × 3))
+ *   decayedMastery = mastery × (1 - maxDecay × overdueFactor)
+ *
+ * - Max 15% penalty even for severely overdue items
+ * - Longer intervals (well-learned items) are more forgiving
+ * - Items only 1-2 days late barely decay at all
+ */
+export function calculateMasteryWithDecay(
+    mastery: number,
+    dueDate: string | null,
+    intervalDays: number,
+    maxDecay = 0.15,
+): number {
+    if (!dueDate) return mastery
+
+    const today = new Date()
+    today.setUTCHours(0, 0, 0, 0)
+    const due = new Date(dueDate + 'T00:00:00Z')
+    const diffMs = today.getTime() - due.getTime()
+
+    // Not overdue — no decay
+    if (diffMs <= 0) return mastery
+
+    const daysOverdue = diffMs / (1000 * 60 * 60 * 24)
+    // Scale: use 3× the interval as the full-decay horizon
+    const horizon = Math.max(3, intervalDays * 3)
+    const overdueFactor = Math.min(1, daysOverdue / horizon)
+
+    const decayed = mastery * (1 - maxDecay * overdueFactor)
+    return Math.round(Math.max(0, decayed) * 100) / 100
+}
+
+/**
+ * Get mastery level using the decayed mastery score.
+ * Wraps getMasteryLevel with the decayed value and original confidence.
+ */
+export function getMasteryLevelWithDecay(
+    mastery: number,
+    confidence: number,
+    dueDate: string | null,
+    intervalDays: number,
+): { displayMastery: number; displayLevel: MasteryLevel } {
+    const displayMastery = calculateMasteryWithDecay(mastery, dueDate, intervalDays)
+    const displayLevel = getMasteryLevel(displayMastery, confidence)
+    return { displayMastery, displayLevel }
+}
+
 // ─── Date Helpers ───────────────────────────────────────────────────────────
 
 /** Returns today's date as a UTC YYYY-MM-DD string, avoiding timezone drift. */

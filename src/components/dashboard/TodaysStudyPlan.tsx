@@ -86,7 +86,7 @@ export function TodaysStudyPlan() {
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2 mb-1">
                                         <p className="font-medium truncate">{topic.concept_name}</p>
-                                        {masteryBadge(topic.mastery_level)}
+                                        {masteryBadge(topic.display_mastery_level)}
                                     </div>
                                     <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                         {topic.document_title && (
@@ -94,7 +94,7 @@ export function TodaysStudyPlan() {
                                         )}
                                         <span className="flex items-center gap-1">
                                             <Clock className="w-3 h-3" />
-                                            {Math.round(topic.mastery_score)}% mastery
+                                            {Math.round(topic.display_mastery_score)}% mastery
                                         </span>
                                     </div>
                                 </div>

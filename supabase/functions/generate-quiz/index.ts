@@ -27,6 +27,10 @@ interface GenerateQuizRequest {
     difficulty?: string
     questionTypes?: string[]
     enhanceWithLlm?: boolean
+    /** Optional: user ID for mastery-aware generation */
+    userId?: string
+    /** Optional: focus on specific concept IDs (for targeted review quizzes) */
+    focusConceptIds?: string[]
 }
 
 interface NlpQuestion {
@@ -92,6 +96,8 @@ serve(async (req) => {
             difficulty = 'mixed',
             questionTypes = ['multiple_choice', 'identification', 'true_false', 'fill_in_blank'],
             enhanceWithLlm = true,
+            userId: requestUserId,
+            focusConceptIds,
         } = body
 
         if (!documentId) {
@@ -187,8 +193,63 @@ serve(async (req) => {
             } catch { /* use document owner */ }
         }
 
-        // 4. Create quiz record
-        const quizTitle = `Quiz: ${document.title}`
+        // 4. Query user mastery data for adaptive generation (Phase 6.1)
+        const resolvedUserId = requestUserId || userId
+        const isReviewQuiz = Array.isArray(focusConceptIds) && focusConceptIds.length > 0
+
+        interface MasteryInfo {
+            mastery_level: string
+            mastery_score: number
+        }
+        const masteryMap = new Map<string, MasteryInfo>()
+
+        if (resolvedUserId && conceptList.length > 0) {
+            try {
+                const conceptIds = conceptList.map(c => c.id)
+                const { data: masteryRows } = await supabase
+                    .from('user_concept_mastery')
+                    .select('concept_id, mastery_score, mastery_level')
+                    .eq('user_id', resolvedUserId)
+                    .in('concept_id', conceptIds)
+
+                if (masteryRows) {
+                    for (const row of masteryRows) {
+                        masteryMap.set(row.concept_id, {
+                            mastery_level: row.mastery_level,
+                            mastery_score: Number(row.mastery_score),
+                        })
+                    }
+                    console.log(`📊 Loaded mastery data for ${masteryRows.length}/${conceptIds.length} concepts`)
+                }
+            } catch (err) {
+                console.warn('⚠️ Could not load mastery data, proceeding without:', (err as Error).message)
+            }
+        }
+
+        // If this is a targeted review quiz, filter concepts to the focus set
+        let activeConceptList = conceptList
+        if (isReviewQuiz) {
+            const focusSet = new Set(focusConceptIds)
+            activeConceptList = conceptList.filter(c => focusSet.has(c.id))
+            if (activeConceptList.length === 0) {
+                activeConceptList = conceptList // fallback if no match
+            }
+            console.log(`🎯 Targeted review: focusing on ${activeConceptList.length} concepts`)
+        }
+
+        // Determine per-concept adaptive difficulty based on mastery
+        function getAdaptiveDifficulty(conceptId: string): string {
+            const m = masteryMap.get(conceptId)
+            if (!m) return difficulty === 'mixed' ? 'mixed' : (DIFFICULTY_MAP[difficulty] || 'intermediate')
+            if (m.mastery_score < 60) return 'beginner'     // weak → easier Qs
+            if (m.mastery_score < 80) return 'intermediate'  // developing → medium
+            return 'advanced'                                // strong → harder Qs
+        }
+
+        // 5. Create quiz record
+        const quizTitle = isReviewQuiz
+            ? `Review Quiz: ${document.title}`
+            : `Quiz: ${document.title}`
         const { data: quiz, error: quizError } = await supabase
             .from('quizzes')
             .insert({
@@ -280,6 +341,33 @@ serve(async (req) => {
                     max_total_questions: questionCount,
                     difficulty: nlpDifficulty,
                     concepts: conceptInfo,
+                }
+
+                // Phase 6.1: Pass mastery context to NLP service for adaptive generation
+                if (masteryMap.size > 0) {
+                    nlpPayload.mastery_context = activeConceptList.map(c => ({
+                        concept_name: c.name,
+                        mastery_level: masteryMap.get(c.id)?.mastery_level ?? 'unknown',
+                        mastery_score: masteryMap.get(c.id)?.mastery_score ?? null,
+                        adaptive_difficulty: getAdaptiveDifficulty(c.id),
+                    }))
+                    console.log(`📊 Sent mastery context for ${(nlpPayload.mastery_context as unknown[]).length} concepts`)
+
+                    // Adjust per-chunk quota based on whether chunk contains weak concepts
+                    const baseQpc = Math.ceil(questionCount / Math.max(1, chunks.length)) + 1
+                    for (const nlpChunk of nlpChunks as Array<Record<string, unknown>>) {
+                        const chunkConcepts = chunkConceptIndex.get(nlpChunk.chunk_id as string) || []
+                        const hasWeak = chunkConcepts.some(c => {
+                            const m = masteryMap.get(c.id)
+                            return !m || m.mastery_score < 60
+                        })
+                        const allMastered = chunkConcepts.every(c => {
+                            const m = masteryMap.get(c.id)
+                            return m && m.mastery_score >= 80
+                        })
+                        // 2x for weak, 0.5x for mastered
+                        nlpChunk.max_questions = Math.min(5, hasWeak ? baseQpc * 2 : (allMastered ? Math.max(1, Math.floor(baseQpc * 0.5)) : baseQpc))
+                    }
                 }
 
                 if (hasSlidePages) {

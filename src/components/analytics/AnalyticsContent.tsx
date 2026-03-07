@@ -16,6 +16,9 @@ import {
     Loader2,
     ArrowLeft,
     Clock,
+    Zap,
+    Timer,
+    Gauge,
 } from "lucide-react"
 import {
     BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -24,7 +27,8 @@ import {
 } from "recharts"
 import {
     useLearningStats, useConceptMasteryList, useWeakTopics,
-    useScoreTrend, useStudyActivity,
+    useScoreTrend, useStudyActivity, useMasteryTimeline,
+    useStudyEfficiency, useConceptVelocity,
 } from "@/hooks/useLearning"
 import type { ConceptMasteryWithDetails } from "@/hooks/useLearning"
 import { useUserAttempts, useQuizzes } from "@/hooks/useQuizzes"
@@ -83,7 +87,7 @@ function ActivityHeatmap({ data }: { data: { date: string; count: number }[] }) 
     )
 }
 
-function ConceptDrillDown({ concept, onBack }: { concept: ConceptMasteryWithDetails; onBack: () => void }) {
+function ConceptDrillDown({ concept, onBack, timeline }: { concept: ConceptMasteryWithDetails; onBack: () => void; timeline?: { date: string; mastery: number }[] }) {
     return (
         <Card>
             <CardHeader>
@@ -94,7 +98,7 @@ function ConceptDrillDown({ concept, onBack }: { concept: ConceptMasteryWithDeta
                     <div className="flex-1">
                         <CardTitle className="flex items-center gap-2">
                             {concept.concept_name}
-                            {masteryLevelBadge(concept.mastery_level)}
+                            {masteryLevelBadge(concept.display_mastery_level)}
                         </CardTitle>
                         <CardDescription>{concept.document_title ?? 'Unknown document'}</CardDescription>
                     </div>
@@ -103,7 +107,7 @@ function ConceptDrillDown({ concept, onBack }: { concept: ConceptMasteryWithDeta
             <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="p-3 rounded-lg bg-muted text-center">
-                        <p className="text-2xl font-bold">{Math.round(concept.mastery_score)}%</p>
+                        <p className="text-2xl font-bold">{Math.round(concept.display_mastery_score)}%</p>
                         <p className="text-xs text-muted-foreground">Mastery</p>
                     </div>
                     <div className="p-3 rounded-lg bg-muted text-center">
@@ -140,6 +144,21 @@ function ConceptDrillDown({ concept, onBack }: { concept: ConceptMasteryWithDeta
                         <span>Ease: {concept.ease_factor}</span>
                     </div>
                 </div>
+
+                {timeline && timeline.length > 1 && (
+                    <div className="pt-2">
+                        <p className="text-sm font-medium mb-2">Mastery Over Time</p>
+                        <ResponsiveContainer width="100%" height={200}>
+                            <LineChart data={timeline} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} tick={{ fontSize: 11 }} />
+                                <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+                                <Tooltip formatter={(value: number) => [`${value}%`, 'Mastery']} />
+                                <Line type="monotone" dataKey="mastery" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </div>
+                )}
             </CardContent>
         </Card>
     )
@@ -153,8 +172,13 @@ export function AnalyticsContent() {
     const { data: quizzes } = useQuizzes()
     const { data: scoreTrend } = useScoreTrend()
     const { data: studyActivity } = useStudyActivity()
+    const { data: globalTimeline } = useMasteryTimeline()
+    const { data: efficiency } = useStudyEfficiency()
+    const { data: velocity } = useConceptVelocity()
 
     const [drillDownConcept, setDrillDownConcept] = useState<ConceptMasteryWithDetails | null>(null)
+
+    const { data: conceptTimeline } = useMasteryTimeline(drillDownConcept?.concept_id ?? undefined)
 
     const quizMap = useMemo(() => {
         return new Map((quizzes || []).map((q) => [q.id, q]))
@@ -182,7 +206,7 @@ export function AnalyticsContent() {
         }
 
         return Array.from(groups.entries()).map(([docId, group]) => {
-            const scores = group.concepts!.map((c) => Number(c.mastery_score))
+            const scores = group.concepts!.map((c) => Number(c.display_mastery_score))
             const avg = scores.length > 0
                 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
                 : 0
@@ -191,7 +215,7 @@ export function AnalyticsContent() {
                 title: group.title,
                 averageMastery: avg,
                 conceptCount: group.concepts!.length,
-                masteredCount: group.concepts!.filter((c) => c.mastery_level === 'mastered').length,
+                masteredCount: group.concepts!.filter((c) => c.display_mastery_level === 'mastered').length,
             }
         }).sort((a, b) => b.averageMastery - a.averageMastery)
     }, [masteryList])
@@ -313,6 +337,7 @@ export function AnalyticsContent() {
                                 <ConceptDrillDown
                                     concept={drillDownConcept}
                                     onBack={() => setDrillDownConcept(null)}
+                                    timeline={conceptTimeline}
                                 />
                             ) : performanceByDocument.length === 0 ? (
                                 <Card>
@@ -397,10 +422,10 @@ export function AnalyticsContent() {
                                                     >
                                                         <div className="flex items-center gap-3 min-w-0">
                                                             <span className="font-medium truncate">{c.concept_name}</span>
-                                                            {masteryLevelBadge(c.mastery_level)}
+                                                            {masteryLevelBadge(c.display_mastery_level)}
                                                         </div>
                                                         <span className="font-bold text-sm shrink-0 ml-2">
-                                                            {Math.round(c.mastery_score)}%
+                                                            {Math.round(c.display_mastery_score)}%
                                                         </span>
                                                     </button>
                                                 ))}
@@ -412,6 +437,38 @@ export function AnalyticsContent() {
                         </TabsContent>
 
                         <TabsContent value="trends" className="mt-6 space-y-6">
+                            {/* Mastery Over Time */}
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <Brain className="w-5 h-5 text-purple-500" />
+                                        Mastery Over Time
+                                    </CardTitle>
+                                    <CardDescription>Daily average mastery across all concepts (last 30 days)</CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    {!globalTimeline || globalTimeline.length < 2 ? (
+                                        <div className="text-center py-12">
+                                            <Brain className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+                                            <p className="text-muted-foreground">
+                                                Not enough mastery data yet. Take a few quizzes across different sessions to see your mastery trend.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <ResponsiveContainer width="100%" height={300}>
+                                            <LineChart data={globalTimeline} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                                                <CartesianGrid strokeDasharray="3 3" />
+                                                <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} tick={{ fontSize: 12 }} />
+                                                <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+                                                <Tooltip formatter={(value: number) => [`${value}%`, 'Avg Mastery']} />
+                                                <Line type="monotone" dataKey="mastery" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                                            </LineChart>
+                                        </ResponsiveContainer>
+                                    )}
+                                </CardContent>
+                            </Card>
+
+                            {/* Score Trend */}
                             <Card>
                                 <CardHeader>
                                     <CardTitle>Score Trend</CardTitle>
@@ -429,26 +486,114 @@ export function AnalyticsContent() {
                                         <ResponsiveContainer width="100%" height={300}>
                                             <LineChart data={scoreTrend} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
                                                 <CartesianGrid strokeDasharray="3 3" />
-                                                <XAxis
-                                                    dataKey="date"
-                                                    tickFormatter={(d: string) => d.slice(5)}
-                                                    tick={{ fontSize: 12 }}
-                                                />
+                                                <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} tick={{ fontSize: 12 }} />
                                                 <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
                                                 <Tooltip formatter={(value: number) => [`${value}%`, 'Avg Score']} />
-                                                <Line
-                                                    type="monotone"
-                                                    dataKey="score"
-                                                    stroke="hsl(var(--primary))"
-                                                    strokeWidth={2}
-                                                    dot={{ r: 4 }}
-                                                    activeDot={{ r: 6 }}
-                                                />
+                                                <Line type="monotone" dataKey="score" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                                             </LineChart>
                                         </ResponsiveContainer>
                                     )}
                                 </CardContent>
                             </Card>
+
+                            {/* Study Efficiency + Concept Velocity */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* Study Efficiency */}
+                                <Card>
+                                    <CardHeader>
+                                        <CardTitle className="flex items-center gap-2">
+                                            <Zap className="w-5 h-5 text-amber-500" />
+                                            Study Efficiency
+                                        </CardTitle>
+                                        <CardDescription>Time spent vs mastery gained (last 30 days)</CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        {!efficiency || efficiency.totalTimeMinutes === 0 ? (
+                                            <div className="text-center py-8">
+                                                <Timer className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+                                                <p className="text-sm text-muted-foreground">
+                                                    No timed quiz data yet. Per-question timing feeds this metric.
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-4">
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <div className="p-3 rounded-lg bg-muted text-center">
+                                                        <p className="text-2xl font-bold">{efficiency.totalTimeMinutes}m</p>
+                                                        <p className="text-xs text-muted-foreground">Study Time</p>
+                                                    </div>
+                                                    <div className="p-3 rounded-lg bg-muted text-center">
+                                                        <p className="text-2xl font-bold">{efficiency.totalMasteryGained}%</p>
+                                                        <p className="text-xs text-muted-foreground">Avg Mastery</p>
+                                                    </div>
+                                                </div>
+                                                {efficiency.mostEfficientCategory && (
+                                                    <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 text-amber-800 text-sm">
+                                                        <Zap className="w-4 h-4 shrink-0 mt-0.5" />
+                                                        <span>
+                                                            You're most efficient studying <strong>{efficiency.mostEfficientCategory}</strong>
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {efficiency.categoryEfficiency.length > 0 && (
+                                                    <div className="space-y-2">
+                                                        <p className="text-sm font-medium">By Category</p>
+                                                        {efficiency.categoryEfficiency.slice(0, 5).map((cat) => (
+                                                            <div key={cat.category} className="flex items-center justify-between text-sm">
+                                                                <span className="truncate">{cat.category}</span>
+                                                                <span className="text-muted-foreground shrink-0 ml-2">
+                                                                    {cat.timeMinutes}m / {cat.masteryGained}%
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </CardContent>
+                                </Card>
+
+                                {/* Concept Velocity */}
+                                <Card>
+                                    <CardHeader>
+                                        <CardTitle className="flex items-center gap-2">
+                                            <Gauge className="w-5 h-5 text-blue-500" />
+                                            Concept Velocity
+                                        </CardTitle>
+                                        <CardDescription>How fast you move concepts through mastery stages</CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        {!velocity || (velocity.avgDaysToDeveloping == null && velocity.avgDaysToMastered == null) ? (
+                                            <div className="text-center py-8">
+                                                <Gauge className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+                                                <p className="text-sm text-muted-foreground">
+                                                    Need more mastery history to compute velocity. Keep studying!
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-4">
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <div className="p-3 rounded-lg bg-muted text-center">
+                                                        <p className="text-2xl font-bold">
+                                                            {velocity.avgDaysToDeveloping != null ? `${velocity.avgDaysToDeveloping}d` : '—'}
+                                                        </p>
+                                                        <p className="text-xs text-muted-foreground">Avg to Developing</p>
+                                                    </div>
+                                                    <div className="p-3 rounded-lg bg-muted text-center">
+                                                        <p className="text-2xl font-bold">
+                                                            {velocity.avgDaysToMastered != null ? `${velocity.avgDaysToMastered}d` : '—'}
+                                                        </p>
+                                                        <p className="text-xs text-muted-foreground">Avg to Mastered</p>
+                                                    </div>
+                                                </div>
+                                                <p className="text-xs text-muted-foreground">
+                                                    Measured from first tracked attempt to reaching each level. Based on mastery snapshot history.
+                                                </p>
+                                            </div>
+                                        )}
+                                    </CardContent>
+                                </Card>
+                            </div>
                         </TabsContent>
 
                         <TabsContent value="weak-topics" className="mt-6">
@@ -485,13 +630,13 @@ export function AnalyticsContent() {
                                                             </p>
                                                         </div>
                                                         <div className="flex items-center gap-2">
-                                                            {masteryLevelBadge(topic.mastery_level)}
+                                                            {masteryLevelBadge(topic.display_mastery_level)}
                                                             <Badge variant="secondary" className="bg-orange-500/10 text-orange-600">
-                                                                {Math.round(topic.mastery_score)}%
+                                                                {Math.round(topic.display_mastery_score)}%
                                                             </Badge>
                                                         </div>
                                                     </div>
-                                                    <Progress value={topic.mastery_score} className="h-2" />
+                                                    <Progress value={topic.display_mastery_score} className="h-2" />
                                                     <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
                                                         <span>{topic.total_attempts} attempt{topic.total_attempts !== 1 ? 's' : ''}</span>
                                                         <span>Confidence: {Math.round(topic.confidence * 100)}%</span>

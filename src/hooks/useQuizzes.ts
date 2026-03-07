@@ -69,6 +69,12 @@ export interface GenerateQuizInput {
     enhanceWithLlm?: boolean
 }
 
+export interface GenerateReviewQuizInput {
+    documentId: string
+    focusConceptIds: string[]
+    questionCount?: number
+}
+
 export interface SubmitAttemptInput {
     quizId: string
     answers: AttemptAnswer[]
@@ -274,6 +280,7 @@ export function useGenerateQuiz() {
                         difficulty: input.difficulty ?? 'mixed',
                         questionTypes: input.questionTypes ?? ['multiple_choice', 'identification', 'true_false', 'fill_in_blank'],
                         enhanceWithLlm: input.enhanceWithLlm ?? true,
+                        userId: session.user.id,
                     },
                 })
 
@@ -312,6 +319,51 @@ export function useGenerateQuiz() {
         },
         onError: (error) => {
             console.error('[Quiz] Generation mutation error:', error)
+        },
+    })
+}
+
+/**
+ * Generate a targeted review quiz focusing on specific weak/due concepts.
+ * Used by the Learning Path "Start Review" button.
+ */
+export function useGenerateReviewQuiz() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: async (input: GenerateReviewQuizInput) => {
+            console.log('[Quiz] Starting review quiz generation...', input)
+
+            const session = await ensureFreshSession()
+            if (!session) {
+                throw new Error('Your session has expired — please log in again')
+            }
+
+            const { data, error } = await supabase.functions.invoke('generate-quiz', {
+                body: {
+                    documentId: input.documentId,
+                    questionCount: input.questionCount ?? 10,
+                    difficulty: 'mixed',
+                    questionTypes: ['multiple_choice', 'identification', 'true_false', 'fill_in_blank'],
+                    enhanceWithLlm: true,
+                    userId: session.user.id,
+                    focusConceptIds: input.focusConceptIds,
+                },
+            })
+
+            if (error) {
+                console.error('[Quiz] Review quiz generation failed:', error.message)
+                throw new Error(error.message)
+            }
+
+            console.log('[Quiz] Review quiz generation successful:', data)
+            return data as { success: boolean; quizId: string; questionCount: number }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: quizKeys.all })
+        },
+        onError: (error) => {
+            console.error('[Quiz] Review quiz generation error:', error)
         },
     })
 }
