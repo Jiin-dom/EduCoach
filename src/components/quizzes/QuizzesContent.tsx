@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Brain, Loader2, AlertCircle, RefreshCw, FileText, Layers, RotateCcw, ChevronRight, CheckCircle2 } from "lucide-react"
-import { Link } from "react-router-dom"
+import { Link, useLocation, useNavigate } from "react-router-dom"
 import { QuizCard } from "@/components/dashboard/QuizCard"
 import { useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
 import { useAllFlashcards, useReviewFlashcard, type Flashcard } from "@/hooks/useFlashcards"
@@ -13,6 +13,21 @@ import { useAllFlashcards, useReviewFlashcard, type Flashcard } from "@/hooks/us
 export function QuizzesContent() {
     const { data: quizzes, isLoading, error, refetch } = useQuizzes()
     const { data: attempts } = useUserAttempts()
+    const location = useLocation()
+    const navigate = useNavigate()
+    const [highlightQuizId, setHighlightQuizId] = useState<string | null>(() => {
+        const state = location.state as { highlightQuizId?: string } | null
+        return state?.highlightQuizId ?? null
+    })
+
+    useEffect(() => {
+        const state = location.state as { highlightQuizId?: string } | null
+        if (state?.highlightQuizId && !highlightQuizId) {
+            setHighlightQuizId(state.highlightQuizId)
+            // Clear state so refreshes / tab switches don't keep re-highlighting
+            navigate(location.pathname, { replace: true })
+        }
+    }, [location, navigate, highlightQuizId])
 
     const lastScoreByQuiz = useMemo(() => {
         const map = new Map<string, number>()
@@ -156,11 +171,17 @@ export function QuizzesContent() {
                             ) : (
                                 <div className="space-y-3">
                                     {availableQuizzes.map((quiz) => (
-                                        <QuizCard
+                                        <div
                                             key={quiz.id}
-                                            quiz={quiz}
-                                            lastScore={lastScoreByQuiz.get(quiz.id) ?? null}
-                                        />
+                                            className={quiz.id === highlightQuizId
+                                                ? "ring-2 ring-primary rounded-lg"
+                                                : ""}
+                                        >
+                                            <QuizCard
+                                                quiz={quiz}
+                                                lastScore={lastScoreByQuiz.get(quiz.id) ?? null}
+                                            />
+                                        </div>
                                     ))}
                                 </div>
                             )}

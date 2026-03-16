@@ -82,7 +82,9 @@ export function GenerateQuizDialog({ open, onOpenChange, documentId }: GenerateQ
                     setPhase('success')
                     setTimeout(() => {
                         handleOpenChange(false)
-                        navigate(data?.quizId ? `/quizzes/${data.quizId}` : '/quizzes')
+                        navigate('/quizzes', {
+                            state: data?.quizId ? { highlightQuizId: data.quizId } : undefined,
+                        })
                     }, 1500)
                 },
                 onError: (err) => {

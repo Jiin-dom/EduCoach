@@ -8,17 +8,18 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Badge } from "@/components/ui/badge"
 import { useDocuments, useDeleteDocument, useProcessDocument, type Document } from "@/hooks/useDocuments"
 import { formatFileSize } from "@/lib/storage"
-import { useGenerateQuiz } from "@/hooks/useQuizzes"
+import { GenerateQuizDialog } from "@/components/files/GenerateQuizDialog"
 
 export function FilesContent() {
     const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
+    const [quizDialogOpen, setQuizDialogOpen] = useState(false)
+    const [selectedDocForQuiz, setSelectedDocForQuiz] = useState<Document | null>(null)
     const navigate = useNavigate()
 
     // React Query hooks
     const { data: documents, isLoading, error, refetch } = useDocuments()
     const deleteDocument = useDeleteDocument()
     const processDocument = useProcessDocument()
-    const generateQuiz = useGenerateQuiz()
 
     const handleUploadComplete = () => {
         // Refetch documents after successful upload
@@ -50,18 +51,8 @@ export function FilesContent() {
     }
 
     const handleGenerateQuiz = (doc: Document) => {
-        generateQuiz.mutate(
-            { documentId: doc.id, questionCount: 10, enhanceWithLlm: true },
-            {
-                onSuccess: (data) => {
-                    if (data?.quizId) {
-                        navigate(`/quizzes/${data.quizId}`)
-                    } else {
-                        navigate('/quizzes')
-                    }
-                },
-            }
-        )
+        setSelectedDocForQuiz(doc)
+        setQuizDialogOpen(true)
     }
 
     const getFileIcon = (type: string) => {
@@ -316,13 +307,8 @@ export function FilesContent() {
                                                                 size="icon"
                                                                 className="text-primary hover:text-primary"
                                                                 onClick={() => handleGenerateQuiz(file)}
-                                                                disabled={generateQuiz.isPending}
                                                             >
-                                                                {generateQuiz.isPending ? (
-                                                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                                                ) : (
-                                                                    <Sparkles className="w-4 h-4" />
-                                                                )}
+                                                                <Sparkles className="w-4 h-4" />
                                                             </Button>
                                                         </TooltipTrigger>
                                                         <TooltipContent>
@@ -364,6 +350,19 @@ export function FilesContent() {
                 onOpenChange={setUploadDialogOpen}
                 onUploadComplete={handleUploadComplete}
             />
+
+            {selectedDocForQuiz && (
+                <GenerateQuizDialog
+                    open={quizDialogOpen}
+                    onOpenChange={(open) => {
+                        setQuizDialogOpen(open)
+                        if (!open) {
+                            setSelectedDocForQuiz(null)
+                        }
+                    }}
+                    documentId={selectedDocForQuiz.id}
+                />
+            )}
         </div>
     )
 }
