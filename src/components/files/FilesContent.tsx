@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { FolderOpen, Upload, Trash2, Sparkles, FileText, File, Loader2, RefreshCw, AlertCircle, Clock, CheckCircle2, Brain } from "lucide-react"
 import { FileUploadDialog } from "@/components/files/FileUploadDialog"
-import { Link, useNavigate } from "react-router-dom"
+import { Link } from "react-router-dom"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
 import { useDocuments, useDeleteDocument, useProcessDocument, type Document } from "@/hooks/useDocuments"
@@ -14,7 +14,6 @@ export function FilesContent() {
     const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
     const [quizDialogOpen, setQuizDialogOpen] = useState(false)
     const [selectedDocForQuiz, setSelectedDocForQuiz] = useState<Document | null>(null)
-    const navigate = useNavigate()
 
     // React Query hooks
     const { data: documents, isLoading, error, refetch } = useDocuments()
