@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button'
 import { Sparkles, Loader2, CheckCircle2, AlertCircle, Brain } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useGenerateQuiz } from '@/hooks/useQuizzes'
+import { Checkbox } from '@/components/ui/checkbox'
+import { ALL_QUIZ_TYPES, type QuizTypeId } from '@/types/quiz'
 
 interface GenerateQuizDialogProps {
     open: boolean
@@ -29,6 +31,8 @@ export function GenerateQuizDialog({ open, onOpenChange, documentId }: GenerateQ
     const generateQuiz = useGenerateQuiz()
     const [difficulty, setDifficulty] = useState<'mixed' | 'easy' | 'medium' | 'hard'>('mixed')
     const [questionCount, setQuestionCount] = useState<number>(10)
+    const [selectedTypes, setSelectedTypes] = useState<QuizTypeId[]>(ALL_QUIZ_TYPES)
+    const [typeError, setTypeError] = useState<string | null>(null)
     const [phase, setPhase] = useState<Phase>('idle')
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const [rotatingMsg, setRotatingMsg] = useState('')
@@ -53,18 +57,26 @@ export function GenerateQuizDialog({ open, onOpenChange, documentId }: GenerateQ
                 setErrorMessage(null)
                 setDifficulty('mixed')
                 setQuestionCount(10)
+                setSelectedTypes(ALL_QUIZ_TYPES)
+                setTypeError(null)
             }, 200)
         }
         onOpenChange(newOpen)
     }
 
     const handleGenerate = () => {
+        if (selectedTypes.length === 0) {
+            setTypeError('Select at least one question type.')
+            return
+        }
+
         setPhase('generating')
         setErrorMessage(null)
+        setTypeError(null)
         rotatingIndex.current = 0
         setRotatingMsg(GENERATING_MESSAGES[0])
         generateQuiz.mutate(
-            { documentId, questionCount, difficulty, enhanceWithLlm: true },
+            { documentId, questionCount, difficulty, questionTypes: selectedTypes, enhanceWithLlm: true },
             {
                 onSuccess: (data) => {
                     setPhase('success')
@@ -159,6 +171,51 @@ export function GenerateQuizDialog({ open, onOpenChange, documentId }: GenerateQ
                                             </Button>
                                         ))}
                                     </div>
+                                </div>
+
+                                <div>
+                                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground block mb-2">
+                                        Question Types
+                                    </span>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {ALL_QUIZ_TYPES.map((type) => {
+                                            const label =
+                                                type === 'multiple_choice'
+                                                    ? 'Multiple Choice'
+                                                    : type === 'true_false'
+                                                        ? 'True or False'
+                                                        : type === 'short_answer'
+                                                            ? 'Short Answer'
+                                                            : 'Identification'
+
+                                            return (
+                                                <label
+                                                    key={type}
+                                                    className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs cursor-pointer hover:bg-accent"
+                                                >
+                                                    <Checkbox
+                                                        checked={selectedTypes.includes(type)}
+                                                        onCheckedChange={(checked) => {
+                                                            setSelectedTypes((prev) => {
+                                                                if (checked) {
+                                                                    return prev.includes(type)
+                                                                        ? prev
+                                                                        : [...prev, type]
+                                                                }
+                                                                return prev.filter((t) => t !== type)
+                                                            })
+                                                        }}
+                                                    />
+                                                    <span>{label}</span>
+                                                </label>
+                                            )
+                                        })}
+                                    </div>
+                                    {typeError && (
+                                        <p className="mt-1 text-[11px] text-destructive">
+                                            {typeError}
+                                        </p>
+                                    )}
                                 </div>
                             </>
                         )}

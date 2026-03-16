@@ -8,6 +8,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { ALL_QUIZ_TYPES, type QuizTypeId } from '@/types/quiz'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -65,7 +66,7 @@ export interface GenerateQuizInput {
     documentId: string
     questionCount?: number
     difficulty?: string
-    questionTypes?: string[]
+    questionTypes?: QuizTypeId[]
     enhanceWithLlm?: boolean
 }
 
@@ -278,7 +279,9 @@ export function useGenerateQuiz() {
                         documentId: input.documentId,
                         questionCount: input.questionCount ?? 10,
                         difficulty: input.difficulty ?? 'mixed',
-                        questionTypes: input.questionTypes ?? ['multiple_choice', 'identification', 'true_false', 'fill_in_blank'],
+                        questionTypes: input.questionTypes && input.questionTypes.length > 0
+                            ? input.questionTypes
+                            : ALL_QUIZ_TYPES,
                         enhanceWithLlm: input.enhanceWithLlm ?? true,
                         userId: session.user.id,
                     },
