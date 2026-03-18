@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Layers, ChevronRight, RotateCcw, CheckCircle2, Loader2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { useDocumentFlashcards, useReviewFlashcard, type Flashcard } from '@/hooks/useFlashcards'
+import { useDocumentFlashcards, useReviewFlashcard, useGenerateFlashcards, type Flashcard } from '@/hooks/useFlashcards'
 
 interface FlashcardsTabProps {
     documentId: string
@@ -16,6 +16,7 @@ type ReviewRating = 'again' | 'hard' | 'good' | 'easy'
 export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps) {
     const { data: cards, isLoading } = useDocumentFlashcards(documentId)
     const reviewMutation = useReviewFlashcard()
+    const generateFlashcards = useGenerateFlashcards()
     const [studyMode, setStudyMode] = useState(false)
     const [currentIdx, setCurrentIdx] = useState(0)
     const [flipped, setFlipped] = useState(false)
@@ -65,9 +66,24 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
                 <Layers className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-semibold mb-2">No flashcards yet</h3>
                 <p className="text-muted-foreground mb-4 text-sm max-w-sm mx-auto">
-                    Flashcards are generated automatically when a document is processed.
-                    Try reprocessing if you expected flashcards here.
+                    Flashcards are generated from this document&apos;s key concepts.
+                    You can generate a fresh set of flashcards any time.
                 </p>
+                {documentStatus === 'ready' && (
+                    <Button
+                        className="mt-2 gap-2"
+                        size="sm"
+                        disabled={generateFlashcards.isPending || !documentId}
+                        onClick={() => documentId && generateFlashcards.mutate(documentId)}
+                    >
+                        {generateFlashcards.isPending ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                            <Layers className="w-4 h-4" />
+                        )}
+                        Generate flashcards
+                    </Button>
+                )}
             </div>
         )
     }
@@ -94,24 +110,30 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
                 </div>
                 <Progress value={(currentIdx / dueCards.length) * 100} className="h-1.5" />
 
-                <div
-                    className="min-h-[200px] flex items-center justify-center p-6 rounded-xl border-2 border-dashed cursor-pointer hover:border-primary/50 transition-colors"
-                    onClick={() => setFlipped(!flipped)}
-                >
-                    <div className="text-center max-w-lg">
-                        {!flipped ? (
-                            <>
+                <div className="flex justify-center">
+                    <button
+                        type="button"
+                        className="relative w-full max-w-xl h-64 [perspective:1200px] focus:outline-none"
+                        onClick={() => setFlipped(!flipped)}
+                    >
+                        <div
+                            className={`relative w-full h-full rounded-2xl border bg-gradient-to-br from-background to-muted shadow-lg transition-transform duration-500 [transform-style:preserve-3d] ${
+                                flipped ? '[transform:rotateY(180deg)]' : ''
+                            }`}
+                        >
+                            <div className="absolute inset-0 flex flex-col items-center justify-center p-6 [backface-visibility:hidden]">
                                 <p className="text-xs uppercase tracking-wide text-muted-foreground mb-3">Question</p>
-                                <p className="text-lg font-medium">{card.front}</p>
-                                <p className="text-xs text-muted-foreground mt-4">Tap to reveal answer</p>
-                            </>
-                        ) : (
-                            <>
+                                <p className="text-lg font-medium text-center break-words">{card.front}</p>
+                                <p className="text-xs text-muted-foreground mt-4">Tap card to reveal the answer</p>
+                            </div>
+
+                            <div className="absolute inset-0 flex flex-col items-center justify-center p-6 [transform:rotateY(180deg)] [backface-visibility:hidden]">
                                 <p className="text-xs uppercase tracking-wide text-muted-foreground mb-3">Answer</p>
-                                <p className="text-sm leading-relaxed">{card.back}</p>
-                            </>
-                        )}
-                    </div>
+                                <p className="text-sm leading-relaxed text-center break-words">{card.back}</p>
+                                <p className="text-xs text-muted-foreground mt-4">Tap card to flip back</p>
+                            </div>
+                        </div>
+                    </button>
                 </div>
 
                 {flipped && (
