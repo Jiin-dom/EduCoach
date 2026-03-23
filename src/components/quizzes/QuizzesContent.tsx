@@ -9,6 +9,8 @@ import { Link, useLocation, useNavigate } from "react-router-dom"
 import { QuizCard } from "@/components/dashboard/QuizCard"
 import { useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
 import { useAllFlashcards, useReviewFlashcard, type Flashcard } from "@/hooks/useFlashcards"
+import { SelectDocumentDialog } from "./SelectDocumentDialog"
+import { GenerateQuizDialog } from "@/components/files/GenerateQuizDialog"
 
 export function QuizzesContent() {
     const { data: quizzes, isLoading, error, refetch } = useQuizzes()
@@ -20,6 +22,11 @@ export function QuizzesContent() {
         return state?.highlightQuizId ?? null
     })
 
+    // Dialog state
+    const [isSelectDocOpen, setIsSelectDocOpen] = useState(false)
+    const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
+    const [isGenerateQuizOpen, setIsGenerateQuizOpen] = useState(false)
+
     useEffect(() => {
         const state = location.state as { highlightQuizId?: string } | null
         if (state?.highlightQuizId && !highlightQuizId) {
@@ -28,6 +35,15 @@ export function QuizzesContent() {
             navigate(location.pathname, { replace: true })
         }
     }, [location, navigate, highlightQuizId])
+
+    const handleSelectDocument = (id: string) => {
+        setSelectedDocId(id)
+        setIsSelectDocOpen(false)
+        // Small delay to allow SelectDocumentDialog to close smoothly before opening GenerateQuizDialog
+        setTimeout(() => {
+            setIsGenerateQuizOpen(true)
+        }, 300)
+    }
 
     const lastScoreByQuiz = useMemo(() => {
         const map = new Map<string, number>()
@@ -126,12 +142,13 @@ export function QuizzesContent() {
                     <Button variant="outline" size="icon" onClick={() => refetch()} className="shrink-0">
                         <RefreshCw className="w-4 h-4" />
                     </Button>
-                    <Link to="/files" className="flex-1 sm:flex-none">
-                        <Button className="w-full gap-2">
-                            <FileText className="w-4 h-4" />
-                            Generate from Document
-                        </Button>
-                    </Link>
+                    <Button 
+                        className="w-full sm:w-auto gap-2"
+                        onClick={() => setIsSelectDocOpen(true)}
+                    >
+                        <FileText className="w-4 h-4" />
+                        Generate from Document
+                    </Button>
                 </div>
             </div>
 
@@ -161,12 +178,13 @@ export function QuizzesContent() {
                                             : "Great job! Generate more quizzes from your documents."
                                         }
                                     </p>
-                                    <Link to="/files">
-                                        <Button className="gap-2">
-                                            <FileText className="w-4 h-4" />
-                                            Go to Files
-                                        </Button>
-                                    </Link>
+                                    <Button 
+                                        className="gap-2"
+                                        onClick={() => setIsSelectDocOpen(true)}
+                                    >
+                                        <FileText className="w-4 h-4" />
+                                        Select Document
+                                    </Button>
                                 </div>
                             ) : (
                                 <div className="space-y-3">
@@ -223,6 +241,20 @@ export function QuizzesContent() {
                     <FlashcardsPanel />
                 </TabsContent>
             </Tabs>
+
+            <SelectDocumentDialog
+                open={isSelectDocOpen}
+                onOpenChange={setIsSelectDocOpen}
+                onSelect={handleSelectDocument}
+            />
+
+            {selectedDocId && (
+                <GenerateQuizDialog
+                    open={isGenerateQuizOpen}
+                    onOpenChange={setIsGenerateQuizOpen}
+                    documentId={selectedDocId}
+                />
+            )}
         </div>
     )
 }
