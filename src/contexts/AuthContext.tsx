@@ -1,7 +1,10 @@
 import { createContext, useContext, useEffect, useState, useRef, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase, clearStaleSession, getSupabaseStorageKey } from '@/lib/supabase'
+import { saveOAuthReturnPath } from '@/lib/oauthRedirect'
 import type { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
+
+export type OAuthProvider = 'google' | 'facebook' | 'apple'
 
 interface UserProfile {
     id: string
@@ -22,6 +25,7 @@ interface AuthContextType {
     loading: boolean
     signIn: (email: string, password: string) => Promise<{ error: Error | null; profile: UserProfile | null }>
     signUp: (email: string, password: string) => Promise<{ error: Error | null }>
+    signInWithOAuth: (provider: OAuthProvider, returnTo?: string) => Promise<{ error: Error | null }>
     signOut: () => Promise<void>
     updateProfile: (updates: Partial<UserProfile>) => Promise<{ error: Error | null }>
 }
@@ -224,6 +228,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: error as Error | null }
     }
 
+    const signInWithOAuth = async (provider: OAuthProvider, returnTo?: string) => {
+        if (returnTo) {
+            saveOAuthReturnPath(returnTo)
+        }
+
+        const { error } = await supabase.auth.signInWithOAuth({
+            provider,
+            options: {
+                redirectTo: `${window.location.origin}/login`,
+            },
+        })
+
+        return { error: error as Error | null }
+    }
+
     const signOut = async () => {
         // Clear local state FIRST so the UI updates instantly. The server-side
         // signout (token revocation) runs in the background. If we awaited
@@ -264,6 +283,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         signIn,
         signUp,
+        signInWithOAuth,
         signOut,
         updateProfile,
     }

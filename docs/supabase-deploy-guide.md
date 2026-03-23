@@ -99,7 +99,7 @@ npx supabase functions deploy ai-tutor --project-ref gibufmvycrefsthfzhgy --no-v
 # 4. (Optional) Check logs
 npx supabase functions logs process-document --project-ref gibufmvycrefsthfzhgy --tail
 ```
-
+https://gibufmvycrefsthfzhgy.supabase.co/auth/v1/callback
 ---
 
 *Last Updated: 2026-01-12*
