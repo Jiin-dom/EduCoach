@@ -225,6 +225,14 @@ export function FilesContent() {
                                                         <span className="text-primary shrink-0">{file.concept_count} concepts</span>
                                                     </>
                                                 )}
+                                                {file.deadline && (
+                                                    <>
+                                                        <span className="hidden sm:inline">•</span>
+                                                        <span className="text-amber-600 dark:text-amber-500 shrink-0 font-medium">
+                                                            Due {new Date(file.deadline).toLocaleDateString()}
+                                                        </span>
+                                                    </>
+                                                )}
                                             </div>
                                             {file.status === 'error' && file.error_message && (
                                                 <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">

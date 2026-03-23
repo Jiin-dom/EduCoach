@@ -78,6 +78,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
 
     const [selectedFile, setSelectedFile] = useState<File | null>(null)
     const [title, setTitle] = useState("")
+    const [deadline, setDeadline] = useState("")
     const [dragActive, setDragActive] = useState(false)
     const [phase, setPhase] = useState<UploadPhase>('idle')
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -112,6 +113,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
             setTimeout(() => {
                 setSelectedFile(null)
                 setTitle("")
+                setDeadline("")
                 setPhase('idle')
                 setErrorMessage(null)
             }, 200)
@@ -188,6 +190,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                 file_type: getFileTypeFromMime(selectedFile.type),
                 file_size: selectedFile.size,
                 status: 'pending',
+                deadline: deadline || null,
             }
 
             const { data: insertedDoc, error: dbError } = await supabase
@@ -226,6 +229,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
     const handleRemoveFile = () => {
         setSelectedFile(null)
         setTitle("")
+        setDeadline("")
         setErrorMessage(null)
     }
 
@@ -320,17 +324,32 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                                         <X className="w-4 h-4" />
                                     </Button>
                                 </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="title">Document Title</Label>
-                                    <Input
-                                        id="title"
-                                        value={title}
-                                        onChange={(e) => setTitle(e.target.value)}
-                                        placeholder="Enter a title for this document"
-                                    />
-                                    <p className="text-xs text-muted-foreground">
-                                        This will help you identify the document later
-                                    </p>
+                                <div className="space-y-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="title">Document Title</Label>
+                                        <Input
+                                            id="title"
+                                            value={title}
+                                            onChange={(e) => setTitle(e.target.value)}
+                                            placeholder="Enter a title for this document"
+                                        />
+                                        <p className="text-xs text-muted-foreground">
+                                            This will help you identify the document later
+                                        </p>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="deadline">Deadline (Optional)</Label>
+                                        <Input
+                                            id="deadline"
+                                            type="date"
+                                            value={deadline}
+                                            onChange={(e) => setDeadline(e.target.value)}
+                                            className="w-full"
+                                        />
+                                        <p className="text-xs text-muted-foreground">
+                                            Keep track of when you need to master this material
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
                         )}
