@@ -155,7 +155,7 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
                     )}
                     {document.status === 'ready' && (
                         <>
-                            <Button
+                            {/* <Button
                                 variant="outline"
                                 className="gap-2"
                                 onClick={handleRefine}
@@ -167,7 +167,7 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
                                     <Brain className="w-4 h-4" />
                                 )}
                                 Refine with Gemini
-                            </Button>
+                            </Button> */}
                             <Button
                                 className="gap-2"
                                 onClick={() => setQuizDialogOpen(true)}
