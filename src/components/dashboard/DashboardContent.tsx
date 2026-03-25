@@ -205,6 +205,11 @@ export function DashboardContent() {
                                                     <Badge variant="outline" className={`text-xs ${getStatusColor(file.status)}`}>
                                                         {file.status}
                                                     </Badge>
+                                                    {file.deadline && (
+                                                        <span className="text-amber-600 dark:text-amber-500 font-medium">
+                                                            Due {new Date(file.deadline).toLocaleDateString()}
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-1">

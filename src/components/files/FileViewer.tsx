@@ -166,8 +166,8 @@ export function FileViewer() {
             {/* Mobile Document Toggle */}
             {document.status === 'ready' && (
                 <div className="lg:hidden flex justify-end">
-                    <Button 
-                        variant="outline" 
+                    <Button
+                        variant="outline"
                         onClick={() => setShowMobileDoc(!showMobileDoc)}
                         className="gap-2 w-full sm:w-auto"
                     >

@@ -45,6 +45,7 @@ export interface Document {
     concept_count: number
     processed_by?: 'pure_nlp' | 'gemini' | null
     processing_quality?: number | null
+    deadline?: string | null
     created_at: string
     updated_at: string
 }

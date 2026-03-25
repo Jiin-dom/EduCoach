@@ -14,8 +14,11 @@ import {
     ZoomIn,
     ZoomOut,
     RotateCcw,
+    Edit2,
+    Highlighter
 } from 'lucide-react'
 import type { Document as DocType } from '@/hooks/useDocuments'
+import type { Annotation } from '@/types/annotations'
 import { getFileUrl, formatFileSize } from '@/lib/storage'
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
@@ -34,6 +37,17 @@ export function DocumentPane({ document: doc, currentPage, onPageChange }: Docum
     const [zoomOffset, setZoomOffset] = useState(0)
     const [containerWidth, setContainerWidth] = useState(0)
     const [pageInput, setPageInput] = useState(String(currentPage))
+
+    // Edit & Annotation state
+    const [isEditMode, setIsEditMode] = useState(false)
+    const [annotations, setAnnotations] = useState<Annotation[]>([])
+    const [selectionRect, setSelectionRect] = useState<{ x: number, y: number } | null>(null)
+    const [selectedText, setSelectedText] = useState('')
+    const [noteInput, setNoteInput] = useState('')
+    const [highlightColor, setHighlightColor] = useState('#fef08a') // default yellow
+    // Percentage rects for the new annotation
+    const [pendingRects, setPendingRects] = useState<{x: number, y: number, width: number, height: number}[] | null>(null)
+    const [pendingPage, setPendingPage] = useState(1)
 
     const scrollContainerRef = useRef<HTMLDivElement>(null)
     const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map())
@@ -172,6 +186,82 @@ export function DocumentPane({ document: doc, currentPage, onPageChange }: Docum
         }
     }, [])
 
+    const handleMouseUp = () => {
+        if (!isEditMode) return
+        
+        const selection = window.getSelection()
+        if (selection && selection.rangeCount > 0 && selection.toString().trim().length > 0) {
+            const range = selection.getRangeAt(0)
+            const clientRects = range.getClientRects()
+            const container = scrollContainerRef.current
+            const pageEl = pageRefs.current.get(lastObserverPage.current)
+            
+            if (container && pageEl && clientRects.length > 0) {
+                const containerRect = container.getBoundingClientRect()
+                const pageRect = pageEl.getBoundingClientRect()
+                
+                // Grab the first rect for the popup position
+                const firstRect = clientRects[0]
+                
+                // Ensure selection is inside the container
+                if (firstRect.x >= containerRect.x && firstRect.x <= containerRect.right &&
+                    firstRect.y >= containerRect.y && firstRect.y <= containerRect.bottom) {
+                    
+                    setSelectionRect({
+                        x: firstRect.x - containerRect.x + container.scrollLeft + firstRect.width / 2,
+                        y: firstRect.y - containerRect.y + container.scrollTop - 40
+                    })
+                    setSelectedText(selection.toString().trim())
+                    
+                    // Calculate relative percentages to the Page Element
+                    const percentages = Array.from(clientRects).map(rect => ({
+                        x: ((rect.x - pageRect.x) / pageRect.width) * 100,
+                        y: ((rect.y - pageRect.y) / pageRect.height) * 100,
+                        width: (rect.width / pageRect.width) * 100,
+                        height: (rect.height / pageRect.height) * 100,
+                    }))
+                    setPendingRects(percentages)
+                    setPendingPage(lastObserverPage.current)
+                }
+            }
+        } else if (selectionRect && selection?.toString().trim().length === 0) {
+            setSelectionRect(null)
+            setNoteInput('')
+            setPendingRects(null)
+        }
+    }
+
+    const saveAnnotation = () => {
+        if (!selectedText || !pendingRects) return
+        const newAnn: Annotation = {
+            id: crypto.randomUUID(),
+            text: selectedText,
+            note: noteInput,
+            color: highlightColor,
+            page: pendingPage,
+            rects: pendingRects,
+            createdAt: Date.now()
+        }
+        setAnnotations(prev => [...prev, newAnn])
+        setSelectionRect(null)
+        setNoteInput('')
+        setSelectedText('')
+        setPendingRects(null)
+        window.getSelection()?.removeAllRanges()
+    }
+
+    const toggleEditMode = () => {
+        setIsEditMode(prev => {
+            const next = !prev
+            if (!next) {
+                setSelectionRect(null)
+                setPendingRects(null)
+                window.getSelection()?.removeAllRanges()
+            }
+            return next
+        })
+    }
+
     // Compute the width to pass to <Page>. Base = container width (auto-fit),
     // then apply zoom offset as a percentage adjustment.
     const pageWidth = containerWidth > 0 ? Math.round(containerWidth * (1 + zoomOffset * 0.15)) : undefined
@@ -240,6 +330,16 @@ export function DocumentPane({ document: doc, currentPage, onPageChange }: Docum
                             <RotateCcw className="w-3.5 h-3.5" />
                         </Button>
                     )}
+                    <div className="w-px h-4 bg-border mx-1" />
+                    <Button 
+                        variant={isEditMode ? "default" : "ghost"} 
+                        size="icon" 
+                        className={`h-8 w-8 transition-colors ${isEditMode ? 'bg-primary text-primary-foreground' : ''}`}
+                        onClick={toggleEditMode} 
+                        title="Toggle Edit Mode (Highlight & Note)"
+                    >
+                        <Edit2 className="w-4 h-4" />
+                    </Button>
                 </div>
             </div>
 
@@ -247,9 +347,50 @@ export function DocumentPane({ document: doc, currentPage, onPageChange }: Docum
             <div
                 ref={scrollContainerRef}
                 onWheel={handleWheel}
-                className="flex-1 overflow-auto p-2"
+                onMouseUp={handleMouseUp}
+                className={`flex-1 overflow-auto p-2 relative ${isEditMode ? 'cursor-text' : ''}`}
                 style={{ overscrollBehavior: 'contain' }}
             >
+                {/* Floating Selection Toolbar */}
+                {selectionRect && (
+                    <div 
+                        className="absolute z-50 bg-background border shadow-xl rounded-lg p-2 flex gap-2 items-center min-w-[320px] transition-all"
+                        style={{ left: selectionRect.x, top: Math.max(0, selectionRect.y), transform: 'translateX(-50%)' }}
+                        onMouseUp={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex bg-muted rounded overflow-hidden">
+                            {[
+                                { c: '#fef08a', n: 'Yellow' },
+                                { c: '#bbf7d0', n: 'Green' }, 
+                                { c: '#bfdbfe', n: 'Blue' }, 
+                                { c: '#fecaca', n: 'Red' }
+                            ].map(clr => (
+                                <button
+                                    key={clr.c}
+                                    className={`w-6 h-6 hover:opacity-80 transition-opacity ${highlightColor === clr.c ? 'ring-2 ring-primary ring-inset' : ''}`}
+                                    style={{ backgroundColor: clr.c }}
+                                    onClick={() => setHighlightColor(clr.c)}
+                                    title={`Highlight ${clr.n}`}
+                                />
+                            ))}
+                        </div>
+                        <Input 
+                            placeholder="Add a note (optional)..." 
+                            className="h-8 flex-1 text-xs"
+                            value={noteInput}
+                            onChange={e => setNoteInput(e.target.value)}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter') saveAnnotation()
+                            }}
+                        />
+                        <Button size="sm" onClick={saveAnnotation} className="h-8 px-3 gap-1.5 shrink-0">
+                            <Highlighter className="w-3.5 h-3.5" />
+                            Save
+                        </Button>
+                    </div>
+                )}
+
                 {loading && !pdfUrl && (
                     <div className="flex items-center justify-center py-20">
                         <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -281,7 +422,27 @@ export function DocumentPane({ document: doc, currentPage, onPageChange }: Docum
                                         width={pageWidth}
                                         loading={<div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>}
                                     />
-                                    <span className="absolute bottom-1 right-2 text-[10px] text-muted-foreground/60 bg-background/80 px-1.5 rounded">
+                                    {/* Overlays for Highlights */}
+                                    <div className="absolute inset-0 z-10 pointer-events-none mix-blend-multiply">
+                                        {annotations.filter(a => a.page === i + 1).map(ann => (
+                                            ann.rects.map((r, rIdx) => (
+                                                <div
+                                                    key={`${ann.id}-${rIdx}`}
+                                                    className="absolute pointer-events-auto cursor-help"
+                                                    style={{
+                                                        left: `${r.x}%`,
+                                                        top: `${r.y}%`,
+                                                        width: `${r.width}%`,
+                                                        height: `${r.height}%`,
+                                                        backgroundColor: ann.color,
+                                                        opacity: 0.4
+                                                    }}
+                                                    title={ann.note ? `Note: ${ann.note}` : 'Highlight'}
+                                                />
+                                            ))
+                                        ))}
+                                    </div>
+                                    <span className="absolute bottom-1 right-2 text-[10px] text-muted-foreground/60 bg-background/80 px-1.5 rounded z-20">
                                         {i + 1}
                                     </span>
                                 </div>
