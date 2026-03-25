@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { FolderOpen, Upload, Trash2, Sparkles, FileText, File, Loader2, RefreshCw, AlertCircle, Clock, CheckCircle2, Brain } from "lucide-react"
+import { FolderOpen, Upload, Trash2, Sparkles, FileText, File, Loader2, RefreshCw, AlertCircle, Clock, CheckCircle2 } from "lucide-react"
 import { FileUploadDialog } from "@/components/files/FileUploadDialog"
 import { Link } from "react-router-dom"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -38,15 +38,6 @@ export function FilesContent() {
             processor: 'pure_nlp'
         })
         processDocument.mutate(doc.id)
-    }
-
-    const handleRefineWithGemini = (doc: Document) => {
-        console.log('[FilesContent] ✨ Gemini refinement requested', {
-            documentId: doc.id,
-            title: doc.title,
-            processor: 'gemini'
-        })
-        processDocument.mutate({ documentId: doc.id, processor: 'gemini' })
     }
 
     const handleGenerateQuiz = (doc: Document) => {
