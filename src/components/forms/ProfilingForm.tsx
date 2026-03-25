@@ -72,6 +72,16 @@ const studyTimeOptions = [
     { value: 120, label: "2+ hours", description: "Deep immersion" },
 ]
 
+const dayOfWeekOptions = [
+    { id: "mon", label: "Mon" },
+    { id: "tue", label: "Tue" },
+    { id: "wed", label: "Wed" },
+    { id: "thu", label: "Thu" },
+    { id: "fri", label: "Fri" },
+    { id: "sat", label: "Sat" },
+    { id: "sun", label: "Sun" },
+]
+
 export function ProfilingForm() {
     const navigate = useNavigate()
     const { updateProfile } = useAuth()
@@ -82,6 +92,9 @@ export function ProfilingForm() {
     const [studyGoal, setStudyGoal] = useState<string>("")
     const [preferredSubjects, setPreferredSubjects] = useState<string[]>([])
     const [dailyStudyMinutes, setDailyStudyMinutes] = useState<number>(30)
+    const [studyTimeStart, setStudyTimeStart] = useState<string>("18:00")
+    const [studyTimeEnd, setStudyTimeEnd] = useState<string>("23:59")
+    const [availableStudyDays, setAvailableStudyDays] = useState<string[]>([])
     const [displayName, setDisplayName] = useState<string>("")
 
     // Submission state
@@ -109,7 +122,12 @@ export function ProfilingForm() {
             case 4:
                 return preferredSubjects.length > 0
             case 5:
-                return dailyStudyMinutes > 0
+                return (
+                    dailyStudyMinutes > 0 &&
+                    studyTimeStart.trim() !== "" &&
+                    studyTimeEnd.trim() !== "" &&
+                    availableStudyDays.length > 0
+                )
             default:
                 return false
         }
@@ -127,6 +145,9 @@ export function ProfilingForm() {
                 study_goal: studyGoal,
                 preferred_subjects: preferredSubjects,
                 daily_study_minutes: dailyStudyMinutes,
+                preferred_study_time_start: studyTimeStart,
+                preferred_study_time_end: studyTimeEnd,
+                available_study_days: availableStudyDays,
                 has_completed_profiling: true,
             })
 
@@ -184,7 +205,7 @@ export function ProfilingForm() {
                     {step === 2 && "How do you learn best?"}
                     {step === 3 && "What's your primary learning goal?"}
                     {step === 4 && "What subjects are you studying?"}
-                    {step === 5 && "How much time can you dedicate daily?"}
+                    {step === 5 && "When do you want to study, and what days work?"}
                 </CardDescription>
             </CardHeader>
 
@@ -294,32 +315,100 @@ export function ProfilingForm() {
 
                 {/* Step 5: Daily Study Time */}
                 {step === 5 && (
-                    <RadioGroup
-                        value={dailyStudyMinutes.toString()}
-                        onValueChange={(val) => setDailyStudyMinutes(parseInt(val))}
-                        className="space-y-3"
-                    >
-                        {studyTimeOptions.map((option) => (
-                            <div key={option.value}>
-                                <RadioGroupItem
-                                    value={option.value.toString()}
-                                    id={`time-${option.value}`}
-                                    className="peer sr-only"
-                                />
-                                <Label
-                                    htmlFor={`time-${option.value}`}
-                                    className="flex items-center justify-between p-4 rounded-lg border cursor-pointer
-                                        hover:bg-accent/50 peer-data-[state=checked]:border-primary 
-                                        peer-data-[state=checked]:bg-primary/5 transition-all"
-                                >
-                                    <div>
-                                        <p className="font-semibold">{option.label}</p>
-                                        <p className="text-sm text-muted-foreground">{option.description}</p>
-                                    </div>
-                                </Label>
+                    <div className="space-y-6">
+                        <div className="space-y-3">
+                            <Label className="block">Study time window</Label>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="space-y-2">
+                                    <Label htmlFor="studyStart" className="text-sm">
+                                        Start
+                                    </Label>
+                                    <Input
+                                        id="studyStart"
+                                        type="time"
+                                        value={studyTimeStart}
+                                        onChange={(e) => setStudyTimeStart(e.target.value)}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="studyEnd" className="text-sm">
+                                        End
+                                    </Label>
+                                    <Input
+                                        id="studyEnd"
+                                        type="time"
+                                        value={studyTimeEnd}
+                                        onChange={(e) => setStudyTimeEnd(e.target.value)}
+                                    />
+                                </div>
                             </div>
-                        ))}
-                    </RadioGroup>
+                        </div>
+
+                        <div className="space-y-3">
+                            <Label className="block">Days you can study</Label>
+                            <p className="text-sm text-muted-foreground">Select all days that usually work.</p>
+                            <div className="flex flex-wrap gap-3">
+                                {dayOfWeekOptions.map((d) => (
+                                    <div
+                                        key={d.id}
+                                        className={`inline-flex items-center gap-3 p-3 rounded-lg border ${
+                                            availableStudyDays.includes(d.id) ? "border-primary bg-primary/5" : ""
+                                        }`}
+                                    >
+                                        <Checkbox
+                                            id={`day-${d.id}`}
+                                            checked={availableStudyDays.includes(d.id)}
+                                            onCheckedChange={(checked) => {
+                                                const isChecked = checked === true
+                                                const next = isChecked
+                                                    ? [...availableStudyDays, d.id]
+                                                    : availableStudyDays.filter((x) => x !== d.id)
+                                                setAvailableStudyDays(next)
+                                            }}
+                                        />
+                                        <Label htmlFor={`day-${d.id}`} className="cursor-pointer">
+                                            {d.label}
+                                        </Label>
+                                    </div>
+                                ))}
+                            </div>
+                            {availableStudyDays.length > 0 && (
+                                <p className="text-sm text-primary">
+                                    {availableStudyDays.length} day{availableStudyDays.length > 1 ? "s" : ""} selected
+                                </p>
+                            )}
+                        </div>
+
+                        <div className="space-y-3">
+                            <Label className="block">Daily study minutes (15-120 min)</Label>
+                            <RadioGroup
+                                value={dailyStudyMinutes.toString()}
+                                onValueChange={(val) => setDailyStudyMinutes(parseInt(val))}
+                                className="space-y-3"
+                            >
+                                {studyTimeOptions.map((option) => (
+                                    <div key={option.value}>
+                                        <RadioGroupItem
+                                            value={option.value.toString()}
+                                            id={`time-${option.value}`}
+                                            className="peer sr-only"
+                                        />
+                                        <Label
+                                            htmlFor={`time-${option.value}`}
+                                            className="flex items-center justify-between p-4 rounded-lg border cursor-pointer
+                                                hover:bg-accent/50 peer-data-[state=checked]:border-primary 
+                                                peer-data-[state=checked]:bg-primary/5 transition-all"
+                                        >
+                                            <div>
+                                                <p className="font-semibold">{option.label}</p>
+                                                <p className="text-sm text-muted-foreground">{option.description}</p>
+                                            </div>
+                                        </Label>
+                                    </div>
+                                ))}
+                            </RadioGroup>
+                        </div>
+                    </div>
                 )}
 
                 {/* Error message */}
