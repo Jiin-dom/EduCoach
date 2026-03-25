@@ -186,8 +186,8 @@ export function GenerateQuizDialog({ open, onOpenChange, documentId }: GenerateQ
                                                     ? 'Multiple Choice'
                                                     : type === 'true_false'
                                                         ? 'True or False'
-                                                        : type === 'short_answer'
-                                                            ? 'Short Answer'
+                                                        : type === 'fill_in_blank'
+                                                            ? 'Fill in the Blank'
                                                             : 'Identification'
 
                                             return (

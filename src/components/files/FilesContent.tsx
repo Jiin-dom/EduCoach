@@ -288,7 +288,7 @@ export function FilesContent() {
 
                                         {file.status === 'ready' && (
                                             <>
-                                                <TooltipProvider>
+                                                {/* <TooltipProvider>
                                                     <Tooltip>
                                                         <TooltipTrigger asChild>
                                                             <Button
@@ -305,7 +305,7 @@ export function FilesContent() {
                                                             <p>Refine with Gemini</p>
                                                         </TooltipContent>
                                                     </Tooltip>
-                                                </TooltipProvider>
+                                                </TooltipProvider> */}
                                                 <TooltipProvider>
                                                     <Tooltip>
                                                         <TooltipTrigger asChild>

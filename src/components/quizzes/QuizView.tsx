@@ -439,7 +439,7 @@ export function QuizView() {
 
                     {/* Multiple Choice */}
                     {question.question_type === "multiple_choice" && question.options && (
-                        <RadioGroup value={answers[question.id]} onValueChange={handleAnswer}>
+                        <RadioGroup key={question.id} value={answers[question.id] ?? ""} onValueChange={handleAnswer}>
                             <div className="space-y-3">
                                 {question.options.map((option, index) => (
                                     <div
@@ -458,15 +458,15 @@ export function QuizView() {
 
                     {/* True / False */}
                     {question.question_type === "true_false" && (
-                        <RadioGroup value={answers[question.id]} onValueChange={handleAnswer}>
+                        <RadioGroup key={question.id} value={answers[question.id] ?? ""} onValueChange={handleAnswer}>
                             <div className="space-y-3">
                                 {["true", "false"].map((val) => (
                                     <div
                                         key={val}
                                         className="flex items-center space-x-3 p-4 rounded-lg border hover:bg-accent/5 cursor-pointer"
                                     >
-                                        <RadioGroupItem value={val} id={`tf-${val}`} />
-                                        <Label htmlFor={`tf-${val}`} className="flex-1 cursor-pointer capitalize">
+                                        <RadioGroupItem value={val} id={`tf-${question.id}-${val}`} />
+                                        <Label htmlFor={`tf-${question.id}-${val}`} className="flex-1 cursor-pointer capitalize">
                                             {val}
                                         </Label>
                                     </div>

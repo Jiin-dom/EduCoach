@@ -74,7 +74,7 @@ export function StudyPath({ documentId, onSelectTab }: StudyPathProps) {
                 <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Study Path</h3>
                 <span className="text-xs text-muted-foreground">{doneCount}/{STEPS.length} completed</span>
             </div>
-            <div className="flex gap-3 overflow-x-auto pb-3 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide snap-x">
+            {/* <div className="flex gap-3 overflow-x-auto pb-3 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide snap-x">
                 {STEPS.map((step) => {
                     const s = getStatus(step.id)
                     const Icon = step.icon
@@ -112,7 +112,7 @@ export function StudyPath({ documentId, onSelectTab }: StudyPathProps) {
                         </button>
                     )
                 })}
-            </div>
+            </div> */}
         </div>
     )
 }

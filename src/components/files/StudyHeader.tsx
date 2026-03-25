@@ -16,12 +16,14 @@ import {
     Scissors,
     Wand2,
     Gauge,
+    Layers,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { Document } from '@/hooks/useDocuments'
 import { useProcessDocument } from '@/hooks/useDocuments'
 import { getFileUrl, formatFileSize } from '@/lib/storage'
 import { GenerateQuizDialog } from './GenerateQuizDialog'
+import { useGenerateFlashcards } from '@/hooks/useFlashcards'
 
 interface StudyHeaderProps {
     document: Document
@@ -85,6 +87,7 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
     const processDocument = useProcessDocument()
     const [downloadingUrl, setDownloadingUrl] = useState(false)
     const [quizDialogOpen, setQuizDialogOpen] = useState(false)
+    const generateFlashcards = useGenerateFlashcards()
 
     const status = STATUS_MAP[document.status] || STATUS_MAP.pending
     const StatusIcon = status.icon
@@ -152,13 +155,38 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
                     )}
                     {document.status === 'ready' && (
                         <>
-                            <Button variant="outline" className="gap-2" onClick={handleRefine} disabled={processDocument.isPending}>
-                                {processDocument.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
+                            {/* <Button
+                                variant="outline"
+                                className="gap-2"
+                                onClick={handleRefine}
+                                disabled={processDocument.isPending}
+                            >
+                                {processDocument.isPending ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <Brain className="w-4 h-4" />
+                                )}
                                 Refine with Gemini
-                            </Button>
-                            <Button className="gap-2" onClick={() => setQuizDialogOpen(true)}>
+                            </Button> */}
+                            <Button
+                                className="gap-2"
+                                onClick={() => setQuizDialogOpen(true)}
+                            >
                                 <Sparkles className="w-4 h-4" />
                                 Generate Quiz
+                            </Button>
+                            <Button
+                                variant="outline"
+                                className="gap-2"
+                                disabled={generateFlashcards.isPending}
+                                onClick={() => generateFlashcards.mutate(document.id)}
+                            >
+                                {generateFlashcards.isPending ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <Layers className="w-4 h-4" />
+                                )}
+                                Generate Flashcards
                             </Button>
                         </>
                     )}

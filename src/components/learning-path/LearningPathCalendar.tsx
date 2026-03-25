@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
-import { useConceptMasteryList, useLearningStats, useStudyEfficiency } from "@/hooks/useLearning"
+import { useConceptMasteryList, useLearningStats, useRescheduleConceptDueDate, useStudyEfficiency } from "@/hooks/useLearning"
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
 
 // Helper function to get days in a month
@@ -38,6 +38,7 @@ export function LearningPathCalendar() {
     const { data: stats } = useLearningStats();
     const { data: weeklyProgress } = useWeeklyProgress();
     const { data: efficiency } = useStudyEfficiency();
+    const rescheduleDueDate = useRescheduleConceptDueDate()
 
     // Compute Dates
     const now = new Date();
@@ -86,7 +87,16 @@ export function LearningPathCalendar() {
         }
 
         return (
-            <div className={`p-2 rounded-md border text-xs mb-2 ${colors}`}>
+            <div
+                draggable
+                onDragStart={(e) => {
+                    // Store the concept being moved; on drop we resolve masteryScore/confidence from `masteryList`.
+                    e.dataTransfer.setData('text/plain', session.concept_id)
+                    e.dataTransfer.effectAllowed = 'move'
+                }}
+                className={`p-2 rounded-md border text-xs mb-2 ${colors} cursor-grab active:cursor-grabbing`}
+                title="Drag to reschedule review deadline"
+            >
                 <div className="flex items-center gap-1 font-medium mb-1 truncate">
                     {session.display_mastery_level === 'mastered' && <CheckCircle2 className="w-3 h-3" />}
                     {session.display_mastery_level === 'developing' && <Clock className="w-3 h-3" />} {/* changed from Flashcard icon */} 
@@ -107,13 +117,37 @@ export function LearningPathCalendar() {
             default: colors = "bg-gray-100 text-gray-700 border-gray-200"; break;
         }
         return (
-            <div className={`mt-1 text-[10px] p-1 rounded truncate border flex items-center gap-1 ${colors}`}>
+            <div
+                draggable
+                onDragStart={(e) => {
+                    e.dataTransfer.setData('text/plain', session.concept_id)
+                    e.dataTransfer.effectAllowed = 'move'
+                }}
+                className={`mt-1 text-[10px] p-1 rounded truncate border flex items-center gap-1 ${colors} cursor-grab active:cursor-grabbing`}
+                title="Drag to reschedule review deadline"
+            >
                 {session.display_mastery_level === 'mastered' && <CheckCircle2 className="w-2.5 h-2.5 hidden sm:block" />}
                 {session.display_mastery_level === 'developing' && <Clock className="w-2.5 h-2.5 hidden sm:block" />}
                 {session.display_mastery_level === 'needs_review' && <BookOpen className="w-2.5 h-2.5 hidden sm:block" />}
                 <span>{session.concept_name}</span>
             </div>
         )
+    }
+
+    const handleRescheduleDrop = (conceptId: string, targetDateStr: string) => {
+        if (!conceptId || !targetDateStr) return
+        if (!masteryList) return
+
+        const current = masteryList.find((m: any) => m.concept_id === conceptId)
+        if (!current) return
+        if (current.due_date === targetDateStr) return // no-op
+
+        rescheduleDueDate.mutate({
+            conceptId,
+            newDueDate: targetDateStr,
+            masteryScore: Number(current.mastery_score),
+            confidence: Number(current.confidence),
+        })
     }
 
     // Identify weak concepts for deadlines/goals module
@@ -186,7 +220,20 @@ export function LearningPathCalendar() {
                                         const sessions = getSessionsForDate(dateStr)
 
                                         return (
-                                        <div key={idx} className="min-w-[140px] flex-1 border rounded-xl p-3 snap-start bg-card min-h-[200px]">
+                                        <div
+                                            key={idx}
+                                            className="min-w-[140px] flex-1 border rounded-xl p-3 snap-start bg-card min-h-[200px]"
+                                            onDragOver={(e) => {
+                                                // Must preventDefault to allow dropping.
+                                                e.preventDefault()
+                                            }}
+                                            onDrop={(e) => {
+                                                e.preventDefault()
+                                                if (rescheduleDueDate.isPending) return
+                                                const conceptId = e.dataTransfer.getData('text/plain')
+                                                handleRescheduleDrop(conceptId, dateStr)
+                                            }}
+                                        >
                                             <div className="mb-3">
                                                 <div className="font-medium text-sm">{dateObj.toLocaleDateString('en-US', {weekday: 'long'})}</div>
                                                 <div className="text-xs text-muted-foreground">{dateObj.toLocaleDateString('en-US', {month: 'short', day: 'numeric'})}</div>
@@ -220,7 +267,19 @@ export function LearningPathCalendar() {
                                             const sessions = getSessionsForDate(dateStr);
 
                                             return (
-                                            <div key={i} className="aspect-square p-1.5 sm:p-2 border rounded-lg bg-card relative min-h-[60px] sm:min-h-[80px] overflow-hidden">
+                                            <div
+                                                key={i}
+                                                className="aspect-square p-1.5 sm:p-2 border rounded-lg bg-card relative min-h-[60px] sm:min-h-[80px] overflow-hidden"
+                                                onDragOver={(e) => {
+                                                    e.preventDefault()
+                                                }}
+                                                onDrop={(e) => {
+                                                    e.preventDefault()
+                                                    if (rescheduleDueDate.isPending) return
+                                                    const conceptId = e.dataTransfer.getData('text/plain')
+                                                    handleRescheduleDrop(conceptId, dateStr)
+                                                }}
+                                            >
                                                 <span className="text-xs font-medium">{i + 1}</span>
                                                 {sessions.slice(0, 3).map((s, si) => (
                                                     <div key={si}>{renderMonthSessionBadge(s)}</div>
