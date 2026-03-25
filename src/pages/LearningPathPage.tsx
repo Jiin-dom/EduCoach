@@ -1,6 +1,7 @@
 import { DashboardHeader } from "@/components/layout/DashboardHeader"
 import { LearningPathContent } from "@/components/learning-path/LearningPathContent"
 import { LearningPathCalendar } from "@/components/learning-path/LearningPathCalendar"
+import { StudyGoalsPanel } from "@/components/learning-path/StudyGoalsPanel"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 export default function LearningPathPage() {
@@ -13,6 +14,7 @@ export default function LearningPathPage() {
                     <TabsList className="bg-muted">
                         <TabsTrigger value="schedule">Schedule View</TabsTrigger>
                         <TabsTrigger value="mastery">Topics & Mastery</TabsTrigger>
+                        <TabsTrigger value="goals">Study Goals</TabsTrigger>
                     </TabsList>
                 </div>
                 
@@ -24,6 +26,10 @@ export default function LearningPathPage() {
                 
                 <TabsContent value="mastery" className="m-0 border-0 p-0 outline-none">
                     <LearningPathContent />
+                </TabsContent>
+
+                <TabsContent value="goals" className="m-0 border-0 p-0 outline-none">
+                    <StudyGoalsPanel />
                 </TabsContent>
             </Tabs>
         </div>
