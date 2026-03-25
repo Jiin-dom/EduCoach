@@ -9,7 +9,6 @@ import {
     Loader2,
     AlertCircle,
     RefreshCw,
-    Brain,
     Clock,
     CheckCircle2,
     ShieldCheck,
@@ -94,13 +93,6 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
 
     const handleProcess = () => {
         processDocument.mutate(document.id, { onSuccess: () => refetchDoc() })
-    }
-
-    const handleRefine = () => {
-        processDocument.mutate(
-            { documentId: document.id, processor: 'gemini' },
-            { onSuccess: () => refetchDoc() }
-        )
     }
 
     const handleDownload = async () => {

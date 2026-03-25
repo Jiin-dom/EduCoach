@@ -1,6 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Button } from '@/components/ui/button'
-import { CheckCircle2, Circle, Clock, BookOpen, Layers, ListChecks, Sparkles } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { BookOpen, Layers, ListChecks, Sparkles } from 'lucide-react'
 
 type StepStatus = 'not_started' | 'in_progress' | 'done'
 
@@ -37,34 +36,12 @@ interface StudyPathProps {
 }
 
 export function StudyPath({ documentId, onSelectTab }: StudyPathProps) {
-    const [stepState, setStepState] = useState<Record<string, StepStatus>>(() => loadState(documentId))
+    void onSelectTab
+    const [stepState] = useState<Record<string, StepStatus>>(() => loadState(documentId))
 
     useEffect(() => { saveState(documentId, stepState) }, [documentId, stepState])
 
     const getStatus = (id: string): StepStatus => stepState[id] || 'not_started'
-
-    const handleClick = useCallback((step: Step) => {
-        if (step.id === 'quiz') {
-            onSelectTab?.('quiz-prep')
-            return
-        }
-
-        const el = document.getElementById(step.sectionId)
-        if (el) {
-            el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        }
-
-        setStepState(prev => {
-            const cur = prev[step.id] || 'not_started'
-            if (cur === 'done') return prev
-            return { ...prev, [step.id]: 'in_progress' }
-        })
-    }, [onSelectTab])
-
-    const markDone = useCallback((id: string, e: React.MouseEvent) => {
-        e.stopPropagation()
-        setStepState(prev => ({ ...prev, [id]: 'done' }))
-    }, [])
 
     const doneCount = STEPS.filter(s => getStatus(s.id) === 'done').length
 
