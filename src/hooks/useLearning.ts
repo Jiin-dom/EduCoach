@@ -89,6 +89,36 @@ export interface LearningConfig {
     confidence_threshold_mastered: number
 }
 
+export type AttemptLogSourceType = 'quiz' | 'flashcard'
+
+interface AttemptLogInsertBase {
+    user_id: string
+    concept_id: string | null
+    document_id: string | null
+    is_correct: boolean
+    user_answer: string | null
+    question_difficulty: 'beginner' | 'intermediate' | 'advanced' | null
+    time_spent_seconds: number | null
+    attempt_index: number
+    source_type: AttemptLogSourceType
+}
+
+export interface QuizAttemptLogInsert extends AttemptLogInsertBase {
+    source_type: 'quiz'
+    question_id: string
+    quiz_id: string
+    attempt_id: string
+    flashcard_id: null
+}
+
+export interface FlashcardAttemptLogInsert extends AttemptLogInsertBase {
+    source_type: 'flashcard'
+    flashcard_id: string
+    question_id: null
+    quiz_id: null
+    attempt_id: null
+}
+
 const DEFAULT_CONFIG: LearningConfig = {
     confidence_k: 3,
     sm2_default_ef: 2.5,
@@ -99,6 +129,37 @@ const DEFAULT_CONFIG: LearningConfig = {
     mastery_threshold_mastered: 80,
     mastery_threshold_developing: 60,
     confidence_threshold_mastered: 0.67,
+}
+
+function normalizeLearningConfig(data: Record<string, unknown> | null | undefined): LearningConfig {
+    if (!data) return DEFAULT_CONFIG
+    const parsedThresholds = Array.isArray(data.quality_thresholds)
+        ? data.quality_thresholds.map((v) => Number(v)).filter((v) => Number.isFinite(v))
+        : []
+    return {
+        confidence_k: Number(data.confidence_k) || DEFAULT_CONFIG.confidence_k,
+        sm2_default_ef: Number(data.sm2_default_ef) || DEFAULT_CONFIG.sm2_default_ef,
+        quality_thresholds: parsedThresholds.length >= 5 ? parsedThresholds : DEFAULT_CONFIG.quality_thresholds,
+        priority_w_weakness: Number(data.priority_w_weakness) || DEFAULT_CONFIG.priority_w_weakness,
+        priority_w_deadline: Number(data.priority_w_deadline) || DEFAULT_CONFIG.priority_w_deadline,
+        priority_w_practice: Number(data.priority_w_practice) || DEFAULT_CONFIG.priority_w_practice,
+        mastery_threshold_mastered: Number(data.mastery_threshold_mastered) || DEFAULT_CONFIG.mastery_threshold_mastered,
+        mastery_threshold_developing: Number(data.mastery_threshold_developing) || DEFAULT_CONFIG.mastery_threshold_developing,
+        confidence_threshold_mastered: Number(data.confidence_threshold_mastered) || DEFAULT_CONFIG.confidence_threshold_mastered,
+    }
+}
+
+export async function loadLearningConfigForUser(userId?: string | null): Promise<LearningConfig> {
+    if (!userId) return DEFAULT_CONFIG
+
+    const { data, error } = await supabase
+        .from('learning_config')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle()
+
+    if (error || !data) return DEFAULT_CONFIG
+    return normalizeLearningConfig(data as unknown as Record<string, unknown>)
 }
 
 // ─── Query Keys ─────────────────────────────────────────────────────────────
@@ -126,31 +187,7 @@ export function useLearningConfig() {
 
     return useQuery({
         queryKey: learningKeys.config(),
-        queryFn: async (): Promise<LearningConfig> => {
-            if (!user) return DEFAULT_CONFIG
-
-            const { data, error } = await supabase
-                .from('learning_config')
-                .select('*')
-                .eq('user_id', user.id)
-                .maybeSingle()
-
-            if (error || !data) return DEFAULT_CONFIG
-
-            return {
-                confidence_k: data.confidence_k ?? DEFAULT_CONFIG.confidence_k,
-                sm2_default_ef: Number(data.sm2_default_ef) || DEFAULT_CONFIG.sm2_default_ef,
-                quality_thresholds: Array.isArray(data.quality_thresholds)
-                    ? data.quality_thresholds
-                    : DEFAULT_CONFIG.quality_thresholds,
-                priority_w_weakness: Number(data.priority_w_weakness) || DEFAULT_CONFIG.priority_w_weakness,
-                priority_w_deadline: Number(data.priority_w_deadline) || DEFAULT_CONFIG.priority_w_deadline,
-                priority_w_practice: Number(data.priority_w_practice) || DEFAULT_CONFIG.priority_w_practice,
-                mastery_threshold_mastered: data.mastery_threshold_mastered ?? DEFAULT_CONFIG.mastery_threshold_mastered,
-                mastery_threshold_developing: data.mastery_threshold_developing ?? DEFAULT_CONFIG.mastery_threshold_developing,
-                confidence_threshold_mastered: Number(data.confidence_threshold_mastered) || DEFAULT_CONFIG.confidence_threshold_mastered,
-            }
-        },
+        queryFn: async (): Promise<LearningConfig> => loadLearningConfigForUser(user?.id),
         enabled: !!user,
         staleTime: 1000 * 60 * 30, // 30 minutes
     })
@@ -546,7 +583,7 @@ export function useStudyEfficiency() {
                     .from('question_attempt_log')
                     .select('concept_id, time_spent_seconds, is_correct')
                     .eq('user_id', user.id)
-                    .gte('created_at', since.toISOString()),
+                    .gte('attempted_at', since.toISOString()),
                 supabase
                     .from('user_concept_mastery')
                     .select('concept_id, mastery_score')
@@ -728,6 +765,14 @@ export async function recomputeConceptMastery(
     }))
 
     const wmsResult = computeMastery(attemptLogs, config.confidence_k)
+    const masteryLevel: ConceptMasteryRow['mastery_level'] =
+        wmsResult.finalMastery >= config.mastery_threshold_mastered && wmsResult.confidence >= config.confidence_threshold_mastered
+            ? 'mastered'
+            : (
+                wmsResult.finalMastery >= config.mastery_threshold_developing
+                    ? 'developing'
+                    : 'needs_review'
+            )
 
     const { data: existing } = await supabase
         .from('user_concept_mastery')
@@ -766,7 +811,7 @@ export async function recomputeConceptMastery(
                 document_id: documentId,
                 mastery_score: wmsResult.finalMastery,
                 confidence: wmsResult.confidence,
-                mastery_level: wmsResult.masteryLevel,
+                mastery_level: masteryLevel,
                 total_attempts: totalAttempts,
                 correct_attempts: correctAttempts,
                 last_attempt_at: new Date().toISOString(),
@@ -792,7 +837,7 @@ export async function recomputeConceptMastery(
             user_id: userId,
             concept_id: conceptId,
             mastery_score: wmsResult.finalMastery,
-            mastery_level: wmsResult.masteryLevel,
+            mastery_level: masteryLevel,
         })
 
     if (snapError) {
@@ -818,6 +863,7 @@ export function useProcessQuizResults() {
     return useMutation({
         mutationFn: async (input: ProcessQuizResultsInput) => {
             if (!user) throw new Error('Not authenticated')
+            const learningConfig = await loadLearningConfigForUser(user.id)
 
             const { attemptId, quizId, answers, questions, documentId, timePerQuestion } = input
 
@@ -884,7 +930,7 @@ export function useProcessQuizResults() {
             }
 
             // ── Step 3: Fan out per-question logs ───────────────────────
-            const logRows = answers.map((ans) => {
+            const logRows: QuizAttemptLogInsert[] = answers.map((ans) => {
                 const q = questionMap.get(ans.question_id)
                 const cid = resolveConceptId(q)
                 const prevCount = cid ? (attemptIndexMap.get(cid) ?? 0) : 0
@@ -895,6 +941,8 @@ export function useProcessQuizResults() {
                     question_id: ans.question_id,
                     quiz_id: quizId,
                     attempt_id: attemptId,
+                    source_type: 'quiz',
+                    flashcard_id: null,
                     concept_id: cid,
                     document_id: documentId,
                     is_correct: ans.is_correct,
@@ -931,8 +979,8 @@ export function useProcessQuizResults() {
             // ── Step 5: For each concept, recompute WMS + SM-2 ─────────
             for (const [conceptId, currentAnswers] of conceptAnswers.entries()) {
                 const quizAccuracy = conceptAccuracyPercent(currentAnswers)
-                const quality = mapScoreToQuality(quizAccuracy)
-                await recomputeConceptMastery(user.id, conceptId, documentId, quality)
+                const quality = mapScoreToQuality(quizAccuracy, learningConfig.quality_thresholds)
+                await recomputeConceptMastery(user.id, conceptId, documentId, quality, learningConfig)
             }
 
             return { processedConcepts: conceptAnswers.size }

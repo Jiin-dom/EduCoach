@@ -34,9 +34,9 @@ export function useWeeklyProgress() {
             // Get recent attempt logs (question-level)
             const { data: recentLogs, error: logError } = await supabase
                 .from('question_attempt_log')
-                .select('concept_id, is_correct, created_at')
+                .select('concept_id, is_correct, attempted_at')
                 .eq('user_id', user.id)
-                .gte('created_at', since)
+                .gte('attempted_at', since)
                 .abortSignal(signal)
 
             if (logError) throw new Error(logError.message)

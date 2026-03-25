@@ -43,6 +43,42 @@ interface NlpQuestion {
     explanation?: string
 }
 
+interface MasteryContextItem {
+    concept_name: string
+    mastery_level: string
+    mastery_score: number | null
+    adaptive_difficulty: string
+}
+
+interface NlpChunkPayload {
+    chunk_id: string
+    text: string
+    keyphrases: string[]
+    important_sentences: string[]
+    max_questions?: number
+}
+
+interface NlpConceptPayload {
+    name: string
+    importance: number
+    difficulty_level: string
+    keywords: string[]
+    description: string
+    source_pages: unknown
+}
+
+interface NlpGenerateQuestionsPayload {
+    chunks: NlpChunkPayload[]
+    all_keyphrases: string[]
+    question_types: string[]
+    max_questions_per_chunk: number
+    max_total_questions: number
+    difficulty: string
+    concepts: NlpConceptPayload[]
+    document_type?: 'prose' | 'slides'
+    mastery_context?: MasteryContextItem[]
+}
+
 const DIFFICULTY_MAP: Record<string, string> = {
     easy: 'beginner',
     medium: 'intermediate',
@@ -148,11 +184,27 @@ serve(async (req) => {
         }
 
         const conceptList = concepts || []
+        const isReviewQuiz = Array.isArray(focusConceptIds) && focusConceptIds.length > 0
+
+        // If this is a targeted review quiz, filter concepts to the focus set.
+        // Fallback to the full list when no focus match is found.
+        let activeConceptList = conceptList
+        if (isReviewQuiz) {
+            const focusSet = new Set(focusConceptIds)
+            const focused = conceptList.filter((c) => focusSet.has(c.id))
+            if (focused.length > 0) {
+                activeConceptList = focused
+                console.log(`🎯 Targeted review: focusing on ${activeConceptList.length} concepts`)
+            } else {
+                console.warn('⚠️ Targeted review requested but no matching concepts found; falling back to all concepts')
+                activeConceptList = conceptList
+            }
+        }
 
         // Build global keyphrases (for document-wide distractor pool)
         const allKeyphrases: string[] = []
         const seenKp = new Set<string>()
-        for (const c of conceptList) {
+        for (const c of activeConceptList) {
             const phrases = [c.name, ...(c.keywords || [])]
             for (const p of phrases) {
                 const low = (p || '').toLowerCase().trim()
@@ -165,18 +217,18 @@ serve(async (req) => {
 
         // Build per-chunk concept map: concepts with chunk_id link directly,
         // others matched by keyword/name appearing in chunk content
-        const chunkConceptIndex = new Map<string, typeof conceptList>()
+        const chunkConceptIndex = new Map<string, typeof activeConceptList>()
         for (const chunk of chunks) {
-            const matched: typeof conceptList = []
+            const matched: typeof activeConceptList = []
             const contentLower = chunk.content.toLowerCase()
-            for (const c of conceptList) {
+            for (const c of activeConceptList) {
                 if (c.chunk_id === chunk.id) {
                     matched.push(c)
                 } else if (contentLower.includes(c.name.toLowerCase())) {
                     matched.push(c)
                 }
             }
-            chunkConceptIndex.set(chunk.id, matched.length > 0 ? matched : conceptList.slice(0, 5))
+            chunkConceptIndex.set(chunk.id, matched.length > 0 ? matched : activeConceptList.slice(0, 5))
         }
 
         // Map difficulty from quiz-level vocabulary to question-level
@@ -195,7 +247,6 @@ serve(async (req) => {
 
         // 4. Query user mastery data for adaptive generation (Phase 6.1)
         const resolvedUserId = requestUserId || userId
-        const isReviewQuiz = Array.isArray(focusConceptIds) && focusConceptIds.length > 0
 
         interface MasteryInfo {
             mastery_level: string
@@ -203,9 +254,9 @@ serve(async (req) => {
         }
         const masteryMap = new Map<string, MasteryInfo>()
 
-        if (resolvedUserId && conceptList.length > 0) {
+        if (resolvedUserId && activeConceptList.length > 0) {
             try {
-                const conceptIds = conceptList.map(c => c.id)
+                const conceptIds = activeConceptList.map(c => c.id)
                 const { data: masteryRows } = await supabase
                     .from('user_concept_mastery')
                     .select('concept_id, mastery_score, mastery_level')
@@ -224,17 +275,6 @@ serve(async (req) => {
             } catch (err) {
                 console.warn('⚠️ Could not load mastery data, proceeding without:', (err as Error).message)
             }
-        }
-
-        // If this is a targeted review quiz, filter concepts to the focus set
-        let activeConceptList = conceptList
-        if (isReviewQuiz) {
-            const focusSet = new Set(focusConceptIds)
-            activeConceptList = conceptList.filter(c => focusSet.has(c.id))
-            if (activeConceptList.length === 0) {
-                activeConceptList = conceptList // fallback if no match
-            }
-            console.log(`🎯 Targeted review: focusing on ${activeConceptList.length} concepts`)
         }
 
         // Determine per-concept adaptive difficulty based on mastery
@@ -271,7 +311,7 @@ serve(async (req) => {
         console.log(`📝 Quiz record created: ${quizId}`)
 
         // 5. Build NLP service payload with per-chunk keyphrases and sentences
-        const nlpChunks = chunks.map((chunk: { id: string; content: string }) => {
+        const nlpChunks: NlpChunkPayload[] = chunks.map((chunk: { id: string; content: string }) => {
             const chunkConcepts = chunkConceptIndex.get(chunk.id) || []
             const chunkKeyphrases: string[] = []
             const seenChunkKp = new Set<string>()
@@ -308,7 +348,7 @@ serve(async (req) => {
         })
 
         // Build concept info array for NLP service (concept coverage balancing)
-        const conceptInfo = conceptList.slice(0, 20).map(c => ({
+        const conceptInfo: NlpConceptPayload[] = activeConceptList.slice(0, 20).map(c => ({
             name: c.name,
             importance: c.importance,
             difficulty_level: c.difficulty_level || 'intermediate',
@@ -333,7 +373,7 @@ serve(async (req) => {
                 const nlpStart = Date.now()
                 const timeoutMs = parseTimeoutMs(Deno.env.get('NLP_SERVICE_TIMEOUT_MS'), 60000)
 
-                const nlpPayload: Record<string, unknown> = {
+                const nlpPayload: NlpGenerateQuestionsPayload = {
                     chunks: nlpChunks,
                     all_keyphrases: allKeyphrases,
                     question_types: questionTypes,
@@ -351,12 +391,12 @@ serve(async (req) => {
                         mastery_score: masteryMap.get(c.id)?.mastery_score ?? null,
                         adaptive_difficulty: getAdaptiveDifficulty(c.id),
                     }))
-                    console.log(`📊 Sent mastery context for ${(nlpPayload.mastery_context as unknown[]).length} concepts`)
+                    console.log(`📊 Sent mastery context for ${nlpPayload.mastery_context.length} concepts`)
 
                     // Adjust per-chunk quota based on whether chunk contains weak concepts
                     const baseQpc = Math.ceil(questionCount / Math.max(1, chunks.length)) + 1
-                    for (const nlpChunk of nlpChunks as Array<Record<string, unknown>>) {
-                        const chunkConcepts = chunkConceptIndex.get(nlpChunk.chunk_id as string) || []
+                    for (const nlpChunk of nlpChunks) {
+                        const chunkConcepts = chunkConceptIndex.get(nlpChunk.chunk_id) || []
                         const hasWeak = chunkConcepts.some(c => {
                             const m = masteryMap.get(c.id)
                             return !m || m.mastery_score < 60
@@ -412,7 +452,7 @@ serve(async (req) => {
             questions = await generateWithGemini(
                 document,
                 chunks,
-                conceptList,
+                activeConceptList,
                 questionCount,
                 questionTypes,
                 geminiApiKey!,
@@ -449,7 +489,7 @@ serve(async (req) => {
 
         // 8. Build chunk -> concept mapping for linking questions to concepts
         const chunkConceptMap = new Map<string, string>()
-        for (const c of conceptList) {
+        for (const c of activeConceptList) {
             // concepts have chunk_id from Phase 3 processing
             if ((c as Record<string, unknown>).chunk_id) {
                 const cid = (c as Record<string, unknown>).chunk_id as string
@@ -459,7 +499,9 @@ serve(async (req) => {
             }
         }
         // Fallback: if no chunk-level mapping, use the first concept from the document
-        const fallbackConceptId = conceptList.length > 0 ? conceptList[0].id : null
+        const fallbackConceptId = activeConceptList.length > 0
+            ? activeConceptList[0].id
+            : (conceptList.length > 0 ? conceptList[0].id : null)
 
         // 9. Save questions to DB
         console.log(`💾 Saving ${questions.length} questions to database...`)

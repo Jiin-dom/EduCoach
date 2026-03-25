@@ -1491,6 +1491,13 @@ class ChunkInput(BaseModel):
     text: str
     keyphrases: List[str] = []
     important_sentences: List[str] = []
+    max_questions: Optional[int] = None
+
+class MasteryContextInput(BaseModel):
+    concept_name: str
+    mastery_score: Optional[float] = None
+    mastery_level: Optional[str] = None
+    adaptive_difficulty: Optional[str] = None
 
 class GenerateQuestionsInput(BaseModel):
     chunks: List[ChunkInput]
@@ -1501,6 +1508,7 @@ class GenerateQuestionsInput(BaseModel):
     difficulty: str = "mixed"
     concepts: List[ConceptInput] = []
     document_type: str = "prose"
+    mastery_context: Optional[List[MasteryContextInput]] = None
 
 class GeneratedQuestion(BaseModel):
     chunk_id: str
@@ -1975,6 +1983,46 @@ def _balance_by_concept_coverage(
     return result[:max_total]
 
 
+def _build_mastery_lookup(mastery_context: Optional[List[MasteryContextInput]]) -> Dict[str, MasteryContextInput]:
+    lookup: Dict[str, MasteryContextInput] = {}
+    if not mastery_context:
+        return lookup
+    for item in mastery_context:
+        key = item.concept_name.strip().lower()
+        if key:
+            lookup[key] = item
+    return lookup
+
+
+def _resolve_adaptive_difficulty(
+    sentence: str,
+    keyphrase: Optional[str],
+    mastery_lookup: Dict[str, MasteryContextInput],
+    fallback_difficulty: str,
+) -> str:
+    if not mastery_lookup:
+        return fallback_difficulty
+
+    candidates: List[str] = []
+    if keyphrase:
+        candidates.append(keyphrase.strip().lower())
+
+    lower_sentence = sentence.lower()
+    for concept_name in mastery_lookup.keys():
+        if concept_name in lower_sentence:
+            candidates.append(concept_name)
+
+    for candidate in candidates:
+        item = mastery_lookup.get(candidate)
+        if not item:
+            continue
+        adaptive = (item.adaptive_difficulty or "").strip().lower()
+        if adaptive in _DIFFICULTY_TYPE_WEIGHTS:
+            return adaptive
+
+    return fallback_difficulty
+
+
 @app.post("/generate-questions", response_model=GenerateQuestionsResponse)
 def generate_questions(input: GenerateQuestionsInput):
     """
@@ -1988,11 +2036,13 @@ def generate_questions(input: GenerateQuestionsInput):
         acquired = True
 
         difficulty = input.difficulty or "mixed"
-        type_weights = _DIFFICULTY_TYPE_WEIGHTS.get(difficulty, _DIFFICULTY_TYPE_WEIGHTS["mixed"])
+        default_type_weights = _DIFFICULTY_TYPE_WEIGHTS.get(difficulty, _DIFFICULTY_TYPE_WEIGHTS["mixed"])
+        mastery_lookup = _build_mastery_lookup(input.mastery_context)
 
         print(f"[nlp-service] /generate-questions start chunks={len(input.chunks)} "
               f"types={input.question_types} difficulty={difficulty} "
-              f"max_total={input.max_total_questions} concepts={len(input.concepts)}", flush=True)
+              f"max_total={input.max_total_questions} concepts={len(input.concepts)} "
+              f"mastery_ctx={len(input.mastery_context or [])}", flush=True)
 
         all_questions: List[GeneratedQuestion] = []
         type_set = set(input.question_types)
@@ -2003,6 +2053,11 @@ def generate_questions(input: GenerateQuestionsInput):
                 break
 
             chunk_questions: List[GeneratedQuestion] = []
+            chunk_max_questions = (
+                chunk.max_questions
+                if chunk.max_questions is not None and chunk.max_questions > 0
+                else input.max_questions_per_chunk
+            )
             text = chunk.text.strip()
             if len(text) < 50:
                 continue
@@ -2030,15 +2085,8 @@ def generate_questions(input: GenerateQuestionsInput):
 
             imp_sentences = chunk.important_sentences if chunk.important_sentences else good_sentences[:5]
 
-            # Build a weighted type order based on difficulty
-            weighted_types = []
-            for qt in input.question_types:
-                w = type_weights.get(qt, 1)
-                weighted_types.extend([qt] * w)
-            random.shuffle(weighted_types)
-
             for sent in imp_sentences:
-                if len(chunk_questions) >= input.max_questions_per_chunk:
+                if len(chunk_questions) >= chunk_max_questions:
                     break
 
                 kp = _find_keyphrase_in_sentence(sent, keyphrases)
@@ -2053,24 +2101,34 @@ def generate_questions(input: GenerateQuestionsInput):
                     if alt_kp:
                         kp = alt_kp
 
+                effective_difficulty = _resolve_adaptive_difficulty(
+                    sent, kp, mastery_lookup, difficulty
+                )
+                effective_weights = _DIFFICULTY_TYPE_WEIGHTS.get(effective_difficulty, default_type_weights)
+                weighted_types = []
+                for qt in input.question_types:
+                    w = effective_weights.get(qt, 1)
+                    weighted_types.extend([qt] * w)
+                random.shuffle(weighted_types)
+
                 # Pick question type from weighted rotation
                 for qt in weighted_types:
-                    if len(chunk_questions) >= input.max_questions_per_chunk:
+                    if len(chunk_questions) >= chunk_max_questions:
                         break
                     if qt not in type_set:
                         continue
 
                     q = None
                     if qt == "identification" and kp:
-                        q = _generate_identification(sent, kp, chunk.chunk_id, difficulty)
+                        q = _generate_identification(sent, kp, chunk.chunk_id, effective_difficulty)
                     elif qt == "true_false":
                         if not _is_declarative_statement(sent):
                             continue
-                        q = _generate_true_false(sent, chunk.chunk_id, keyphrases, difficulty)
+                        q = _generate_true_false(sent, chunk.chunk_id, keyphrases, effective_difficulty)
                     elif qt == "multiple_choice" and kp:
-                        q = _generate_mcq(sent, kp, keyphrases, input.all_keyphrases, chunk.chunk_id, difficulty)
+                        q = _generate_mcq(sent, kp, keyphrases, input.all_keyphrases, chunk.chunk_id, effective_difficulty)
                     elif qt == "fill_in_blank" and kp:
-                        q = _generate_fill_in_blank(sent, kp, chunk.chunk_id, difficulty)
+                        q = _generate_fill_in_blank(sent, kp, chunk.chunk_id, effective_difficulty)
 
                     if q and _validate_question(q):
                         chunk_questions.append(q)

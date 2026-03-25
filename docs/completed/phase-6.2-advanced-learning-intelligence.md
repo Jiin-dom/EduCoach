@@ -25,8 +25,18 @@ After Phase 5.x established WMS mastery scoring, SM-2 spaced repetition, analyti
 - Passes `mastery_context` array to the NLP service payload with per-concept mastery level, score, and adaptive difficulty
 - Per-chunk question quotas adjusted: 2x for chunks containing weak concepts, 0.5x for chunks where all concepts are mastered
 - Adaptive difficulty mapping: weak → beginner, developing → intermediate, strong → advanced
-- When `focusConceptIds` provided, filters to only those concepts (for targeted review quizzes)
+- When `focusConceptIds` provided, filters to only those concepts (for targeted review quizzes) and uses the focused concept set for:
+  - NLP `concepts` payload (`conceptInfo`)
+  - chunk concept matching / keyphrase extraction
+  - global keyphrase pool and fallback concept linking
 - Review quizzes get prefixed title: "Review Quiz: {document title}"
+
+**nlp-service/main.py (`/generate-questions`):**
+- `ChunkInput` now supports optional `max_questions`
+- `GenerateQuestionsInput` now supports optional `mastery_context`
+- Generator now applies per-chunk `max_questions` when provided
+- Generator now resolves concept-level adaptive difficulty from `mastery_context` at sentence/question time, with fallback to global difficulty
+- Non-adaptive callers remain compatible because new fields are optional
 
 **src/hooks/useQuizzes.ts:**
 - Added `GenerateReviewQuizInput` interface with `documentId`, `focusConceptIds`, and optional `questionCount`
@@ -139,7 +149,7 @@ After Phase 5.x established WMS mastery scoring, SM-2 spaced repetition, analyti
 2. **Apply database migration:** Run `011_mastery_snapshots.sql` in Supabase SQL Editor
 3. **Redeploy Edge Function:** `npx supabase functions deploy generate-quiz` (for mastery-aware generation)
 4. Frontend rebuilds automatically (Vite HMR or `npm run build`)
-5. NLP service does not require changes — it receives `mastery_context` but gracefully ignores unknown fields
+5. **Redeploy NLP service** with the updated `/generate-questions` contract and adaptive handling
 
 ## Verification
 
@@ -161,6 +171,7 @@ npx vitest run src/lib/learningAlgorithms.test.ts
 ## Backward Compatibility
 
 - `GenerateQuizRequest.userId` and `focusConceptIds` are optional — existing quiz generation callers are unaffected
+- NLP `mastery_context` and chunk-level `max_questions` are optional — existing callers without adaptive fields still work
 - Mastery decay is display-only — stored `mastery_score` values remain unchanged in the database
 - Mastery snapshot insertion is non-fatal — if the `mastery_snapshots` table hasn't been created yet, mastery computation still works
 - All new analytics hooks return empty/null data gracefully when no snapshots exist yet

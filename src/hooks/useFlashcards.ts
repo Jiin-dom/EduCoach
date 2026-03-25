@@ -1,7 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
-import { recomputeConceptMastery, learningKeys } from '@/hooks/useLearning'
+import {
+    recomputeConceptMastery,
+    learningKeys,
+    loadLearningConfigForUser,
+    type FlashcardAttemptLogInsert,
+} from '@/hooks/useLearning'
 import { mapScoreToQuality } from '@/lib/learningAlgorithms'
 
 export interface Flashcard {
@@ -145,26 +150,54 @@ export function useReviewFlashcard() {
 
             // Unify with concept mastery: flashcard review feeds WMS + SM-2
             if (user && card.concept_id) {
+                const learningConfig = await loadLearningConfigForUser(user.id)
                 const qualityMap: Record<ReviewRating, number> = { again: 0, hard: 2, good: 4, easy: 5 }
                 const q = qualityMap[rating]
                 const isCorrect = q >= 3
 
-                await supabase.from('question_attempt_log').insert({
+                const { data: lastLog, error: lastLogError } = await supabase
+                    .from('question_attempt_log')
+                    .select('attempt_index')
+                    .eq('user_id', user.id)
+                    .eq('concept_id', card.concept_id)
+                    .order('attempt_index', { ascending: false })
+                    .limit(1)
+                    .maybeSingle()
+
+                if (lastLogError) {
+                    throw new Error(lastLogError.message)
+                }
+
+                const nextAttemptIndex = (lastLog?.attempt_index ?? 0) + 1
+                const logRow: FlashcardAttemptLogInsert = {
                     user_id: user.id,
-                    question_id: card.id,
-                    quiz_id: card.id,
-                    attempt_id: card.id,
+                    source_type: 'flashcard',
+                    flashcard_id: card.id,
+                    question_id: null,
+                    quiz_id: null,
+                    attempt_id: null,
                     concept_id: card.concept_id,
-                    document_id: card.document_id,
+                    document_id: card.document_id ?? null,
                     is_correct: isCorrect,
                     user_answer: rating,
                     question_difficulty: card.difficulty_level as 'beginner' | 'intermediate' | 'advanced' | null,
                     time_spent_seconds: null,
-                    attempt_index: 1,
-                })
+                    attempt_index: nextAttemptIndex,
+                }
 
-                const sm2Quality = mapScoreToQuality(isCorrect ? (q === 5 ? 95 : 75) : (q === 2 ? 55 : 20))
-                await recomputeConceptMastery(user.id, card.concept_id, card.document_id, sm2Quality)
+                const { error: logError } = await supabase
+                    .from('question_attempt_log')
+                    .insert(logRow)
+
+                if (logError) {
+                    throw new Error(logError.message)
+                }
+
+                const sm2Quality = mapScoreToQuality(
+                    isCorrect ? (q === 5 ? 95 : 75) : (q === 2 ? 55 : 20),
+                    learningConfig.quality_thresholds,
+                )
+                await recomputeConceptMastery(user.id, card.concept_id, card.document_id ?? null, sm2Quality, learningConfig)
             }
 
             return { ...card, ...updates }

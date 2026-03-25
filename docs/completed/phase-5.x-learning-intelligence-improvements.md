@@ -82,18 +82,30 @@ After Phase 5 implemented WMS mastery scoring, SM-2 spaced repetition, global pr
 
 **useFlashcards.ts:**
 - After `useReviewFlashcard` updates the flashcard's SM-2 state, it now:
-  1. Inserts a `question_attempt_log` entry for the linked `concept_id`
-  2. Sets `is_correct = (quality >= 3)` based on the SM-2 rating
-  3. Calls `recomputeConceptMastery` with appropriate SM-2 quality
-  4. Invalidates learning query caches alongside flashcard caches
+  1. Inserts a `question_attempt_log` entry for the linked `concept_id` with `source_type='flashcard'`
+  2. Uses `flashcard_id` for source-aware logging (no fake quiz/question IDs)
+  3. Computes concept-scoped `attempt_index` from prior concept history
+  4. Fails fast on insert errors before recomputing mastery
+  5. Calls `recomputeConceptMastery` with loaded learning config
+  6. Invalidates learning query caches alongside flashcard caches
 - Both quiz attempts AND flashcard reviews now feed into `user_concept_mastery`
+
+**Database migration (post-Phase 5.x hardening):**
+- Added `supabase/migrations/013_question_attempt_log_source_split.sql`
+- `question_attempt_log` now supports both quiz and flashcard events:
+  1. New `source_type` (`quiz` / `flashcard`)
+  2. New `flashcard_id` FK
+  3. `question_id`, `quiz_id`, `attempt_id` are conditionally required via source-specific `CHECK` constraints
+  4. Existing rows are backfilled to `source_type='quiz'`
 
 ### Phase 5.4: Learning Config Integration
 
 **useLearning.ts:**
 - Added `LearningConfig` interface and `DEFAULT_CONFIG` constant
 - Added `useLearningConfig()` query hook -- fetches from `learning_config` table, falls back to defaults
-- `recomputeConceptMastery` accepts optional `config` parameter, threading values to WMS confidence K, SM-2 default ease factor, and priority weights
+- Added shared `loadLearningConfigForUser()` loader for mutation paths
+- `useProcessQuizResults` now loads config once per mutation and uses config thresholds for score→quality mapping
+- `recomputeConceptMastery` now consistently applies config for confidence saturation, SM-2 defaults, priority weights, and mastery thresholds
 - Added `learningKeys.config()` query key
 
 ### Phase 5.5: Analytics Enrichment
@@ -135,8 +147,9 @@ After Phase 5 implemented WMS mastery scoring, SM-2 spaced repetition, global pr
 | File | Changes |
 |------|---------|
 | `src/lib/learningAlgorithms.ts` | Time weight, UTC timezone fixes, `todayUTC()`, configurable confidence K |
-| `src/hooks/useLearning.ts` | Time per question, attempt_index, UTC fixes, toast notifications, `recomputeConceptMastery`, `useLearningConfig`, `useScoreTrend`, `useStudyActivity` |
-| `src/hooks/useFlashcards.ts` | Mastery integration after review via `recomputeConceptMastery` |
+| `src/hooks/useLearning.ts` | Time per question, attempt_index, UTC fixes, toast notifications, `recomputeConceptMastery`, `useLearningConfig`, mutation config wiring, source-aware quiz attempt logs, `useScoreTrend`, `useStudyActivity` |
+| `src/hooks/useFlashcards.ts` | Source-aware flashcard attempt logging, concept attempt index, fail-fast insert behavior, mastery recompute with loaded config |
+| `supabase/migrations/013_question_attempt_log_source_split.sql` | Source-aware `question_attempt_log` schema for quiz + flashcard events |
 | `src/components/quizzes/QuizView.tsx` | Per-question time tracking, pass `timePerQuestion` to learning engine |
 | `src/components/dashboard/TodaysStudyPlan.tsx` | Real progress bar based on reviewed-today vs due |
 | `src/components/dashboard/MotivationalCard.tsx` | Real streak from `useLearningStats()`, rotating quotes |
@@ -157,8 +170,8 @@ After Phase 5 implemented WMS mastery scoring, SM-2 spaced repetition, global pr
 
 1. Run `npm install` to get new dependencies (sonner, recharts)
 2. Frontend rebuilds automatically (Vite HMR or `npm run build`)
-3. No database migration required -- all changes are code-level
-4. No Edge Function or NLP service changes required
+3. Apply database migration `013_question_attempt_log_source_split.sql`
+4. No Edge Function or NLP service changes required for this phase-level patch
 
 ## Backward Compatibility
 
@@ -168,3 +181,4 @@ After Phase 5 implemented WMS mastery scoring, SM-2 spaced repetition, global pr
 - `recomputeConceptMastery` config parameter is optional with sensible defaults
 - Flashcard mastery integration is additive -- flashcards without `concept_id` are unaffected
 - `learning_config` table is read but never required -- defaults used when row is missing
+- Existing quiz attempt rows remain valid after migration because `source_type='quiz'` is backfilled/defaulted
