@@ -15,6 +15,9 @@ interface UserProfile {
     study_goal: string | null
     preferred_subjects: string[] | null
     daily_study_minutes: number
+    preferred_study_time_start: string | null
+    preferred_study_time_end: string | null
+    available_study_days: string[] | null
     has_completed_profiling: boolean
 }
 

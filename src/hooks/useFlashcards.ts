@@ -97,6 +97,36 @@ export function useAllFlashcards() {
     })
 }
 
+export function useGenerateFlashcards() {
+    const queryClient = useQueryClient()
+    const { user } = useAuth()
+
+    return useMutation({
+        mutationFn: async (documentId: string) => {
+            if (!user) {
+                throw new Error('You must be logged in to generate flashcards.')
+            }
+
+            const { data, error } = await supabase.functions.invoke('process-document', {
+                body: { documentId },
+            })
+
+            if (error) {
+                throw new Error(error.message ?? 'Failed to generate flashcards.')
+            }
+
+            return data
+        },
+        onSuccess: (_data, documentId) => {
+            queryClient.invalidateQueries({ queryKey: flashcardKeys.all })
+            if (documentId) {
+                queryClient.invalidateQueries({ queryKey: flashcardKeys.byDocument(documentId) })
+            }
+            queryClient.invalidateQueries({ queryKey: learningKeys.all })
+        },
+    })
+}
+
 type ReviewRating = 'again' | 'hard' | 'good' | 'easy'
 
 function computeSM2(card: Flashcard, rating: ReviewRating) {

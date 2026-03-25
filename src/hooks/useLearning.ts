@@ -301,6 +301,61 @@ export function useWeakTopics(limit = 5) {
 }
 
 /**
+ * Reschedule a concept's review "deadline" by updating `due_date` for that
+ * user/concept row.
+ *
+ * Notes:
+ * - This intentionally does NOT rerun WMS/SM-2 recomputation; it only changes
+ *   the displayed schedule.
+ * - We also update `priority_score` because it depends on the due date and
+ *   drives sorting in the Learning Path UI.
+ */
+export function useRescheduleConceptDueDate() {
+    const queryClient = useQueryClient()
+    const { user } = useAuth()
+    const { data: learningConfig } = useLearningConfig()
+
+    return useMutation({
+        mutationFn: async (input: {
+            conceptId: string
+            newDueDate: string // UTC YYYY-MM-DD
+            masteryScore: number
+            confidence: number
+        }) => {
+            if (!user) throw new Error('Not authenticated')
+
+            const cfg = learningConfig ?? DEFAULT_CONFIG
+            const priority = calculatePriorityScore(
+                input.masteryScore,
+                input.newDueDate,
+                input.confidence,
+                {
+                    weakness: cfg.priority_w_weakness,
+                    deadline: cfg.priority_w_deadline,
+                    practice: cfg.priority_w_practice,
+                },
+            )
+
+            const { error } = await supabase
+                .from('user_concept_mastery')
+                .update({
+                    due_date: input.newDueDate,
+                    priority_score: priority.priorityScore,
+                })
+                .eq('user_id', user.id)
+                .eq('concept_id', input.conceptId)
+
+            if (error) throw new Error(error.message)
+
+            return { conceptId: input.conceptId, newDueDate: input.newDueDate }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: learningKeys.all })
+        },
+    })
+}
+
+/**
  * Aggregated learning statistics for the current user.
  */
 export function useLearningStats() {
