@@ -12,6 +12,8 @@ import QuizSessionPage from './pages/QuizSessionPage'
 import LearningPathPage from './pages/LearningPathPage'
 import AnalyticsPage from './pages/AnalyticsPage'
 import ProfilePage from './pages/ProfilePage'
+import AdminUsersPage from './pages/AdminUsersPage'
+import AdminSubscriptionsPage from './pages/AdminSubscriptionsPage'
 
 const router = createBrowserRouter([
   // Public routes
@@ -79,7 +81,7 @@ const router = createBrowserRouter([
   {
     path: '/analytics',
     element: (
-      <ProtectedRoute requireProfile>
+      <ProtectedRoute requireProfile requirePremium>
         <AnalyticsPage />
       </ProtectedRoute>
     )
@@ -89,6 +91,22 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <ProfilePage />
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: '/admin/users',
+    element: (
+      <ProtectedRoute requireAdmin>
+        <AdminUsersPage />
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: '/admin/subscriptions',
+    element: (
+      <ProtectedRoute requireAdmin>
+        <AdminSubscriptionsPage />
       </ProtectedRoute>
     )
   },

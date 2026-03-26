@@ -21,6 +21,8 @@ const corsHeaders = {
 
 const MAX_RETRIES = 3
 const BASE_DELAY_MS = 2000
+const QUIZ_PRIORITY_PREMIUM = 2
+const QUIZ_PRIORITY_FREE = 1
 
 interface GenerateQuizRequest {
     documentId: string
@@ -258,6 +260,9 @@ serve(async (req) => {
 
         // 4. Query user mastery data for adaptive generation (Phase 6.1)
         const resolvedUserId = requestUserId || userId
+        const subscription = await getSubscriptionForUser(supabase, resolvedUserId)
+        const priorityTier = subscription.plan === 'premium' && subscription.status === 'active' ? 'premium' : 'free'
+        const priority = priorityTier === 'premium' ? QUIZ_PRIORITY_PREMIUM : QUIZ_PRIORITY_FREE
 
         interface MasteryInfo {
             mastery_level: string
@@ -310,6 +315,8 @@ serve(async (req) => {
                 description: `Auto-generated quiz from "${document.title}"`,
                 difficulty,
                 status: 'generating',
+                priority_tier: priorityTier,
+                priority,
             })
             .select()
             .single()
@@ -320,6 +327,10 @@ serve(async (req) => {
 
         quizId = quiz.id
         console.log(`📝 Quiz record created: ${quizId}`)
+
+        if (priorityTier === 'free') {
+            await waitForPremiumQuizTurn(supabase, quizId)
+        }
 
         // 5. Build NLP service payload with per-chunk keyphrases and sentences
         const nlpChunks: NlpChunkPayload[] = chunks.map((chunk: { id: string; content: string }) => {
@@ -697,6 +708,63 @@ serve(async (req) => {
 })
 
 // ─── Gemini Fallback: Generate questions entirely with Gemini ────────────────
+
+async function getSubscriptionForUser(
+    supabase: ReturnType<typeof createClient>,
+    userId: string | undefined,
+): Promise<{ plan: 'free' | 'premium'; status: 'active' | 'cancelled' | 'suspended' }> {
+    if (!userId) {
+        return { plan: 'free', status: 'active' }
+    }
+
+    const { data, error } = await supabase
+        .from('subscriptions')
+        .select('plan, status')
+        .eq('user_id', userId)
+        .maybeSingle()
+
+    if (error) {
+        console.warn('⚠️ Failed to read subscription, defaulting to free:', error.message)
+        return { plan: 'free', status: 'active' }
+    }
+
+    return {
+        plan: data?.plan === 'premium' ? 'premium' : 'free',
+        status:
+            data?.status === 'cancelled' || data?.status === 'suspended'
+                ? data.status
+                : 'active',
+    }
+}
+
+async function waitForPremiumQuizTurn(
+    supabase: ReturnType<typeof createClient>,
+    currentQuizId: string,
+): Promise<void> {
+    const maxWaitMs = 30_000
+    const pollMs = 1_000
+    const start = Date.now()
+
+    while (Date.now() - start < maxWaitMs) {
+        const { count, error } = await supabase
+            .from('quizzes')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'generating')
+            .eq('priority', QUIZ_PRIORITY_PREMIUM)
+            .neq('id', currentQuizId)
+
+        if (error) {
+            console.warn('⚠️ Failed to check premium queue, proceeding:', error.message)
+            return
+        }
+
+        if (!count || count <= 0) {
+            return
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, pollMs))
+    }
+}
 
 async function generateWithGemini(
     document: Record<string, unknown>,

@@ -2,6 +2,7 @@ import { BarChart3, LogOut, User, FileQuestion, Calendar, FolderOpen, Bell, Menu
 import { Link, useNavigate } from "react-router-dom"
 import { useState } from "react"
 import { useAuth } from "@/contexts/AuthContext"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
     DropdownMenu,
@@ -13,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
+import { canAccessFullAnalytics } from "@/lib/subscription"
 
 export function DashboardHeader() {
     const navigate = useNavigate()
@@ -41,6 +43,9 @@ export function DashboardHeader() {
     ])
 
     const unreadCount = notifications.filter((n) => !n.read).length
+    const hasFullAnalytics = profile
+        ? canAccessFullAnalytics(profile.subscription_plan, profile.subscription_status)
+        : false
 
     const handleLogout = () => {
         signOut()
@@ -49,6 +54,11 @@ export function DashboardHeader() {
 
     const handleMarkAllRead = () => {
         setNotifications(notifications.map((n) => ({ ...n, read: true })))
+    }
+
+    const handlePremiumAnalyticsClick = () => {
+        toast.info("Analytics is a Premium feature. Upgrade to unlock full analytics.")
+        navigate("/profile")
     }
 
     return (
@@ -95,12 +105,20 @@ export function DashboardHeader() {
                                     Path
                                 </Button>
                             </Link>
-                            <Link to="/analytics">
-                                <Button variant="ghost" className="gap-2 text-sm">
+                            {hasFullAnalytics ? (
+                                <Link to="/analytics">
+                                    <Button variant="ghost" className="gap-2 text-sm">
+                                        <BarChart3 className="w-4 h-4" />
+                                        Analytics
+                                    </Button>
+                                </Link>
+                            ) : (
+                                <Button variant="ghost" className="gap-2 text-sm" onClick={handlePremiumAnalyticsClick}>
                                     <BarChart3 className="w-4 h-4" />
                                     Analytics
+                                    <Badge variant="outline" className="ml-1 text-[10px] uppercase">Premium</Badge>
                                 </Button>
-                            </Link>
+                            )}
                         </nav>
 
                         <DropdownMenu>
@@ -193,12 +211,27 @@ export function DashboardHeader() {
                                 Learning Path
                             </Button>
                         </Link>
-                        <Link to="/analytics" onClick={() => setIsMobileMenuOpen(false)}>
-                            <Button variant="ghost" className="w-full justify-start gap-3 text-base">
+                        {hasFullAnalytics ? (
+                            <Link to="/analytics" onClick={() => setIsMobileMenuOpen(false)}>
+                                <Button variant="ghost" className="w-full justify-start gap-3 text-base">
+                                    <BarChart3 className="w-5 h-5" />
+                                    Analytics
+                                </Button>
+                            </Link>
+                        ) : (
+                            <Button
+                                variant="ghost"
+                                className="w-full justify-start gap-3 text-base"
+                                onClick={() => {
+                                    setIsMobileMenuOpen(false)
+                                    handlePremiumAnalyticsClick()
+                                }}
+                            >
                                 <BarChart3 className="w-5 h-5" />
                                 Analytics
+                                <Badge variant="outline" className="ml-auto text-[10px] uppercase">Premium</Badge>
                             </Button>
-                        </Link>
+                        )}
                     </nav>
                 )}
             </div>

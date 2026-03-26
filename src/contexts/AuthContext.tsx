@@ -3,6 +3,8 @@ import { createContext, useContext, useEffect, useState, useRef, type ReactNode 
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase, clearStaleSession, getSupabaseStorageKey } from '@/lib/supabase'
 import { saveOAuthReturnPath } from '@/lib/oauthRedirect'
+import type { AppUserRole } from '@/lib/authRouting'
+import { normalizeSubscriptionPlan, normalizeSubscriptionStatus, type SubscriptionPlan, type SubscriptionStatus } from '@/lib/subscription'
 import type { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 
 export type OAuthProvider = 'google' | 'facebook' | 'apple'
@@ -20,6 +22,9 @@ interface UserProfile {
     preferred_study_time_end: string | null
     available_study_days: string[] | null
     has_completed_profiling: boolean
+    role: AppUserRole
+    subscription_plan: SubscriptionPlan
+    subscription_status: SubscriptionStatus
 }
 
 interface AuthContextType {
@@ -44,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Fetch user profile from database
     const fetchProfile = async (userId: string) => {
-        const { data, error } = await supabase
+        const { data: profileRow, error } = await supabase
             .from('user_profiles')
             .select('*')
             .eq('id', userId)
@@ -54,7 +59,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             console.error('Error fetching profile:', error)
             return null
         }
-        return data as UserProfile
+
+        const { data: subscriptionRow, error: subscriptionError } = await supabase
+            .from('subscriptions')
+            .select('plan, status')
+            .eq('user_id', userId)
+            .maybeSingle()
+
+        if (subscriptionError) {
+            console.warn('Error fetching subscription:', subscriptionError)
+        }
+
+        return {
+            ...profileRow,
+            subscription_plan: normalizeSubscriptionPlan(subscriptionRow?.plan),
+            subscription_status: normalizeSubscriptionStatus(subscriptionRow?.status),
+        } as UserProfile
     }
 
     const queryClient = useQueryClient()

@@ -26,6 +26,8 @@ const CONVERSATION_HISTORY_LIMIT = 4
 const GEMINI_MODEL = 'gemini-2.5-flash-lite'
 const EMBEDDING_MODEL = 'gemini-embedding-001'
 const EMBEDDING_DIMENSIONS = 768
+const AI_TUTOR_FREE_DAILY_LIMIT = 20
+const MANILA_OFFSET_HOURS = 8
 
 interface ChatRequest {
     message: string
@@ -49,6 +51,11 @@ interface ChatConversationRow {
     document_id: string | null
 }
 
+interface UserSubscriptionRow {
+    plan: 'free' | 'premium'
+    status: 'active' | 'cancelled' | 'suspended'
+}
+
 serve(async (req) => {
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders })
@@ -70,6 +77,19 @@ serve(async (req) => {
 
         // --- Auth: verify token with Supabase Auth ---
         const userId = await getVerifiedUserId(supabase, req.headers.get('Authorization'))
+
+        // --- Subscription entitlement gate ---
+        const subscription = await getUserSubscription(supabase, userId)
+        const hasPremiumAccess = subscription.plan === 'premium' && subscription.status === 'active'
+        if (!hasPremiumAccess) {
+            const { startIso, endIso } = getManilaDayRangeIso(new Date())
+            const messagesUsedToday = await countUserMessagesForDay(supabase, userId, startIso, endIso)
+            if (messagesUsedToday >= AI_TUTOR_FREE_DAILY_LIMIT) {
+                throw new Error(
+                    `SUBSCRIPTION_LIMIT:Free plan daily AI Tutor limit (${AI_TUTOR_FREE_DAILY_LIMIT}) reached. Upgrade to Premium for unlimited access.`
+                )
+            }
+        }
 
         // --- Parse request ---
         const body: ChatRequest = await req.json()
@@ -316,13 +336,24 @@ STUDENT'S QUESTION: ${message}`
         console.error('❌ AI Tutor error:', errorMessage)
 
         let userMessage = 'Something went wrong. Please try again.'
+        let errorCode = 'UNKNOWN_ERROR'
+        let statusCode = 500
         if (errorMessage.includes(':')) {
-            userMessage = errorMessage.split(':').slice(1).join(':')
+            const parts = errorMessage.split(':')
+            errorCode = parts[0]
+            userMessage = parts.slice(1).join(':')
         }
 
+        if (errorCode === 'AUTH_ERROR') statusCode = 401
+        if (errorCode === 'INVALID_REQUEST') statusCode = 400
+        if (errorCode === 'SUBSCRIPTION_LIMIT') statusCode = 429
+        if (errorCode === 'AI_RATE_LIMIT') statusCode = 429
+        if (errorCode === 'AI_SAFETY') statusCode = 400
+        if (errorCode === 'SEARCH_ERROR') statusCode = 400
+
         return new Response(
-            JSON.stringify({ success: false, error: userMessage }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            JSON.stringify({ success: false, error: userMessage, errorCode }),
+            { status: statusCode, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
     }
 })
@@ -348,6 +379,88 @@ async function getVerifiedUserId(
     }
 
     return data.user.id
+}
+
+async function getUserSubscription(
+    supabase: ReturnType<typeof createClient>,
+    userId: string,
+): Promise<UserSubscriptionRow> {
+    const { data, error } = await supabase
+        .from('subscriptions')
+        .select('plan, status')
+        .eq('user_id', userId)
+        .maybeSingle()
+
+    if (error) {
+        console.error('❌ Failed to fetch subscription:', error.message)
+        throw new Error('DB_ERROR:Failed to load subscription state.')
+    }
+
+    const normalizedPlan = data?.plan === 'premium' ? 'premium' : 'free'
+    const normalizedStatus =
+        data?.status === 'cancelled' || data?.status === 'suspended'
+            ? data.status
+            : 'active'
+
+    return {
+        plan: normalizedPlan,
+        status: normalizedStatus,
+    }
+}
+
+function getManilaDayRangeIso(now: Date): { startIso: string; endIso: string } {
+    const offsetMs = MANILA_OFFSET_HOURS * 60 * 60 * 1000
+    const manilaNowMs = now.getTime() + offsetMs
+    const manilaNow = new Date(manilaNowMs)
+
+    const year = manilaNow.getUTCFullYear()
+    const month = manilaNow.getUTCMonth()
+    const date = manilaNow.getUTCDate()
+
+    const startUtcMs = Date.UTC(year, month, date) - offsetMs
+    const endUtcMs = startUtcMs + 24 * 60 * 60 * 1000
+
+    return {
+        startIso: new Date(startUtcMs).toISOString(),
+        endIso: new Date(endUtcMs).toISOString(),
+    }
+}
+
+async function countUserMessagesForDay(
+    supabase: ReturnType<typeof createClient>,
+    userId: string,
+    startIso: string,
+    endIso: string,
+): Promise<number> {
+    const { data: conversationRows, error: conversationError } = await supabase
+        .from('chat_conversations')
+        .select('id')
+        .eq('user_id', userId)
+
+    if (conversationError) {
+        console.error('❌ Failed to list user conversations:', conversationError.message)
+        throw new Error('DB_ERROR:Failed to check AI Tutor usage limit.')
+    }
+
+    const conversationIds = (conversationRows || []).map((row) => row.id)
+    if (conversationIds.length === 0) {
+        return 0
+    }
+
+    const { count, error } = await supabase
+        .from('chat_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('role', 'user')
+        .in('conversation_id', conversationIds)
+        .gte('created_at', startIso)
+        .lt('created_at', endIso)
+
+    if (error) {
+        console.error('❌ Failed to count daily messages:', error.message)
+        throw new Error('DB_ERROR:Failed to check AI Tutor usage limit.')
+    }
+
+    return count ?? 0
 }
 
 async function ensureDocumentOwnership(

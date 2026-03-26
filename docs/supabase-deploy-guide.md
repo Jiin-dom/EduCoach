@@ -94,7 +94,7 @@ npx supabase login
 npx supabase functions deploy process-document --project-ref gibufmvycrefsthfzhgy --no-verify-jwt
 npx supabase functions deploy generate-quiz --project-ref gibufmvycrefsthfzhgy --no-verify-jwt
 npx supabase functions deploy ai-tutor --project-ref gibufmvycrefsthfzhgy --no-verify-jwt
-
+npx supabase functions deploy admin-user-management --project-ref gibufmvycrefsthfzhgy --no-verify-jwt
 
 # 4. (Optional) Check logs
 npx supabase functions logs process-document --project-ref gibufmvycrefsthfzhgy --tail
