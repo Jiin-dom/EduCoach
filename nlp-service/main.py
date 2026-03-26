@@ -1503,6 +1503,9 @@ class GenerateQuestionsInput(BaseModel):
     chunks: List[ChunkInput]
     all_keyphrases: List[str] = []
     question_types: List[str] = ["identification", "true_false", "multiple_choice", "fill_in_blank"]
+    # Optional explicit targets per question type (e.g., {"multiple_choice": 8, "true_false": 7}).
+    # When provided, generation should prefer meeting these quotas deterministically.
+    question_type_targets: Optional[Dict[str, int]] = None
     max_questions_per_chunk: int = 3
     max_total_questions: int = 15
     difficulty: str = "mixed"
@@ -2039,9 +2042,28 @@ def generate_questions(input: GenerateQuestionsInput):
         default_type_weights = _DIFFICULTY_TYPE_WEIGHTS.get(difficulty, _DIFFICULTY_TYPE_WEIGHTS["mixed"])
         mastery_lookup = _build_mastery_lookup(input.mastery_context)
 
+        # Optional: type quotas. Filter to selected question_types and normalize to non-negative ints.
+        remaining_by_type: Optional[Dict[str, int]] = None
+        target_total = input.max_total_questions
+        if input.question_type_targets:
+            filtered: Dict[str, int] = {}
+            for qt in input.question_types:
+                raw = input.question_type_targets.get(qt)
+                if raw is None:
+                    continue
+                try:
+                    n = int(raw)
+                except Exception:
+                    continue
+                if n > 0:
+                    filtered[qt] = n
+            if filtered:
+                remaining_by_type = dict(filtered)
+                target_total = min(input.max_total_questions, sum(filtered.values()))
+
         print(f"[nlp-service] /generate-questions start chunks={len(input.chunks)} "
               f"types={input.question_types} difficulty={difficulty} "
-              f"max_total={input.max_total_questions} concepts={len(input.concepts)} "
+              f"max_total={target_total} concepts={len(input.concepts)} "
               f"mastery_ctx={len(input.mastery_context or [])}", flush=True)
 
         all_questions: List[GeneratedQuestion] = []
@@ -2049,7 +2071,7 @@ def generate_questions(input: GenerateQuestionsInput):
         used_keyphrases: set = set()
 
         for chunk in input.chunks:
-            if len(all_questions) >= input.max_total_questions * 2:
+            if len(all_questions) >= target_total * 2:
                 break
 
             chunk_questions: List[GeneratedQuestion] = []
@@ -2088,6 +2110,8 @@ def generate_questions(input: GenerateQuestionsInput):
             for sent in imp_sentences:
                 if len(chunk_questions) >= chunk_max_questions:
                     break
+                if remaining_by_type is not None and sum(remaining_by_type.values()) <= 0:
+                    break
 
                 kp = _find_keyphrase_in_sentence(sent, keyphrases)
 
@@ -2107,6 +2131,8 @@ def generate_questions(input: GenerateQuestionsInput):
                 effective_weights = _DIFFICULTY_TYPE_WEIGHTS.get(effective_difficulty, default_type_weights)
                 weighted_types = []
                 for qt in input.question_types:
+                    if remaining_by_type is not None and remaining_by_type.get(qt, 0) <= 0:
+                        continue
                     w = effective_weights.get(qt, 1)
                     weighted_types.extend([qt] * w)
                 random.shuffle(weighted_types)
@@ -2116,6 +2142,8 @@ def generate_questions(input: GenerateQuestionsInput):
                     if len(chunk_questions) >= chunk_max_questions:
                         break
                     if qt not in type_set:
+                        continue
+                    if remaining_by_type is not None and remaining_by_type.get(qt, 0) <= 0:
                         continue
 
                     q = None
@@ -2134,6 +2162,8 @@ def generate_questions(input: GenerateQuestionsInput):
                         chunk_questions.append(q)
                         if kp:
                             used_keyphrases.add(kp.lower())
+                        if remaining_by_type is not None:
+                            remaining_by_type[qt] = max(0, remaining_by_type.get(qt, 0) - 1)
                         break
 
             all_questions.extend(chunk_questions)
@@ -2145,7 +2175,7 @@ def generate_questions(input: GenerateQuestionsInput):
                 input.all_keyphrases,
                 difficulty,
                 input.question_types,
-                max(3, input.max_total_questions - len(all_questions)),
+                max(3, target_total - len(all_questions)),
             )
             all_questions.extend(slide_questions)
             if slide_questions:
@@ -2156,11 +2186,11 @@ def generate_questions(input: GenerateQuestionsInput):
 
         concept_names = [c.name for c in input.concepts] if input.concepts else []
         all_questions = _balance_by_concept_coverage(
-            all_questions, input.max_total_questions, concept_names
+            all_questions, target_total, concept_names
         )
 
-        if len(all_questions) > input.max_total_questions:
-            all_questions = all_questions[:input.max_total_questions]
+        if len(all_questions) > target_total:
+            all_questions = all_questions[:target_total]
 
         by_type: dict = {}
         for q in all_questions:
@@ -2173,7 +2203,12 @@ def generate_questions(input: GenerateQuestionsInput):
         return GenerateQuestionsResponse(
             success=True,
             questions=all_questions,
-            stats={"total": len(all_questions), "by_type": by_type, "difficulty": difficulty},
+            stats={
+                "total": len(all_questions),
+                "by_type": by_type,
+                "difficulty": difficulty,
+                "requested_type_targets": input.question_type_targets or None,
+            },
         )
 
     except Exception as e:
