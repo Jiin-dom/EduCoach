@@ -31,6 +31,7 @@ export interface ChatMessage {
     bloom_level: string | null
     retrieved_chunk_ids: string[]
     similarity_scores: number[]
+    source_citations: SourceCitation[] | null
     model_used: string | null
     created_at: string
 }
@@ -45,7 +46,6 @@ export interface SourceCitation {
 
 export interface SendMessageInput {
     message: string
-    bloomLevel: string
     conversationId?: string
     documentId?: string
 }
@@ -132,7 +132,6 @@ export function useSendMessage() {
             const { data, error } = await supabase.functions.invoke('ai-tutor', {
                 body: {
                     message: input.message,
-                    bloomLevel: input.bloomLevel,
                     conversationId: input.conversationId || undefined,
                     documentId: input.documentId || undefined,
                 },

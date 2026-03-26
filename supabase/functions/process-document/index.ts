@@ -472,7 +472,7 @@ serve(async (req) => {
             try {
                 console.log('🃏 Generating flashcards...')
                 const flashcardInput = {
-                    concepts: analysisResult.concepts.map((c, idx) => ({
+                    concepts: analysisResult.concepts.map((c) => ({
                         concept_name: c.name,
                         description: c.description,
                         keywords: c.keywords,
@@ -1245,7 +1245,7 @@ function deduplicateConcepts(concepts: Concept[]): Concept[] {
     return kept
 }
 
-function estimateDifficulty(description: string, _conceptName: string): string {
+function estimateDifficulty(description: string): string {
     try {
         const words = description.split(/\s+/)
         const avgWordLen = words.reduce((s, w) => s + w.length, 0) / Math.max(1, words.length)
@@ -1570,7 +1570,7 @@ function buildConceptsFromSlides(slides: SlideData[]): Concept[] {
         )
 
         const importance = Math.min(10, Math.max(1, 10 - Math.floor((slide.slide_number - 1) / 3)))
-        const difficulty = estimateDifficulty(description, name)
+        const difficulty = estimateDifficulty(description)
         const category = detectCategory(name, tags)
 
         concepts.push({
@@ -1757,7 +1757,7 @@ function buildConceptsFromClusters(
         const rankScore = Math.max(0, 5 - Math.floor(avgRank / 3))
         const importance = Math.min(10, Math.max(1, Math.round(sizeScore + rankScore + 2)))
 
-        const difficulty = estimateDifficulty(description, label)
+        const difficulty = estimateDifficulty(description)
         const category = detectCategory(label, tags)
 
         const sourcePages = fullText

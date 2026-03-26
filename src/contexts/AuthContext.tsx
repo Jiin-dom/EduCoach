@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useState, useRef, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase, clearStaleSession, getSupabaseStorageKey } from '@/lib/supabase'

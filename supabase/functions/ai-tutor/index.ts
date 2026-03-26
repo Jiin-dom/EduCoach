@@ -1,13 +1,13 @@
 /**
- * AI Tutor Edge Function — RAG Chat
+ * AI Tutor Edge Function — RAG Chat (Remediated)
  *
- * 1. Embeds the student's question (gemini-embedding-001)
- * 2. Searches document_embeddings via match_documents()
- * 3. Fetches full chunk text + document titles for context
- * 4. Builds a grounded prompt with Bloom's Taxonomy level
- * 5. Calls Gemini to generate an answer
- * 6. Persists the exchange in chat_messages for traceability
- * 7. Returns the answer + source citations
+ * 1. Verifies user identity from JWT via Supabase Auth
+ * 2. Embeds the student's question (gemini-embedding-001)
+ * 3. Performs user-scoped vector search via match_documents_for_user()
+ * 4. Fetches chunk/document context + recent conversation history
+ * 5. Generates plain-text AI answer with inferred pedagogy level
+ * 6. Persists messages + citation traceability
+ * 7. Returns answer + source citations
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
@@ -27,19 +27,10 @@ const GEMINI_MODEL = 'gemini-2.5-flash-lite'
 const EMBEDDING_MODEL = 'gemini-embedding-001'
 const EMBEDDING_DIMENSIONS = 768
 
-// Bloom's Taxonomy prompt modifiers
-const BLOOM_INSTRUCTIONS: Record<string, string> = {
-    remember: 'Give a direct, factual answer. List key facts and definitions.',
-    understand: 'Explain the concept in simple terms. Use analogies if helpful.',
-    apply: 'Show how this concept is used in practice. Give a concrete example.',
-    analyze: 'Break this down into its component parts. Compare and contrast where relevant.',
-    evaluate: 'Discuss strengths and weaknesses. Provide a critical assessment.',
-    create: 'Help the student synthesize new ideas. Suggest connections between concepts.',
-}
-
 interface ChatRequest {
     message: string
-    bloomLevel: string
+    // Kept optional for backward compatibility with existing clients.
+    bloomLevel?: string
     conversationId?: string
     documentId?: string
 }
@@ -52,53 +43,67 @@ interface SourceCitation {
     similarity: number
 }
 
+interface ChatConversationRow {
+    id: string
+    user_id: string
+    document_id: string | null
+}
+
 serve(async (req) => {
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders })
     }
 
     try {
-        const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
         const geminiApiKey = Deno.env.get('GEMINI_API_KEY')
 
+        if (!supabaseUrl || !supabaseServiceKey) {
+            throw new Error('CONFIG_ERROR:Supabase is not configured. Please contact support.')
+        }
         if (!geminiApiKey) {
             throw new Error('CONFIG_ERROR:AI service is not configured. Please contact support.')
         }
 
         const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-        // --- Auth: extract user_id from JWT ---
-        const authHeader = req.headers.get('Authorization')
-        let userId: string | null = null
-
-        if (authHeader) {
-            try {
-                const token = authHeader.replace('Bearer ', '')
-                const payload = JSON.parse(atob(token.split('.')[1]))
-                userId = payload.sub || null
-            } catch {
-                console.warn('⚠️ Could not parse JWT, will check body')
-            }
-        }
-
-        if (!userId) {
-            throw new Error('AUTH_ERROR:You must be logged in to use the AI tutor.')
-        }
+        // --- Auth: verify token with Supabase Auth ---
+        const userId = await getVerifiedUserId(supabase, req.headers.get('Authorization'))
 
         // --- Parse request ---
         const body: ChatRequest = await req.json()
-        const { message, bloomLevel, conversationId, documentId } = body
+        const message = body.message?.trim() ?? ''
+        const requestedConversationId = body.conversationId
+        const requestedDocumentId = body.documentId || null
 
-        if (!message || message.trim().length === 0) {
+        if (!message) {
             throw new Error('INVALID_REQUEST:Please enter a question.')
+        }
+
+        if (requestedDocumentId) {
+            await ensureDocumentOwnership(supabase, userId, requestedDocumentId)
+        }
+
+        let effectiveConversationId = requestedConversationId
+        let effectiveDocumentId = requestedDocumentId
+
+        if (requestedConversationId) {
+            const conversation = await getOwnedConversation(supabase, requestedConversationId, userId)
+
+            if (conversation.document_id && requestedDocumentId && conversation.document_id !== requestedDocumentId) {
+                throw new Error('INVALID_REQUEST:This conversation is already scoped to a different document.')
+            }
+
+            // Existing conversation scope takes precedence.
+            effectiveDocumentId = conversation.document_id ?? requestedDocumentId
+            effectiveConversationId = conversation.id
         }
 
         console.log('🤖 AI Tutor request:', {
             userId: userId.substring(0, 8) + '...',
-            bloomLevel,
-            hasConversation: !!conversationId,
-            hasDocumentScope: !!documentId,
+            hasConversation: !!effectiveConversationId,
+            hasDocumentScope: !!effectiveDocumentId,
             messageLength: message.length,
         })
 
@@ -106,15 +111,16 @@ serve(async (req) => {
         console.log('🔢 Embedding question...')
         const questionEmbedding = await generateEmbedding(message, geminiApiKey)
 
-        // --- Step 2: Vector search via match_documents ---
-        console.log('🔍 Searching document embeddings...')
+        // --- Step 2: User-scoped vector search ---
+        console.log('🔍 Searching user-scoped embeddings...')
         const { data: matches, error: matchError } = await supabase.rpc(
-            'match_documents',
+            'match_documents_for_user',
             {
                 query_embedding: questionEmbedding,
+                p_user_id: userId,
                 match_threshold: SIMILARITY_THRESHOLD,
                 match_count: MAX_CHUNKS,
-                filter_document_id: documentId || null,
+                filter_document_id: effectiveDocumentId,
             }
         )
 
@@ -128,15 +134,28 @@ serve(async (req) => {
 
         // --- Step 3: Answerability check ---
         if (matchedChunks.length === 0) {
-            const noContextAnswer = documentId
+            const noContextAnswer = effectiveDocumentId
                 ? "I couldn't find relevant information in this document for your question. Try asking about a topic covered in this file, or switch to searching all your documents."
                 : "I couldn't find relevant information in your uploaded materials. Make sure you've uploaded and processed documents covering this topic."
 
             const convId = await ensureConversation(
-                supabase, conversationId, userId, documentId || null, message
+                supabase,
+                effectiveConversationId,
+                userId,
+                effectiveDocumentId,
+                message,
             )
 
-            await saveMessages(supabase, convId, message, noContextAnswer, bloomLevel, [], [], null)
+            await saveMessages(
+                supabase,
+                convId,
+                message,
+                noContextAnswer,
+                [],
+                [],
+                null,
+                [],
+            )
 
             return jsonResponse({
                 answer: noContextAnswer,
@@ -151,18 +170,34 @@ serve(async (req) => {
         const docIds = [...new Set(matchedChunks.map((m: { document_id: string }) => m.document_id))]
 
         const [chunksResult, docsResult] = await Promise.all([
-            supabase.from('chunks').select('id, content, chunk_index').in('id', chunkIds),
-            supabase.from('documents').select('id, title').in('id', docIds),
+            supabase.from('chunks').select('id, content, chunk_index, document_id').in('id', chunkIds),
+            supabase.from('documents').select('id, title, user_id').in('id', docIds),
         ])
 
-        const chunksMap = new Map<string, { content: string; chunk_index: number }>()
-        for (const c of (chunksResult.data || [])) {
-            chunksMap.set(c.id, { content: c.content, chunk_index: c.chunk_index })
+        if (chunksResult.error || docsResult.error) {
+            console.error('❌ Context fetch failed:', {
+                chunksError: chunksResult.error?.message,
+                docsError: docsResult.error?.message,
+            })
+            throw new Error('DB_ERROR:Failed to load source context for your answer.')
         }
 
         const docsMap = new Map<string, string>()
         for (const d of (docsResult.data || [])) {
-            docsMap.set(d.id, d.title)
+            if (d.user_id === userId) {
+                docsMap.set(d.id, d.title)
+            }
+        }
+
+        const chunksMap = new Map<string, { content: string; chunk_index: number; document_id: string }>()
+        for (const c of (chunksResult.data || [])) {
+            if (docsMap.has(c.document_id)) {
+                chunksMap.set(c.id, {
+                    content: c.content,
+                    chunk_index: c.chunk_index,
+                    document_id: c.document_id,
+                })
+            }
         }
 
         // Build context and source citations
@@ -171,31 +206,41 @@ serve(async (req) => {
 
         for (const match of matchedChunks) {
             const chunk = chunksMap.get(match.chunk_id)
-            const docTitle = docsMap.get(match.document_id) || 'Unknown Document'
+            const docTitle = docsMap.get(match.document_id)
 
-            if (chunk) {
-                contextBlocks.push(
-                    `[Source: ${docTitle}, Section ${chunk.chunk_index + 1}]\n${chunk.content}`
-                )
-                sources.push({
-                    documentId: match.document_id,
-                    documentTitle: docTitle,
-                    chunkId: match.chunk_id,
-                    chunkPreview: chunk.content.substring(0, 150),
-                    similarity: match.similarity,
-                })
+            if (!chunk || !docTitle) {
+                continue
             }
+
+            contextBlocks.push(
+                `[Source: ${docTitle}, Section ${chunk.chunk_index + 1}]\n${chunk.content}`
+            )
+            sources.push({
+                documentId: match.document_id,
+                documentTitle: docTitle,
+                chunkId: match.chunk_id,
+                chunkPreview: chunk.content.substring(0, 150),
+                similarity: match.similarity,
+            })
+        }
+
+        if (contextBlocks.length === 0) {
+            throw new Error('SEARCH_ERROR:No accessible sources were found for this question.')
         }
 
         // --- Step 5: Fetch conversation history for multi-turn ---
         let historyBlock = ''
-        if (conversationId) {
-            const { data: historyRows } = await supabase
+        if (effectiveConversationId) {
+            const { data: historyRows, error: historyError } = await supabase
                 .from('chat_messages')
                 .select('role, content')
-                .eq('conversation_id', conversationId)
+                .eq('conversation_id', effectiveConversationId)
                 .order('created_at', { ascending: false })
                 .limit(CONVERSATION_HISTORY_LIMIT)
+
+            if (historyError) {
+                console.warn('⚠️ Failed to fetch history:', historyError.message)
+            }
 
             if (historyRows && historyRows.length > 0) {
                 const reversed = historyRows.reverse()
@@ -208,19 +253,16 @@ serve(async (req) => {
         }
 
         // --- Step 6: Build grounded prompt ---
-        const bloomInstruction = BLOOM_INSTRUCTIONS[bloomLevel] || BLOOM_INSTRUCTIONS.understand
-
-        const systemPrompt = `You are EduCoach AI Tutor — a helpful, encouraging study assistant.
+        const systemPrompt = `You are EduCoach AI Tutor, a helpful study assistant.
 
 RULES:
 - Answer ONLY using the provided study materials below.
-- If the answer is not in the materials, say "I couldn't find that in your uploaded materials."
-- Cite which source document and section your answer comes from.
-- Be concise but thorough.
-- Use markdown formatting for readability (bold key terms, use bullet points where helpful).
-
-LEARNING LEVEL: ${bloomLevel}
-${bloomInstruction}
+- If the answer is not in the materials, say: "I couldn't find that in your uploaded materials."
+- Infer the student's current understanding level from their wording and conversation history, then adapt depth and explanation style automatically.
+- Output plain text only.
+- Do NOT use markdown syntax such as **, __, #, or backticks.
+- Keep explanations concise but clear. Use short paragraphs. You may use plain bullet lines starting with "- " when useful.
+- Cite source document and section in plain text.
 
 STUDENT'S STUDY MATERIALS:
 ---
@@ -234,19 +276,30 @@ STUDENT'S QUESTION: ${message}`
 
         // --- Step 7: Generate answer ---
         console.log('💬 Generating answer...')
-        const answer = await callGemini(systemPrompt, geminiApiKey)
+        const rawAnswer = await callGemini(systemPrompt, geminiApiKey)
+        const answer = sanitizeAiResponse(rawAnswer)
 
         // --- Step 8: Persist to database ---
         const convId = await ensureConversation(
-            supabase, conversationId, userId, documentId || null, message
+            supabase,
+            effectiveConversationId,
+            userId,
+            effectiveDocumentId,
+            message,
         )
 
         const retrievedChunkIds = matchedChunks.map((m: { chunk_id: string }) => m.chunk_id)
         const similarityScores = matchedChunks.map((m: { similarity: number }) => m.similarity)
 
         await saveMessages(
-            supabase, convId, message, answer,
-            bloomLevel, retrievedChunkIds, similarityScores, GEMINI_MODEL
+            supabase,
+            convId,
+            message,
+            answer,
+            retrievedChunkIds,
+            similarityScores,
+            GEMINI_MODEL,
+            sources,
         )
 
         console.log('✅ AI Tutor response generated successfully')
@@ -273,6 +326,74 @@ STUDENT'S QUESTION: ${message}`
         )
     }
 })
+
+async function getVerifiedUserId(
+    supabase: ReturnType<typeof createClient>,
+    authHeader: string | null,
+): Promise<string> {
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        throw new Error('AUTH_ERROR:You must be logged in to use the AI tutor.')
+    }
+
+    const token = authHeader.replace('Bearer ', '').trim()
+    if (!token) {
+        throw new Error('AUTH_ERROR:You must be logged in to use the AI tutor.')
+    }
+
+    const { data, error } = await supabase.auth.getUser(token)
+
+    if (error || !data.user?.id) {
+        console.error('❌ Auth verification failed:', error?.message)
+        throw new Error('AUTH_ERROR:Your session is invalid or expired. Please sign in again.')
+    }
+
+    return data.user.id
+}
+
+async function ensureDocumentOwnership(
+    supabase: ReturnType<typeof createClient>,
+    userId: string,
+    documentId: string,
+): Promise<void> {
+    const { data, error } = await supabase
+        .from('documents')
+        .select('id')
+        .eq('id', documentId)
+        .eq('user_id', userId)
+        .maybeSingle()
+
+    if (error) {
+        console.error('❌ Failed to validate document scope:', error.message)
+        throw new Error('DB_ERROR:Failed to validate document scope.')
+    }
+
+    if (!data) {
+        throw new Error('AUTH_ERROR:You do not have access to this document scope.')
+    }
+}
+
+async function getOwnedConversation(
+    supabase: ReturnType<typeof createClient>,
+    conversationId: string,
+    userId: string,
+): Promise<ChatConversationRow> {
+    const { data, error } = await supabase
+        .from('chat_conversations')
+        .select('id, user_id, document_id')
+        .eq('id', conversationId)
+        .maybeSingle()
+
+    if (error) {
+        console.error('❌ Failed to fetch conversation:', error.message)
+        throw new Error('DB_ERROR:Failed to validate conversation.')
+    }
+
+    if (!data || data.user_id !== userId) {
+        throw new Error('AUTH_ERROR:Conversation not found or access denied.')
+    }
+
+    return data as ChatConversationRow
+}
 
 // ---------------------------------------------------------------------------
 // Helper: ensure a conversation exists (create if needed)
@@ -314,26 +435,28 @@ async function saveMessages(
     conversationId: string,
     userMessage: string,
     assistantMessage: string,
-    bloomLevel: string,
     retrievedChunkIds: string[],
     similarityScores: number[],
     modelUsed: string | null,
+    sourceCitations: SourceCitation[],
 ): Promise<void> {
     const rows = [
         {
             conversation_id: conversationId,
             role: 'user',
             content: userMessage,
-            bloom_level: bloomLevel,
+            bloom_level: null,
+            source_citations: [],
         },
         {
             conversation_id: conversationId,
             role: 'assistant',
             content: assistantMessage,
-            bloom_level: bloomLevel,
+            bloom_level: null,
             retrieved_chunk_ids: retrievedChunkIds,
             similarity_scores: similarityScores,
             model_used: modelUsed,
+            source_citations: sourceCitations,
         },
     ]
 
@@ -441,6 +564,33 @@ async function callGemini(prompt: string, apiKey: string): Promise<string> {
     }
 
     throw new Error('AI_ERROR:Failed after multiple attempts. Please try again later.')
+}
+
+function sanitizeAiResponse(input: string): string {
+    let text = input.replace(/\r\n/g, '\n')
+
+    // Remove common markdown markers while preserving readable text.
+    text = text
+        .replace(/```/g, '')
+        .replace(/`/g, '')
+        .replace(/\*\*/g, '')
+        .replace(/__/g, '')
+        .replace(/^#{1,6}\s*/gm, '')
+
+    // Normalize whitespace but keep paragraph breaks.
+    const normalizedLines = text
+        .split('\n')
+        .map((line) => line.replace(/\s+/g, ' ').trim())
+
+    text = normalizedLines.join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+
+    if (!text) {
+        return "I couldn't generate a clear answer for that question. Please try rephrasing it."
+    }
+
+    return text
 }
 
 // ---------------------------------------------------------------------------

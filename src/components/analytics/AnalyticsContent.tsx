@@ -153,7 +153,7 @@ function ConceptDrillDown({ concept, onBack, timeline }: { concept: ConceptMaste
                                 <CartesianGrid strokeDasharray="3 3" />
                                 <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} tick={{ fontSize: 11 }} />
                                 <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                                <Tooltip formatter={(value: any) => [`${value}%`, 'Mastery']} />
+                                <Tooltip formatter={(value: number | string) => [`${value}%`, 'Mastery']} />
                                 <Line type="monotone" dataKey="mastery" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
                             </LineChart>
                         </ResponsiveContainer>
@@ -363,7 +363,7 @@ export function AnalyticsContent() {
                                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                                                     <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
                                                     <YAxis dataKey="title" type="category" width={150} tick={{ fontSize: 12 }} />
-                                                    <Tooltip formatter={(value: any) => [`${value}%`, 'Mastery']} />
+                                                    <Tooltip formatter={(value: number | string) => [`${value}%`, 'Mastery']} />
                                                     <Bar dataKey="averageMastery" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
                                                 </BarChart>
                                             </ResponsiveContainer>
@@ -462,7 +462,7 @@ export function AnalyticsContent() {
                                                 <CartesianGrid strokeDasharray="3 3" />
                                                 <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} tick={{ fontSize: 12 }} />
                                                 <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                                                <Tooltip formatter={(value: any) => [`${value}%`, 'Avg Mastery']} />
+                                                <Tooltip formatter={(value: number | string) => [`${value}%`, 'Avg Mastery']} />
                                                 <Line type="monotone" dataKey="mastery" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                                             </LineChart>
                                         </ResponsiveContainer>
@@ -490,7 +490,7 @@ export function AnalyticsContent() {
                                                 <CartesianGrid strokeDasharray="3 3" />
                                                 <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} tick={{ fontSize: 12 }} />
                                                 <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                                                <Tooltip formatter={(value: any) => [`${value}%`, 'Avg Score']} />
+                                                <Tooltip formatter={(value: number | string) => [`${value}%`, 'Avg Score']} />
                                                 <Line type="monotone" dataKey="score" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                                             </LineChart>
                                         </ResponsiveContainer>

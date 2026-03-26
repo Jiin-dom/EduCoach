@@ -14,7 +14,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
-import { useConceptMasteryList, useLearningStats, useRescheduleConceptDueDate, useStudyEfficiency } from "@/hooks/useLearning"
+import {
+    useConceptMasteryList,
+    useLearningStats,
+    useRescheduleConceptDueDate,
+    useStudyEfficiency,
+    type ConceptMasteryWithDetails,
+} from "@/hooks/useLearning"
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
 
 // Helper function to get days in a month
@@ -77,7 +83,7 @@ export function LearningPathCalendar() {
     }
 
     // Helper to render pills based on session type
-    const renderSessionBadge = (session: any) => {
+    const renderSessionBadge = (session: ConceptMasteryWithDetails) => {
         let colors = ""
         switch (session.display_mastery_level) {
             case "mastered": colors = "bg-green-100 text-green-700 border-green-200"; break;
@@ -108,7 +114,7 @@ export function LearningPathCalendar() {
         )
     }
 
-    const renderMonthSessionBadge = (session: any) => {
+    const renderMonthSessionBadge = (session: ConceptMasteryWithDetails) => {
         let colors = ""
         switch (session.display_mastery_level) {
             case "mastered": colors = "bg-green-100 text-green-700 border-green-200"; break;
@@ -138,7 +144,7 @@ export function LearningPathCalendar() {
         if (!conceptId || !targetDateStr) return
         if (!masteryList) return
 
-        const current = masteryList.find((m: any) => m.concept_id === conceptId)
+        const current = masteryList.find((m) => m.concept_id === conceptId)
         if (!current) return
         if (current.due_date === targetDateStr) return // no-op
 

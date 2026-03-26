@@ -932,7 +932,7 @@ export function useProcessQuizResults() {
 
             const needsResolution = questions.filter((q) => !q.concept_id)
 
-            let chunkToConceptMap = new Map<string, string>()
+            const chunkToConceptMap = new Map<string, string>()
             let fallbackConceptId: string | null = null
 
             if (needsResolution.length > 0) {

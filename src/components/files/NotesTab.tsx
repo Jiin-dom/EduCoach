@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Save, Loader2, Plus, StickyNote } from 'lucide-react'
@@ -15,31 +15,27 @@ export function NotesTab({ documentId, concepts }: NotesTabProps) {
     const { data: savedNote, isLoading } = useDocumentNotes(documentId)
     const { debouncedSave, isSaving } = useAutoSaveNotes(documentId)
     const [content, setContent] = useState('')
-    const [initialized, setInitialized] = useState(false)
-
-    useEffect(() => {
-        if (savedNote && !initialized) {
-            setContent(savedNote.content)
-            setInitialized(true)
-        } else if (!savedNote && !isLoading && !initialized) {
-            setInitialized(true)
-        }
-    }, [savedNote, isLoading, initialized])
+    const [hasEdited, setHasEdited] = useState(false)
+    const displayContent = useMemo(
+        () => (hasEdited ? content : (savedNote?.content ?? '')),
+        [hasEdited, content, savedNote],
+    )
 
     const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
         const val = e.target.value
+        if (!hasEdited) setHasEdited(true)
         setContent(val)
         debouncedSave(val)
-    }, [debouncedSave])
+    }, [debouncedSave, hasEdited])
 
     const insertConcept = useCallback((name: string) => {
         const insertion = `[${name}]`
-        setContent(prev => {
-            const updated = prev ? `${prev}\n${insertion}` : insertion
-            debouncedSave(updated)
-            return updated
-        })
-    }, [debouncedSave])
+        const base = hasEdited ? content : (savedNote?.content ?? '')
+        const updated = base ? `${base}\n${insertion}` : insertion
+        if (!hasEdited) setHasEdited(true)
+        setContent(updated)
+        debouncedSave(updated)
+    }, [debouncedSave, hasEdited, content, savedNote])
 
     if (isLoading) {
         return (
@@ -64,7 +60,7 @@ export function NotesTab({ documentId, concepts }: NotesTabProps) {
                             Saving...
                         </Badge>
                     )}
-                    {!isSaving && content && initialized && (
+                    {!isSaving && displayContent && (
                         <Badge variant="outline" className="gap-1 text-xs text-green-600">
                             <Save className="w-3 h-3" />
                             Saved
@@ -75,7 +71,7 @@ export function NotesTab({ documentId, concepts }: NotesTabProps) {
 
             {/* Editor */}
             <textarea
-                value={content}
+                value={displayContent}
                 onChange={handleChange}
                 placeholder="Write your study notes here...&#10;&#10;Tips:&#10;- Summarize key takeaways in your own words&#10;- Use the 'Insert concept' button below to link concepts&#10;- Notes auto-save as you type"
                 className="w-full min-h-[300px] p-4 rounded-lg border bg-background text-sm leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -17,10 +17,13 @@ export function QuizzesContent() {
     const { data: attempts } = useUserAttempts()
     const location = useLocation()
     const navigate = useNavigate()
-    const [highlightQuizId, setHighlightQuizId] = useState<string | null>(() => {
-        const state = location.state as { highlightQuizId?: string } | null
-        return state?.highlightQuizId ?? null
-    })
+    const state = location.state as { highlightQuizId?: string } | null
+    const routeHighlightQuizId = state?.highlightQuizId ?? null
+    const persistedHighlightRef = useRef<string | null>(routeHighlightQuizId)
+    if (routeHighlightQuizId && !persistedHighlightRef.current) {
+        persistedHighlightRef.current = routeHighlightQuizId
+    }
+    const highlightQuizId = persistedHighlightRef.current
 
     // Dialog state
     const [isSelectDocOpen, setIsSelectDocOpen] = useState(false)
@@ -28,13 +31,11 @@ export function QuizzesContent() {
     const [isGenerateQuizOpen, setIsGenerateQuizOpen] = useState(false)
 
     useEffect(() => {
-        const state = location.state as { highlightQuizId?: string } | null
-        if (state?.highlightQuizId && !highlightQuizId) {
-            setHighlightQuizId(state.highlightQuizId)
+        if (routeHighlightQuizId) {
             // Clear state so refreshes / tab switches don't keep re-highlighting
             navigate(location.pathname, { replace: true })
         }
-    }, [location, navigate, highlightQuizId])
+    }, [routeHighlightQuizId, navigate, location.pathname])
 
     const handleSelectDocument = (id: string) => {
         setSelectedDocId(id)

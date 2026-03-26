@@ -36,6 +36,31 @@ interface AiTutorChatProps {
     onPromptConsumed?: () => void
 }
 
+function normalizeSourceCitations(input: unknown): SourceCitation[] {
+    if (!Array.isArray(input)) return []
+    return input
+        .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+        .map((item) => ({
+            documentId: String(item.documentId ?? ""),
+            documentTitle: String(item.documentTitle ?? "Unknown Document"),
+            chunkId: String(item.chunkId ?? ""),
+            chunkPreview: String(item.chunkPreview ?? ""),
+            similarity: Number(item.similarity ?? 0),
+        }))
+        .filter((item) => item.documentId.length > 0 && item.chunkId.length > 0)
+}
+
+function cleanAssistantText(content: string): string {
+    return content
+        .replace(/```/g, "")
+        .replace(/`/g, "")
+        .replace(/\*\*/g, "")
+        .replace(/__/g, "")
+        .replace(/^#{1,6}\s*/gm, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim()
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -43,7 +68,6 @@ interface AiTutorChatProps {
 export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromptConsumed }: AiTutorChatProps) {
     const [isOpen, setIsOpen] = useState(false)
     const [inputMessage, setInputMessage] = useState("")
-    const [bloomLevel, setBloomLevel] = useState("understand")
     const [conversationId, setConversationId] = useState<string | undefined>(undefined)
     const [selectedDocumentId, setSelectedDocumentId] = useState<string>("all")
     const [pendingMessages, setPendingMessages] = useState<DisplayMessage[]>([])
@@ -89,7 +113,6 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
     useEffect(() => {
         if (pendingPrompt && !sendMessage.isPending) {
             setIsOpen(true)
-            setBloomLevel("understand")
             setInputMessage(pendingPrompt)
             onPromptConsumed?.()
         }
@@ -102,8 +125,9 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
         return dbMessages.map(m => ({
             id: m.id,
             role: m.role,
-            content: m.content,
+            content: m.role === "assistant" ? cleanAssistantText(m.content) : m.content,
             timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            sources: m.role === "assistant" ? normalizeSourceCitations(m.source_citations) : undefined,
         }))
     }, [dbMessages])
 
@@ -148,7 +172,6 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
         try {
             const response = await sendMessage.mutateAsync({
                 message: text,
-                bloomLevel,
                 conversationId,
                 documentId: effectiveDocumentId,
             })
@@ -160,7 +183,7 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
             const aiMsg: DisplayMessage = {
                 id: `ai-${Date.now()}`,
                 role: "assistant",
-                content: response.answer,
+                content: cleanAssistantText(response.answer),
                 timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
                 sources: response.sources,
             }
@@ -325,27 +348,8 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
                         </CardContent>
                     ) : (
                         <>
-                            {/* Controls: Bloom level + Document scope */}
+                            {/* Controls: Document scope */}
                             <div className="px-4 py-3 border-b bg-muted/30 flex-shrink-0 space-y-2">
-                                <div>
-                                    <Label htmlFor="bloom-level" className="text-xs font-medium mb-1 block">
-                                        Learning Level
-                                    </Label>
-                                    <Select value={bloomLevel} onValueChange={setBloomLevel}>
-                                        <SelectTrigger id="bloom-level" className="h-8 text-sm">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="remember">Remember - Recall facts</SelectItem>
-                                            <SelectItem value="understand">Understand - Explain concepts</SelectItem>
-                                            <SelectItem value="apply">Apply - Use in new situations</SelectItem>
-                                            <SelectItem value="analyze">Analyze - Break down information</SelectItem>
-                                            <SelectItem value="evaluate">Evaluate - Make judgments</SelectItem>
-                                            <SelectItem value="create">Create - Produce new work</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
                                 {!propDocumentId && readyDocuments.length > 0 && (
                                     <div>
                                         <Label htmlFor="doc-scope" className="text-xs font-medium mb-1 block">
@@ -423,12 +427,12 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
                                                                 : "bg-muted text-foreground"
                                                                 }`}
                                                         >
-                                                            <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                                                            <p className="text-sm leading-6 whitespace-pre-wrap break-words">{message.content}</p>
                                                         </div>
 
                                                         {/* Source citations */}
                                                         {message.sources && message.sources.length > 0 && (
-                                                            <div className="mt-1.5 space-y-1">
+                                                            <div className="mt-2 space-y-1.5">
                                                                 <p className="text-xs text-muted-foreground px-1 font-medium">Sources:</p>
                                                                 {message.sources.map((source, idx) => (
                                                                     <Link
@@ -439,7 +443,7 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
                                                                         <FileText className="w-3 h-3 flex-shrink-0 text-muted-foreground" />
                                                                         <span className="truncate">{source.documentTitle}</span>
                                                                         <span className="text-muted-foreground ml-auto flex-shrink-0">
-                                                                            {Math.round(source.similarity * 100)}%
+                                                                            Relevance: {Math.round(source.similarity * 100)}%
                                                                         </span>
                                                                         <ExternalLink className="w-3 h-3 flex-shrink-0 text-muted-foreground" />
                                                                     </Link>
@@ -447,9 +451,7 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
                                                             </div>
                                                         )}
 
-                                                        {message.timestamp && (
-                                                            <p className="text-xs text-muted-foreground mt-1 px-1">{message.timestamp}</p>
-                                                        )}
+                                                        {message.timestamp && <p className="text-xs text-muted-foreground mt-1.5 px-1">{message.timestamp}</p>}
                                                     </>
                                                 )}
                                             </div>
