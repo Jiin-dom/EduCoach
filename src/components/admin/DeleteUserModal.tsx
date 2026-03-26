@@ -24,6 +24,7 @@ interface DeleteUserModalProps {
 
 export function DeleteUserModal({ open, onOpenChange, user, deleting = false, onConfirmDelete }: DeleteUserModalProps) {
   const handleDelete = async () => {
+    if (!user) return
     await onConfirmDelete(user.id)
     onOpenChange(false)
   }
