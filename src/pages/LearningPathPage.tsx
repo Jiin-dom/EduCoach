@@ -14,7 +14,7 @@ export default function LearningPathPage() {
                     <TabsList className="bg-muted">
                         <TabsTrigger value="schedule">Schedule View</TabsTrigger>
                         <TabsTrigger value="mastery">Topics & Mastery</TabsTrigger>
-                        <TabsTrigger value="goals">Study Goals</TabsTrigger>
+                        <TabsTrigger value="planning">Goals & Planning</TabsTrigger>
                     </TabsList>
                 </div>
                 
@@ -28,7 +28,7 @@ export default function LearningPathPage() {
                     <LearningPathContent />
                 </TabsContent>
 
-                <TabsContent value="goals" className="m-0 border-0 p-0 outline-none">
+                <TabsContent value="planning" className="m-0 border-0 p-0 outline-none">
                     <StudyGoalsPanel />
                 </TabsContent>
             </Tabs>

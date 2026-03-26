@@ -1,28 +1,29 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import {
     Target,
+    BookOpen,
+    Clock,
     Plus,
     Trash2,
-    CheckCircle2,
-    Clock,
-    BookOpen,
-    Brain,
+    CalendarDays,
     Trophy,
     Loader2,
-    CalendarDays,
-    TrendingUp,
+    CheckCircle2,
+    AlertCircle,
+    Sparkles,
+    Wand2,
+    Gauge,
+    Layers,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import { Badge } from "@/components/ui/badge"
 import {
     Dialog,
     DialogContent,
     DialogHeader,
     DialogTitle,
     DialogFooter,
-    DialogDescription,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -33,86 +34,19 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
-import {
-    useStudyGoals,
-    useCreateGoal,
-    useUpdateGoal,
-    useDeleteGoal,
-    type GoalType,
-    type StudyGoal,
-} from "@/hooks/useStudyGoals"
-import { useConceptMasteryList, useLearningStats } from "@/hooks/useLearning"
-import { useDocuments } from "@/hooks/useDocuments"
-import { useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
+import { useDocuments, useUpdateDocument, type Document } from "@/hooks/useDocuments"
+import { useQuizzes, useUserAttempts, type Quiz, type Attempt } from "@/hooks/useQuizzes"
 import { toast } from "sonner"
+import { ExamManager } from "./ExamManager"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-// ─── Progress Helpers ─────────────────────────────────────────────────────────
-
-function useGoalProgress(
-    goal: StudyGoal,
-    masteryList: ReturnType<typeof useConceptMasteryList>["data"],
-    stats: ReturnType<typeof useLearningStats>["data"],
-    attempts: ReturnType<typeof useUserAttempts>["data"],
-): { current: number; percent: number } {
-    return useMemo(() => {
-        let current = 0
-
-        if (goal.goal_type === "topic_mastery") {
-            if (goal.concept_id) {
-                const concept = (masteryList ?? []).find((m) => m.concept_id === goal.concept_id)
-                current = concept ? Math.round(concept.display_mastery_score) : 0
-            } else if (goal.document_id) {
-                const docConcepts = (masteryList ?? []).filter((m) => m.document_id === goal.document_id)
-                if (docConcepts.length > 0) {
-                    const total = docConcepts.reduce((acc, c) => acc + c.display_mastery_score, 0)
-                    current = Math.round(total / docConcepts.length)
-                }
-            }
-        } else if (goal.goal_type === "quiz_count") {
-            if (goal.quiz_id) {
-                const hasAttempt = (attempts ?? []).some((a) => a.quiz_id === goal.quiz_id)
-                current = hasAttempt ? 1 : 0
-            } else {
-                current = stats?.quizzesCompleted ?? 0
-            }
-        } else if (goal.goal_type === "overall_mastery") {
-            current = stats?.averageMastery ?? 0
-        }
-
-        let percent = 0
-        if (goal.target_value > 0) {
-            percent = Math.min(100, Math.round((current / goal.target_value) * 100))
-        }
-        return { current, percent }
-    }, [goal, masteryList, stats, attempts])
-}
-
-function goalTypeLabel(t: GoalType) {
-    switch (t) {
-        case "topic_mastery": return "Topic Mastery"
-        case "quiz_count": return "Quiz Completion"
-        case "overall_mastery": return "Overall Mastery"
-    }
-}
-
-function goalTypeIcon(t: GoalType) {
-    switch (t) {
-        case "topic_mastery": return <BookOpen className="w-4 h-4" />
-        case "quiz_count": return <Brain className="w-4 h-4" />
-        case "overall_mastery": return <TrendingUp className="w-4 h-4" />
-    }
-}
-
-function goalTypeUnit(t: GoalType) {
-    if (t === "quiz_count") return "quizzes"
-    return "%"
-}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function daysRemaining(deadline: string | null): string | null {
     if (!deadline) return null
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    const due = new Date(deadline + "T00:00:00")
+    const due = new Date(deadline.split('T')[0] + "T00:00:00")
     const diff = Math.floor((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
     if (diff < 0) return `${Math.abs(diff)}d overdue`
     if (diff === 0) return "Due today"
@@ -120,483 +54,344 @@ function daysRemaining(deadline: string | null): string | null {
     return `${diff}d left`
 }
 
-// ─── Goal Card ────────────────────────────────────────────────────────────────
+function getLatestScore(quizId: string, attempts: Attempt[] | undefined): number | null {
+    if (!attempts) return null
+    const quizAttempts = attempts
+        .filter(a => a.quiz_id === quizId && a.completed_at)
+        .sort((a, b) => new Date(b.completed_at!).getTime() - new Date(a.completed_at!).getTime())
+    return quizAttempts.length > 0 ? quizAttempts[0].score : null
+}
 
-function GoalCard({
-    goal,
-    masteryList,
-    stats,
-    attempts,
+// ─── Document Goal Card ───────────────────────────────────────────────────────
+
+function DocumentGoalCard({
+    doc,
+    onEdit,
 }: {
-    goal: StudyGoal
-    masteryList: ReturnType<typeof useConceptMasteryList>["data"]
-    stats: ReturnType<typeof useLearningStats>["data"]
-    attempts: ReturnType<typeof useUserAttempts>["data"]
+    doc: Document
+    onEdit: (doc: Document) => void
 }) {
-    const { current, percent } = useGoalProgress(goal, masteryList, stats, attempts)
-    const updateGoal = useUpdateGoal()
-    const deleteGoal = useDeleteGoal()
+    const updateDocument = useUpdateDocument()
+    const goalStatus = daysRemaining(doc.exam_date || null)
+    const isOverdue = goalStatus?.includes("overdue")
 
-    const isCompleted = goal.is_completed
-
-    const handleComplete = () => {
-        updateGoal.mutate(
-            { id: goal.id, is_completed: true, completed_at: new Date().toISOString() },
-            {
-                onSuccess: () => toast.success("Goal marked as complete! 🎉"),
-                onError: () => toast.error("Failed to update goal."),
-            }
-        )
-    }
-
-    const handleDelete = () => {
-        deleteGoal.mutate(goal.id, {
-            onSuccess: () => toast.info("Goal deleted."),
-            onError: () => toast.error("Failed to delete goal."),
+    const handleRemoveGoal = () => {
+        updateDocument.mutate({
+            documentId: doc.id,
+            updates: { exam_date: null }
+        }, {
+            onSuccess: () => toast.info("Goal date removed."),
+            onError: () => toast.error("Failed to remove goal date."),
         })
     }
 
-    const deadline = daysRemaining(goal.deadline)
-    const isOverdue = deadline?.includes("overdue")
-
     return (
-        <div
-            className={`rounded-xl border p-4 transition-all ${
-                isCompleted
-                    ? "bg-green-50 border-green-200"
-                    : "bg-card hover:bg-accent/5"
-            }`}
-        >
-            <div className="flex items-start gap-3">
-                {/* Icon */}
-                <div
-                    className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-                        isCompleted
-                            ? "bg-green-100 text-green-600"
-                            : "bg-primary/10 text-primary"
-                    }`}
-                >
-                    {isCompleted ? (
-                        <Trophy className="w-5 h-5" />
-                    ) : (
-                        goalTypeIcon(goal.goal_type)
-                    )}
-                </div>
+        <Card className={`overflow-hidden transition-all duration-200 border ${
+            isOverdue 
+                ? 'border-red-200 bg-red-50/30' 
+                : 'bg-card hover:shadow-md'
+        }`}>
+            <CardContent className="p-4">
+                <div className="flex items-start gap-4">
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
+                        isOverdue ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'
+                    }`}>
+                        <BookOpen className="w-6 h-6" />
+                    </div>
 
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                        <div className="min-w-0">
-                            <p className="font-semibold truncate text-sm">{goal.title}</p>
-                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                                    {goalTypeLabel(goal.goal_type)}
-                                </Badge>
-                                {isCompleted ? (
-                                    <Badge className="text-[10px] px-1.5 py-0 bg-green-100 text-green-700 border-green-200">
-                                        Completed ✓
-                                    </Badge>
-                                ) : null}
-                                {!isCompleted && deadline && (
-                                    <span
-                                        className={`flex items-center gap-1 text-[11px] font-medium ${
-                                            isOverdue ? "text-red-600" : "text-muted-foreground"
-                                        }`}
-                                    >
-                                        <Clock className="w-3 h-3" />
-                                        {deadline}
-                                    </span>
-                                )}
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                                <h4 className="font-bold text-base truncate pr-2 tracking-tight">{doc.title}</h4>
+                                <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest mt-0.5">
+                                    File Study Goal
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                                <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-8 w-8 text-muted-foreground hover:bg-accent"
+                                    onClick={() => onEdit(doc)}
+                                >
+                                    <CalendarDays className="w-4 h-4" />
+                                </Button>
+                                <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-8 w-8 text-muted-foreground hover:text-red-600 hover:bg-red-50"
+                                    onClick={handleRemoveGoal}
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </Button>
                             </div>
                         </div>
-                        {/* Actions */}
-                        <div className="flex items-center gap-1 shrink-0">
-                            {!isCompleted && (
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50"
-                                    onClick={handleComplete}
-                                    disabled={updateGoal.isPending}
-                                    title="Mark complete"
-                                >
-                                    {updateGoal.isPending ? (
-                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    ) : (
-                                        <CheckCircle2 className="w-3.5 h-3.5" />
-                                    )}
-                                </Button>
-                            )}
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 text-muted-foreground hover:text-red-600 hover:bg-red-50"
-                                onClick={handleDelete}
-                                disabled={deleteGoal.isPending}
-                                title="Delete goal"
-                            >
-                                {deleteGoal.isPending ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                )}
-                            </Button>
-                        </div>
-                    </div>
 
-                    {/* Progress */}
-                    <div className="mt-2 space-y-1">
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                            <span>
-                                {current}{goalTypeUnit(goal.goal_type)} / {goal.target_value}{goalTypeUnit(goal.goal_type)}
-                            </span>
-                            <span className={isCompleted ? "text-green-600 font-medium" : ""}>
-                                {percent}%
-                            </span>
+                        <div className="mt-4">
+                            {doc.exam_date && (
+                                <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ring-1 ${
+                                    isOverdue 
+                                        ? 'bg-red-100 text-red-700 ring-red-200' 
+                                        : 'bg-blue-100 text-blue-700 ring-blue-200'
+                                }`}>
+                                    <Clock className="w-3.5 h-3.5" />
+                                    {goalStatus}
+                                </div>
+                            )}
                         </div>
-                        <Progress
-                            value={percent}
-                            className={`h-2 ${isCompleted ? "[&>div]:bg-green-500" : ""}`}
-                        />
                     </div>
                 </div>
-            </div>
-        </div>
+            </CardContent>
+        </Card>
     )
 }
 
-// ─── Add Goal Dialog ──────────────────────────────────────────────────────────
+// ─── Quiz Goal Card ───────────────────────────────────────────────────────────
 
-function AddGoalDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-    const { data: masteryList } = useConceptMasteryList()
-    const { data: documents } = useDocuments()
-    const { data: quizzes } = useQuizzes()
-    const createGoal = useCreateGoal()
+function QuizGoalCard({
+    quiz,
+    doc,
+    latestScore,
+    onEdit,
+}: {
+    quiz: Quiz
+    doc: Document | undefined
+    latestScore: number | null
+    onEdit: (quiz: Quiz) => void
+}) {
+    const updateDocument = useUpdateDocument()
+    const goalStatus = daysRemaining(doc?.deadline || null)
+    const isOverdue = goalStatus?.includes("overdue")
+    const isMastered = latestScore !== null && latestScore >= 90
 
-    const [title, setTitle] = useState("")
-    const [goalType, setGoalType] = useState<GoalType>("overall_mastery")
-    const [targetValue, setTargetValue] = useState<string>("80")
-    
-    // topic_mastery sub-state
-    const [topicTargetType, setTopicTargetType] = useState<"concept" | "document">("concept")
-    const [conceptId, setConceptId] = useState<string>("")
-    const [documentId, setDocumentId] = useState<string>("")
-    
-    // quiz_count sub-state
-    const [quizTargetType, setQuizTargetType] = useState<"count" | "specific">("count")
-    const [quizId, setQuizId] = useState<string>("")
-    
-    const [deadline, setDeadline] = useState<string>("")
-
-    const reset = () => {
-        setTitle("")
-        setGoalType("overall_mastery")
-        setTargetValue("80")
-        setTopicTargetType("concept")
-        setConceptId("")
-        setDocumentId("")
-        setQuizTargetType("count")
-        setQuizId("")
-        setDeadline("")
-    }
-
-    const handleClose = () => {
-        reset()
-        onClose()
-    }
-
-    const handleSubmit = () => {
-        const parsed = parseInt(targetValue, 10)
-        if (!title.trim()) {
-            toast.error("Please enter a goal title.")
-            return
-        }
-        if (isNaN(parsed) || parsed <= 0) {
-            toast.error("Please enter a valid target value.")
-            return
-        }
-        if (goalType === "topic_mastery") {
-            if (topicTargetType === "concept" && !conceptId) {
-                toast.error("Please select a topic for this goal.")
-                return
-            }
-            if (topicTargetType === "document" && !documentId) {
-                toast.error("Please select a document for this goal.")
-                return
-            }
-        }
-        if (goalType === "quiz_count" && quizTargetType === "specific" && !quizId) {
-            toast.error("Please select a quiz for this goal.")
-            return
-        }
-
-        const finalTargetValue = (goalType === "quiz_count" && quizTargetType === "specific") ? 1 : parsed
-
-        // For topic mastery, auto-generate a better title if the user left it blank
-        createGoal.mutate(
-            {
-                title: title.trim(),
-                goal_type: goalType,
-                target_value: finalTargetValue,
-                concept_id: (goalType === "topic_mastery" && topicTargetType === "concept") ? (conceptId || null) : null,
-                document_id: (goalType === "topic_mastery" && topicTargetType === "document") ? (documentId || null) : null,
-                quiz_id: (goalType === "quiz_count" && quizTargetType === "specific") ? (quizId || null) : null,
-                deadline: deadline || null,
-            },
-            {
-                onSuccess: () => {
-                    toast.success("Goal created!")
-                    handleClose()
-                },
-                onError: (err) => {
-                    toast.error("Failed to create goal: " + (err as Error).message)
-                },
-            }
-        )
-    }
-
-    const getTargetPlaceholder = () => {
-        if (goalType === "quiz_count") return "e.g. 10"
-        return "e.g. 80"
-    }
-
-    const getTargetLabel = () => {
-        if (goalType === "quiz_count") return "Target (number of quizzes)"
-        return "Target Mastery (%)"
-    }
-
-    // Unique concepts from mastery list
-    const conceptOptions = useMemo(() => {
-        const seen = new Set<string>()
-        return (masteryList ?? []).filter((m) => {
-            if (seen.has(m.concept_id)) return false
-            seen.add(m.concept_id)
-            return true
+    const handleRemoveGoal = () => {
+        if (!doc) return
+        updateDocument.mutate({
+            documentId: doc.id,
+            updates: { deadline: null }
+        }, {
+            onSuccess: () => toast.info("Deadline removed."),
+            onError: () => toast.error("Failed to remove deadline."),
         })
-    }, [masteryList])
+    }
 
     return (
-        <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
+        <Card className={`overflow-hidden transition-all duration-200 border ${
+            isMastered 
+                ? 'bg-green-50/50 border-green-200 shadow-sm' 
+                : isOverdue 
+                    ? 'border-red-200 bg-red-50/30' 
+                    : 'bg-card hover:shadow-md'
+        }`}>
+            <CardContent className="p-4">
+                <div className="flex items-start gap-4">
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
+                        isMastered 
+                            ? 'bg-green-100 text-green-600' 
+                            : isOverdue
+                                ? 'bg-red-100 text-red-600'
+                                : 'bg-primary/10 text-primary'
+                    }`}>
+                        {isMastered ? <Trophy className="w-6 h-6" /> : <Target className="w-6 h-6" />}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                                <h4 className="font-bold text-base truncate pr-2 uppercase tracking-tight">{quiz.title}</h4>
+                                <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                                    <BookOpen className="w-3 h-3" />
+                                    {doc?.title || "Unknown Document"}
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                                <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-8 w-8 text-muted-foreground hover:bg-accent"
+                                    onClick={() => onEdit(quiz)}
+                                >
+                                    <CalendarDays className="w-4 h-4" />
+                                </Button>
+                                <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-8 w-8 text-muted-foreground hover:text-red-600 hover:bg-red-50"
+                                    onClick={handleRemoveGoal}
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </Button>
+                            </div>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+                            {doc?.deadline && (
+                                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ring-1 ${
+                                    isOverdue 
+                                        ? 'bg-red-100 text-red-700 ring-red-200' 
+                                        : 'bg-purple-100 text-purple-700 ring-purple-200'
+                                }`}>
+                                    <Clock className="w-3.5 h-3.5" />
+                                    {goalStatus}
+                                </div>
+                            )}
+
+                            {latestScore !== null ? (
+                                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ring-1 ${
+                                    isMastered ? 'bg-green-100 text-green-700 ring-green-200' : 'bg-blue-100 text-blue-700 ring-blue-200'
+                                }`}>
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    {latestScore}% Last Attempt
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700 ring-1 ring-amber-200 border-amber-200">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    No Attempts
+                                </div>
+                            )}
+                        </div>
+
+                        {latestScore !== null && (
+                            <div className="mt-4 space-y-1.5">
+                                <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
+                                    <span>Goal Progress</span>
+                                    <span>{latestScore}%</span>
+                                </div>
+                                <Progress value={latestScore} className={`h-1.5 ${isMastered ? '[&>div]:bg-green-500' : ''}`} />
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </CardContent>
+        </Card>
+    )
+}
+
+// ─── Set Goal Dialog ──────────────────────────────────────────────────────────
+
+function SetGoalDialog({ 
+    open, 
+    onClose, 
+    quizToEdit,
+    docToEdit
+}: { 
+    open: boolean; 
+    onClose: () => void; 
+    quizToEdit?: Quiz
+    docToEdit?: Document
+}) {
+    const { data: quizzes } = useQuizzes()
+    const { data: documents } = useDocuments()
+    const updateDocument = useUpdateDocument()
+    
+    const [selectedId, setSelectedId] = useState<string>("")
+    const [deadline, setDeadline] = useState<string>("")
+    const [goalType, setGoalType] = useState<"quiz" | "file">(quizToEdit ? "quiz" : docToEdit ? "file" : "file")
+
+    useEffect(() => {
+        if (quizToEdit) {
+            setGoalType("quiz")
+            setSelectedId(quizToEdit.id)
+            const parentDoc = documents?.find(d => d.id === quizToEdit.document_id)
+            setDeadline(parentDoc?.deadline ? parentDoc.deadline.split('T')[0] : "")
+        } else if (docToEdit) {
+            setGoalType("file")
+            setSelectedId(docToEdit.id)
+            setDeadline(docToEdit.exam_date ? docToEdit.exam_date.split('T')[0] : "")
+        } else {
+            setSelectedId("")
+            setDeadline("")
+        }
+    }, [quizToEdit, docToEdit, open])
+
+    const handleSubmit = () => {
+        if (!selectedId || !deadline) {
+            toast.error("Please fill all fields.")
+            return
+        }
+
+        if (goalType === "quiz") {
+            const quiz = quizzes?.find(q => q.id === selectedId)
+            if (!quiz) return
+
+            updateDocument.mutate({
+                documentId: quiz.document_id,
+                updates: { deadline },
+            }, {
+                onSuccess: () => {
+                    toast.success("Quiz deadline set!")
+                    onClose()
+                },
+                onError: (err) => toast.error("Failed: " + err.message)
+            })
+        } else {
+            updateDocument.mutate({
+                documentId: selectedId,
+                updates: { exam_date: deadline },
+            }, {
+                onSuccess: () => {
+                    toast.success("File goal set!")
+                    onClose()
+                },
+                onError: (err) => toast.error("Failed: " + err.message)
+            })
+        }
+    }
+
+    return (
+        <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Target className="w-5 h-5 text-primary" />
-                        Add Study Goal
+                        {quizToEdit || docToEdit ? 'Update Goal' : 'Set New Study Goal'}
                     </DialogTitle>
-                    <DialogDescription>
-                        Set a goal to keep yourself on track and motivated.
-                    </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-4 py-2">
-                    {/* Goal Type */}
-                    <div className="space-y-1.5">
-                        <Label htmlFor="goal-type">Goal Type</Label>
-                        <Select
-                            value={goalType}
-                            onValueChange={(v) => {
-                                setGoalType(v as GoalType)
-                                setConceptId("")
-                                setDocumentId("")
-                                setQuizId("")
-                                setTopicTargetType("concept")
-                                setQuizTargetType("count")
-                                if (v === "quiz_count") setTargetValue("10")
-                                else setTargetValue("80")
-                            }}
-                        >
-                            <SelectTrigger id="goal-type">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="overall_mastery">
-                                    <div className="flex items-center gap-2">
-                                        <TrendingUp className="w-4 h-4 text-blue-500" />
-                                        Overall Mastery
-                                    </div>
-                                </SelectItem>
-                                <SelectItem value="topic_mastery">
-                                    <div className="flex items-center gap-2">
-                                        <BookOpen className="w-4 h-4 text-yellow-500" />
-                                        Topic Mastery
-                                    </div>
-                                </SelectItem>
-                                <SelectItem value="quiz_count">
-                                    <div className="flex items-center gap-2">
-                                        <Brain className="w-4 h-4 text-purple-500" />
-                                        Quiz Completion
-                                    </div>
-                                </SelectItem>
-                            </SelectContent>
-                        </Select>
-                        <p className="text-xs text-muted-foreground">
-                            {goalType === "overall_mastery" && "Track your average mastery across all topics."}
-                            {goalType === "topic_mastery" && "Track mastery for a specific concept or document."}
-                            {goalType === "quiz_count" && "Track completed quizzes or complete a specific quiz."}
-                        </p>
-                    </div>
-
-                    {/* Topic Mastery Options */}
-                    {goalType === "topic_mastery" && (
-                        <div className="space-y-4 border-l-2 pl-4 border-muted">
-                            <div className="space-y-1.5">
-                                <Label>What do you want to master?</Label>
-                                <div className="flex gap-4 mt-2">
-                                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                        <input type="radio" checked={topicTargetType === "concept"} onChange={() => setTopicTargetType("concept")} /> Specific Topic
-                                    </label>
-                                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                        <input type="radio" checked={topicTargetType === "document"} onChange={() => setTopicTargetType("document")} /> Entire Document
-                                    </label>
-                                </div>
-                            </div>
-
-                            {topicTargetType === "concept" && (
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="goal-concept">Select Topic</Label>
-                                    <Select value={conceptId} onValueChange={setConceptId}>
-                                        <SelectTrigger id="goal-concept">
-                                            <SelectValue placeholder="Select a concept…" />
-                                        </SelectTrigger>
-                                        <SelectContent className="max-h-52">
-                                            {conceptOptions.length === 0 ? (
-                                                <SelectItem value="__none" disabled>
-                                                    No concepts tracked yet
-                                                </SelectItem>
-                                            ) : (
-                                                conceptOptions.map((c) => (
-                                                    <SelectItem key={c.concept_id} value={c.concept_id}>
-                                                        {c.concept_name}
-                                                        {c.document_title ? ` · ${c.document_title}` : ""}
-                                                    </SelectItem>
-                                                ))
-                                            )}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            )}
-
-                            {topicTargetType === "document" && (
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="goal-document">Select Document</Label>
-                                    <Select value={documentId} onValueChange={setDocumentId}>
-                                        <SelectTrigger id="goal-document">
-                                            <SelectValue placeholder="Select a document…" />
-                                        </SelectTrigger>
-                                        <SelectContent className="max-h-52">
-                                            {(!documents || documents.length === 0) ? (
-                                                <SelectItem value="__none" disabled>
-                                                    No documents available
-                                                </SelectItem>
-                                            ) : (
-                                                documents.map((d) => (
-                                                    <SelectItem key={d.id} value={d.id}>
-                                                        {d.title}
-                                                    </SelectItem>
-                                                ))
-                                            )}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            )}
-                        </div>
+                <Tabs value={goalType} onValueChange={(v) => setGoalType(v as any)} className="w-full">
+                    {!quizToEdit && !docToEdit && (
+                        <TabsList className="grid w-full grid-cols-2 mb-4">
+                            <TabsTrigger value="file">File Goal</TabsTrigger>
+                            <TabsTrigger value="quiz">Quiz Deadline</TabsTrigger>
+                        </TabsList>
                     )}
 
-                    {/* Quiz Completion Options */}
-                    {goalType === "quiz_count" && (
-                        <div className="space-y-4 border-l-2 pl-4 border-muted">
-                            <div className="space-y-1.5">
-                                <Label>Select Target Type</Label>
-                                <div className="flex gap-4 mt-2">
-                                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                        <input type="radio" checked={quizTargetType === "count"} onChange={() => setQuizTargetType("count")} /> Number of Quizzes
-                                    </label>
-                                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                        <input type="radio" checked={quizTargetType === "specific"} onChange={() => setQuizTargetType("specific")} /> Specific Quiz
-                                    </label>
-                                </div>
-                            </div>
-
-                            {quizTargetType === "specific" && (
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="goal-quiz">Select Quiz</Label>
-                                    <Select value={quizId} onValueChange={setQuizId}>
-                                        <SelectTrigger id="goal-quiz">
-                                            <SelectValue placeholder="Select a quiz…" />
-                                        </SelectTrigger>
-                                        <SelectContent className="max-h-52">
-                                            {(!quizzes || quizzes.length === 0) ? (
-                                                <SelectItem value="__none" disabled>
-                                                    No active quizzes available
-                                                </SelectItem>
-                                            ) : (
-                                                quizzes.map((q) => (
-                                                    <SelectItem key={q.id} value={q.id}>
-                                                        {q.title}
-                                                    </SelectItem>
-                                                ))
-                                            )}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Title */}
-                    <div className="space-y-1.5">
-                        <Label htmlFor="goal-title">Goal Title</Label>
-                        <Input
-                            id="goal-title"
-                            placeholder="e.g. Master Photosynthesis by finals"
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                        />
-                    </div>
-
-                    {/* Target */}
-                    {!(goalType === "quiz_count" && quizTargetType === "specific") && (
+                    <div className="space-y-4 py-2">
                         <div className="space-y-1.5">
-                            <Label htmlFor="goal-target">{getTargetLabel()}</Label>
+                            <Label>{goalType === "file" ? "Select Document" : "Select Quiz"}</Label>
+                            <Select value={selectedId} onValueChange={setSelectedId} disabled={!!quizToEdit || !!docToEdit}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder={goalType === "file" ? "Choose file…" : "Choose quiz…"} />
+                                </SelectTrigger>
+                                <SelectContent className="max-h-52">
+                                    {goalType === "file" ? (
+                                        documents?.map(d => <SelectItem key={d.id} value={d.id}>{d.title}</SelectItem>)
+                                    ) : (
+                                        quizzes?.map(q => <SelectItem key={q.id} value={q.id}>{q.title}</SelectItem>)
+                                    )}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <Label className="flex items-center gap-1.5">
+                                <CalendarDays className="w-3.5 h-3.5" />
+                                Target Date
+                            </Label>
                             <Input
-                                id="goal-target"
-                                type="number"
-                                min={1}
-                                max={goalType === "quiz_count" ? 10000 : 100}
-                                placeholder={getTargetPlaceholder()}
-                                value={targetValue}
-                                onChange={(e) => setTargetValue(e.target.value)}
+                                type="date"
+                                value={deadline}
+                                onChange={(e) => setDeadline(e.target.value)}
+                                min={new Date().toISOString().split("T")[0]}
                             />
                         </div>
-                    )}
-
-                    {/* Deadline */}
-                    <div className="space-y-1.5">
-                        <Label htmlFor="goal-deadline" className="flex items-center gap-1.5">
-                            <CalendarDays className="w-3.5 h-3.5" />
-                            Deadline (optional)
-                        </Label>
-                        <Input
-                            id="goal-deadline"
-                            type="date"
-                            value={deadline}
-                            onChange={(e) => setDeadline(e.target.value)}
-                            min={new Date().toISOString().split("T")[0]}
-                        />
                     </div>
-                </div>
+                </Tabs>
 
-                <DialogFooter className="gap-2">
-                    <Button variant="outline" onClick={handleClose} disabled={createGoal.isPending}>
-                        Cancel
-                    </Button>
-                    <Button onClick={handleSubmit} disabled={createGoal.isPending} className="gap-2">
-                        {createGoal.isPending ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                            <Plus className="w-4 h-4" />
-                        )}
-                        Add Goal
+                <DialogFooter>
+                    <Button variant="outline" onClick={onClose}>Cancel</Button>
+                    <Button onClick={handleSubmit} className="bg-primary hover:bg-primary/90">
+                        {quizToEdit || docToEdit ? 'Update Goal' : 'Set Goal'}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -607,137 +402,146 @@ function AddGoalDialog({ open, onClose }: { open: boolean; onClose: () => void }
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
 export function StudyGoalsPanel() {
-    const { data: goals, isLoading, isError } = useStudyGoals()
-    const { data: masteryList } = useConceptMasteryList()
-    const { data: stats } = useLearningStats()
-    const { data: attempts } = useUserAttempts()
+    const { data: documents, isLoading: docsLoading } = useDocuments()
+    const { data: quizzes, isLoading: quizzesLoading, isError: quizzesError } = useQuizzes()
+    const { data: allAttempts } = useUserAttempts()
+    
     const [showAddDialog, setShowAddDialog] = useState(false)
+    const [quizToEdit, setQuizToEdit] = useState<Quiz | undefined>(undefined)
+    const [docToEdit, setDocToEdit] = useState<Document | undefined>(undefined)
 
-    const activeGoals = (goals ?? []).filter((g) => !g.is_completed)
-    const completedGoals = (goals ?? []).filter((g) => g.is_completed)
+    const docsWithGoals = useMemo(() => {
+        if (!documents) return []
+        return documents.filter(d => d.exam_date).sort((a, b) => {
+            return new Date(a.exam_date!).getTime() - new Date(b.exam_date!).getTime()
+        })
+    }, [documents])
+
+    const quizzesWithDeadlines = useMemo(() => {
+        if (!quizzes || !documents) return []
+        return quizzes.filter(q => {
+            const doc = documents.find(d => d.id === q.document_id)
+            return !!doc?.deadline
+        }).sort((a, b) => {
+            const docA = documents.find(d => d.id === a.document_id)
+            const docB = documents.find(d => d.id === b.document_id)
+            return new Date(docA!.deadline!).getTime() - new Date(docB!.deadline!).getTime()
+        })
+    }, [quizzes, documents])
+
+    const handleEditQuiz = (quiz: Quiz) => {
+        setQuizToEdit(quiz)
+        setDocToEdit(undefined)
+        setShowAddDialog(true)
+    }
+
+    const handleEditDoc = (doc: Document) => {
+        setDocToEdit(doc)
+        setQuizToEdit(undefined)
+        setShowAddDialog(true)
+    }
+
+    const handleAddGoal = () => {
+        setQuizToEdit(undefined)
+        setDocToEdit(undefined)
+        setShowAddDialog(true)
+    }
 
     return (
-        <main className="container mx-auto px-4 py-8">
-            <div className="space-y-6">
-                {/* Header */}
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center">
-                            <Target className="w-6 h-6 text-primary" />
+        <div className="container mx-auto px-1 sm:px-4 py-8">
+            <div className="space-y-6 mb-8">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 bg-white/50 p-6 rounded-2xl border border-border/50 backdrop-blur-sm shadow-sm">
+                    <div className="flex items-center gap-4">
+                        <div className="w-14 h-14 shrink-0 rounded-2xl bg-primary/10 flex items-center justify-center shadow-inner">
+                            <Target className="w-7 h-7 text-primary" />
                         </div>
                         <div>
-                            <h1 className="text-2xl sm:text-3xl font-bold">Study Goals</h1>
-                            <p className="text-sm sm:text-base text-muted-foreground">
-                                Set milestones and track your learning progress
+                            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">Study Goals & Deadlines</h1>
+                            <p className="text-sm sm:text-base text-muted-foreground font-medium">
+                                Plan your learning path by setting targets for files and assessments
                             </p>
                         </div>
                     </div>
-                    <Button onClick={() => setShowAddDialog(true)} className="gap-2 w-full sm:w-auto">
-                        <Plus className="w-4 h-4" />
-                        Add Goal
+                    <Button onClick={handleAddGoal} size="lg" className="gap-2 w-full sm:w-auto shadow-md hover:shadow-lg transition-all rounded-xl">
+                        <Plus className="w-5 h-5" />
+                        Set New Goal
                     </Button>
                 </div>
-
-                {/* Stats Summary */}
-                {(goals ?? []).length > 0 && (
-                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-2">
-                        <Card>
-                            <CardContent className="pt-5 pb-4 text-center">
-                                <p className="text-2xl font-bold text-primary">{activeGoals.length}</p>
-                                <p className="text-xs text-muted-foreground mt-1">Active</p>
-                            </CardContent>
-                        </Card>
-                        <Card>
-                            <CardContent className="pt-5 pb-4 text-center">
-                                <p className="text-2xl font-bold text-green-600">{completedGoals.length}</p>
-                                <p className="text-xs text-muted-foreground mt-1">Completed</p>
-                            </CardContent>
-                        </Card>
-                    </div>
-                )}
-
-                {/* Loading */}
-                {isLoading ? (
-                    <div className="flex items-center justify-center py-16">
-                        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                    </div>
-                ) : isError ? (
-                    <Card>
-                        <CardContent className="py-12 text-center text-muted-foreground">
-                            Failed to load goals. Please refresh the page.
-                        </CardContent>
-                    </Card>
-                ) : (goals ?? []).length === 0 ? (
-                    /* Empty State */
-                    <Card>
-                        <CardContent className="py-16 text-center">
-                            <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                                <Target className="w-8 h-8 text-primary" />
-                            </div>
-                            <h3 className="text-lg font-semibold mb-2">No goals yet</h3>
-                            <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
-                                Create your first study goal to stay motivated and track your progress toward learning milestones.
-                            </p>
-                            <Button onClick={() => setShowAddDialog(true)} className="gap-2">
-                                <Plus className="w-4 h-4" />
-                                Add Your First Goal
-                            </Button>
-                        </CardContent>
-                    </Card>
-                ) : (
-                    <div className="space-y-6">
-                        {/* Active Goals */}
-                        {activeGoals.length > 0 && (
-                            <Card>
-                                <CardHeader className="pb-3">
-                                    <CardTitle className="text-base flex items-center gap-2">
-                                        <Target className="w-4 h-4 text-primary" />
-                                        Active Goals
-                                        <Badge variant="outline" className="ml-auto">{activeGoals.length}</Badge>
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent className="space-y-3">
-                                    {activeGoals.map((goal) => (
-                                        <GoalCard
-                                            key={goal.id}
-                                            goal={goal}
-                                            masteryList={masteryList}
-                                            stats={stats}
-                                            attempts={attempts}
-                                        />
-                                    ))}
-                                </CardContent>
-                            </Card>
-                        )}
-
-                        {/* Completed Goals */}
-                        {completedGoals.length > 0 && (
-                            <Card>
-                                <CardHeader className="pb-3">
-                                    <CardTitle className="text-base flex items-center gap-2">
-                                        <Trophy className="w-4 h-4 text-green-600" />
-                                        Completed Goals
-                                        <Badge variant="outline" className="ml-auto">{completedGoals.length}</Badge>
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent className="space-y-3">
-                                    {completedGoals.map((goal) => (
-                                        <GoalCard
-                                            key={goal.id}
-                                            goal={goal}
-                                            masteryList={masteryList}
-                                            stats={stats}
-                                            attempts={attempts}
-                                        />
-                                    ))}
-                                </CardContent>
-                            </Card>
-                        )}
-                    </div>
-                )}
             </div>
 
-            <AddGoalDialog open={showAddDialog} onClose={() => setShowAddDialog(false)} />
-        </main>
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+                {/* Left Column: File Study Goals */}
+                <div className="xl:col-span-4 space-y-6">
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-lg font-bold flex items-center gap-2">
+                            <BookOpen className="w-5 h-5 text-blue-500" />
+                            File Study Goals
+                        </h2>
+                    </div>
+
+                    <div className="space-y-4">
+                        {docsLoading ? (
+                             <div className="flex justify-center p-8"><Loader2 className="w-6 h-6 animate-spin opacity-20" /></div>
+                        ) : docsWithGoals.length === 0 ? (
+                            <div className="text-center py-12 border-2 border-dashed rounded-xl bg-muted/10 opacity-60">
+                                <p className="text-xs font-medium text-muted-foreground">No file goals set</p>
+                            </div>
+                        ) : (
+                            docsWithGoals.map(doc => (
+                                <DocumentGoalCard key={doc.id} doc={doc} onEdit={handleEditDoc} />
+                            ))
+                        )}
+                    </div>
+                </div>
+
+                {/* Middle Column: Quiz Deadlines */}
+                <div className="xl:col-span-5 space-y-6">
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-lg font-bold flex items-center gap-2">
+                            <Sparkles className="w-5 h-5 text-purple-500" />
+                            Quiz Deadlines
+                        </h2>
+                    </div>
+
+                    <div className="space-y-4">
+                        {quizzesLoading ? (
+                             <div className="flex justify-center p-8"><Loader2 className="w-6 h-6 animate-spin opacity-20" /></div>
+                        ) : quizzesError ? (
+                            <Card className="border-red-200 bg-red-50/50"><CardContent className="py-12 text-center text-red-600 font-medium">Failed to load quizzes.</CardContent></Card>
+                        ) : quizzesWithDeadlines.length === 0 ? (
+                            <div className="text-center py-12 border-2 border-dashed rounded-xl bg-muted/10 opacity-60">
+                                <p className="text-xs font-medium text-muted-foreground">No quiz deadlines set</p>
+                            </div>
+                        ) : (
+                            quizzesWithDeadlines.map((quiz) => (
+                                <QuizGoalCard 
+                                    key={quiz.id} 
+                                    quiz={quiz} 
+                                    doc={documents?.find(d => d.id === quiz.document_id)}
+                                    latestScore={getLatestScore(quiz.id, allAttempts)}
+                                    onEdit={handleEditQuiz}
+                                />
+                            ))
+                        )}
+                    </div>
+                </div>
+
+                {/* Right Column: Sidebar */}
+                <div className="xl:col-span-3 space-y-6">
+                    <h2 className="text-lg font-bold flex items-center gap-2">
+                        <CalendarDays className="w-5 h-5 text-muted-foreground" />
+                        Summary
+                    </h2>
+                    <ExamManager />
+                </div>
+            </div>
+
+            <SetGoalDialog 
+                open={showAddDialog} 
+                onClose={() => setShowAddDialog(false)} 
+                quizToEdit={quizToEdit}
+                docToEdit={docToEdit}
+            />
+        </div>
     )
 }

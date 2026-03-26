@@ -19,10 +19,11 @@ import {
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { Document } from '@/hooks/useDocuments'
-import { useProcessDocument } from '@/hooks/useDocuments'
+import { useProcessDocument, useUpdateDocument } from '@/hooks/useDocuments'
+import { useGenerateFlashcards } from '@/hooks/useFlashcards'
 import { getFileUrl, formatFileSize } from '@/lib/storage'
 import { GenerateQuizDialog } from './GenerateQuizDialog'
-import { useGenerateFlashcards } from '@/hooks/useFlashcards'
+
 
 interface StudyHeaderProps {
     document: Document
@@ -84,9 +85,18 @@ function ProcessingQualityBadge({ quality }: { quality: number }) {
 
 export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
     const processDocument = useProcessDocument()
+    const updateDocument = useUpdateDocument()
     const [downloadingUrl, setDownloadingUrl] = useState(false)
     const [quizDialogOpen, setQuizDialogOpen] = useState(false)
     const generateFlashcards = useGenerateFlashcards()
+
+    const handleGoalDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = e.target.value
+        updateDocument.mutate({
+            documentId: document.id,
+            updates: { exam_date: val ? new Date(val).toISOString() : null }
+        }, { onSuccess: () => refetchDoc() })
+    }
 
     const status = STATUS_MAP[document.status] || STATUS_MAP.pending
     const StatusIcon = status.icon
@@ -104,6 +114,8 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
             setDownloadingUrl(false)
         }
     }
+
+
 
     return (
         <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b pb-4 mb-6">
@@ -135,6 +147,18 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
+
+                    <div className="flex items-center gap-2 bg-muted/50 px-3 py-1.5 rounded-md border text-sm mr-2">
+                        <Clock className="w-4 h-4 text-muted-foreground mr-1" />
+                        <span className="text-muted-foreground">Study Goal:</span>
+                        <input
+                            type="date"
+                            className="bg-transparent border-none border-b border-muted hover:border-primary outline-none text-sm w-[120px] cursor-pointer transition-colors"
+                            value={document.exam_date ? new Date(document.exam_date).toISOString().split('T')[0] : ''}
+                            onChange={handleGoalDateChange}
+                            disabled={updateDocument.isPending}
+                        />
+                    </div>
                     <Button variant="outline" className="gap-2" onClick={handleDownload} disabled={downloadingUrl}>
                         {downloadingUrl ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                         Download
