@@ -67,6 +67,7 @@ export interface GenerateQuizInput {
     questionCount?: number
     difficulty?: string
     questionTypes?: QuizTypeId[]
+    questionTypeTargets?: Partial<Record<QuizTypeId, number>>
     enhanceWithLlm?: boolean
 }
 
@@ -282,6 +283,7 @@ export function useGenerateQuiz() {
                         questionTypes: input.questionTypes && input.questionTypes.length > 0
                             ? input.questionTypes
                             : ALL_QUIZ_TYPES,
+                        questionTypeTargets: input.questionTypeTargets ?? undefined,
                         enhanceWithLlm: input.enhanceWithLlm ?? true,
                         userId: session.user.id,
                     },

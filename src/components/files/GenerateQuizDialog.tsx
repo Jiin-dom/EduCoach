@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import { useGenerateQuiz } from '@/hooks/useQuizzes'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ALL_QUIZ_TYPES, type QuizTypeId } from '@/types/quiz'
+import { computeBalancedQuizTypeTargets, formatQuizTypeTargetsForHumans } from '@/lib/quizAllocation'
 
 interface GenerateQuizDialogProps {
     open: boolean
@@ -39,6 +40,12 @@ export function GenerateQuizDialog({ open, onOpenChange, documentId }: GenerateQ
     const rotatingIndex = useRef(0)
 
     const isBusy = phase === 'generating'
+
+    const { stableSelectedTypes, targetsByType } = computeBalancedQuizTypeTargets({
+        totalCount: questionCount,
+        selectedTypes,
+    })
+    const breakdownText = formatQuizTypeTargetsForHumans({ stableSelectedTypes, targetsByType })
 
     useEffect(() => {
         if (!isBusy) return
@@ -76,7 +83,14 @@ export function GenerateQuizDialog({ open, onOpenChange, documentId }: GenerateQ
         rotatingIndex.current = 0
         setRotatingMsg(GENERATING_MESSAGES[0])
         generateQuiz.mutate(
-            { documentId, questionCount, difficulty, questionTypes: selectedTypes, enhanceWithLlm: true },
+            {
+                documentId,
+                questionCount,
+                difficulty,
+                questionTypes: selectedTypes,
+                questionTypeTargets: targetsByType,
+                enhanceWithLlm: true,
+            },
             {
                 onSuccess: (data) => {
                     setPhase('success')
@@ -213,6 +227,11 @@ export function GenerateQuizDialog({ open, onOpenChange, documentId }: GenerateQ
                                             )
                                         })}
                                     </div>
+                                    {selectedTypes.length > 0 && breakdownText && (
+                                        <p className="mt-2 text-[11px] text-muted-foreground">
+                                            Breakdown: {breakdownText}
+                                        </p>
+                                    )}
                                     {typeError && (
                                         <p className="mt-1 text-[11px] text-destructive">
                                             {typeError}

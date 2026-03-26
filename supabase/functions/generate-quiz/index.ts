@@ -12,6 +12,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0"
+import { computeBalancedQuizTypeTargets } from "./quizAllocation.ts"
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -26,6 +27,8 @@ interface GenerateQuizRequest {
     questionCount?: number
     difficulty?: string
     questionTypes?: string[]
+    /** Optional: client-provided targets (server recomputes for safety) */
+    questionTypeTargets?: Record<string, number>
     enhanceWithLlm?: boolean
     /** Optional: user ID for mastery-aware generation */
     userId?: string
@@ -71,6 +74,7 @@ interface NlpGenerateQuestionsPayload {
     chunks: NlpChunkPayload[]
     all_keyphrases: string[]
     question_types: string[]
+    question_type_targets?: Record<string, number>
     max_questions_per_chunk: number
     max_total_questions: number
     difficulty: string
@@ -131,10 +135,17 @@ serve(async (req) => {
             questionCount = 10,
             difficulty = 'mixed',
             questionTypes = ['multiple_choice', 'identification', 'true_false', 'fill_in_blank'],
+            questionTypeTargets: _clientQuestionTypeTargets,
             enhanceWithLlm = true,
             userId: requestUserId,
             focusConceptIds,
         } = body
+
+        const { stableSelectedTypes: stableQuestionTypes, targetsByType: requestedTargetsByType } =
+            computeBalancedQuizTypeTargets({
+                totalCount: questionCount,
+                selectedTypes: questionTypes,
+            })
 
         if (!documentId) {
             throw new Error('INVALID_REQUEST:Document ID is required.')
@@ -377,6 +388,7 @@ serve(async (req) => {
                     chunks: nlpChunks,
                     all_keyphrases: allKeyphrases,
                     question_types: questionTypes,
+                    question_type_targets: requestedTargetsByType as Record<string, number>,
                     max_questions_per_chunk: Math.min(5, Math.ceil(questionCount / Math.max(1, chunks.length)) + 1),
                     max_total_questions: questionCount,
                     difficulty: nlpDifficulty,
@@ -443,6 +455,99 @@ serve(async (req) => {
             console.log('ℹ️ NLP_SERVICE_URL not configured, skipping template AQG')
         }
 
+        // If the NLP service returned fewer questions than requested, attempt deterministic supplementation
+        // using the remaining per-type quotas (and then stable-order rebalance) while respecting selected types.
+        if (usedNlpService && nlpServiceUrl && questions.length < questionCount) {
+            const normalizeKey = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+            const dedupByText = (qs: NlpQuestion[]) => {
+                const seen = new Set<string>()
+                const out: NlpQuestion[] = []
+                for (const q of qs) {
+                    const key = normalizeKey(q.question_text)
+                    if (!key || seen.has(key)) continue
+                    seen.add(key)
+                    out.push(q)
+                }
+                return out
+            }
+
+            for (let attempt = 1; attempt <= 2 && questions.length < questionCount; attempt++) {
+                const actualByType = countQuestionsByType(questions)
+                const missingTotal = questionCount - questions.length
+
+                const supplementalTargets: Record<string, number> = {}
+                let supplementalSum = 0
+                for (const t of stableQuestionTypes) {
+                    const target = (requestedTargetsByType as Record<string, number>)[t] || 0
+                    const actual = actualByType[t] || 0
+                    const remaining = Math.max(0, target - actual)
+                    if (remaining > 0) {
+                        supplementalTargets[t] = remaining
+                        supplementalSum += remaining
+                    }
+                }
+
+                // If we still need more, rebalance across selected types in stable order.
+                if (supplementalSum < missingTotal) {
+                    let toAdd = missingTotal - supplementalSum
+                    for (const t of stableQuestionTypes) {
+                        if (toAdd <= 0) break
+                        supplementalTargets[t] = (supplementalTargets[t] || 0) + 1
+                        toAdd -= 1
+                    }
+                }
+
+                const willRequest = Object.values(supplementalTargets).reduce((a, b) => a + b, 0)
+                if (willRequest <= 0) break
+
+                console.log(`🧩 Supplementing questions (attempt=${attempt}) missing=${missingTotal} targets=${JSON.stringify(supplementalTargets)}`)
+
+                try {
+                    const timeoutMs = parseTimeoutMs(Deno.env.get('NLP_SERVICE_TIMEOUT_MS'), 60000)
+                    const supplementPayload: NlpGenerateQuestionsPayload = {
+                        chunks: nlpChunks,
+                        all_keyphrases: allKeyphrases,
+                        question_types: questionTypes,
+                        question_type_targets: supplementalTargets,
+                        max_questions_per_chunk: Math.min(5, Math.ceil(willRequest / Math.max(1, chunks.length)) + 1),
+                        max_total_questions: willRequest,
+                        difficulty: nlpDifficulty,
+                        concepts: conceptInfo,
+                    }
+                    if (hasSlidePages) supplementPayload.document_type = 'slides'
+                    if (masteryMap.size > 0) {
+                        supplementPayload.mastery_context = activeConceptList.map(c => ({
+                            concept_name: c.name,
+                            mastery_level: masteryMap.get(c.id)?.mastery_level ?? 'unknown',
+                            mastery_score: masteryMap.get(c.id)?.mastery_score ?? null,
+                            adaptive_difficulty: getAdaptiveDifficulty(c.id),
+                        }))
+                    }
+
+                    const resp = await fetchWithTimeout(
+                        `${nlpServiceUrl}/generate-questions`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(supplementPayload),
+                        },
+                        timeoutMs
+                    )
+
+                    if (resp.ok) {
+                        const data = await resp.json()
+                        if (data.success && data.questions?.length) {
+                            questions = dedupByText([...questions, ...data.questions]).slice(0, questionCount)
+                            console.log(`🧩 Supplement added=${data.questions.length} total_now=${questions.length}`)
+                        }
+                    }
+                } catch (e) {
+                    console.warn('⚠️ Supplement attempt failed:', (e as Error).message)
+                    break
+                }
+            }
+        }
+
         // 7. Gemini enhancement or fallback
         const canUseGemini = Boolean(geminiApiKey)
 
@@ -455,6 +560,7 @@ serve(async (req) => {
                 activeConceptList,
                 questionCount,
                 questionTypes,
+                requestedTargetsByType as Record<string, number>,
                 geminiApiKey!,
                 nlpDifficulty
             )
@@ -598,6 +704,7 @@ async function generateWithGemini(
     concepts: Array<{ name: string; description?: string; keywords?: string[] }>,
     questionCount: number,
     questionTypes: string[],
+    questionTypeTargets: Record<string, number> | null,
     apiKey: string,
     difficulty: string = 'mixed'
 ): Promise<NlpQuestion[]> {
@@ -622,6 +729,10 @@ async function generateWithGemini(
         ? 'Mix difficulty levels across beginner, intermediate, and advanced.'
         : `Target difficulty level: ${difficulty}. Most questions should be ${difficulty}.`
 
+    const targetMixInstruction = questionTypeTargets && Object.keys(questionTypeTargets).length > 0
+        ? `Use this exact type mix (counts per type): ${JSON.stringify(questionTypeTargets)}.`
+        : 'Mix the types roughly evenly.'
+
     const prompt = `You are an expert academic tutor creating a quiz from a study document.
 
 DOCUMENT TITLE: ${document.title}
@@ -636,7 +747,7 @@ ${textSample.substring(0, 6000)}
 DIFFICULTY: ${difficultyInstruction}
 
 Generate exactly ${questionCount} quiz questions using these types: ${typeDescriptions}.
-Mix the types roughly evenly. Every question must be grounded in the document text above.
+${targetMixInstruction} Every question must be grounded in the document text above.
 Ensure questions cover different concepts — avoid asking multiple questions about the same topic.
 
 For each question provide:
