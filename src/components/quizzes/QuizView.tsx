@@ -10,8 +10,8 @@ import {
     CheckCircle2, XCircle, ArrowRight, ArrowLeft, Trophy,
     Loader2, AlertCircle, ArrowUpRight, RotateCcw
 } from "lucide-react"
-import { useNavigate, useParams, Link } from "react-router-dom"
-import { useQuiz, useQuizQuestions, useSubmitAttempt, useGenerateQuiz } from "@/hooks/useQuizzes"
+import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom"
+import { useQuiz, useQuizQuestions, useSubmitAttempt, useGenerateQuiz, useQuizAttempts } from "@/hooks/useQuizzes"
 import type { QuizQuestion, AttemptAnswer } from "@/hooks/useQuizzes"
 import { useProcessQuizResults } from "@/hooks/useLearning"
 
@@ -99,8 +99,12 @@ export function QuizView() {
     const startedAtRef = useRef(new Date().toISOString())
     const startTimestampRef = useRef(Date.now())
 
+    const [searchParams] = useSearchParams()
+    const reviewMode = searchParams.get('review') === 'true'
+
     const { data: quiz, isLoading: quizLoading, error: quizError } = useQuiz(id)
     const { data: questions, isLoading: questionsLoading } = useQuizQuestions(id)
+    const { data: attempts, isLoading: attemptsLoading } = useQuizAttempts(id)
     const submitAttempt = useSubmitAttempt()
     const processQuizResults = useProcessQuizResults()
     const retryGenerate = useGenerateQuiz()
@@ -109,6 +113,19 @@ export function QuizView() {
     const [answers, setAnswers] = useState<Record<string, string>>({})
     const [showResults, setShowResults] = useState(false)
     const [elapsedSeconds, setElapsedSeconds] = useState(0)
+
+    // Load past attempt if in review mode
+    useEffect(() => {
+        if (reviewMode && attempts && attempts.length > 0 && questions && questions.length > 0) {
+            const latestAttempt = attempts[0]
+            const pastAnswers: Record<string, string> = {}
+            latestAttempt.answers.forEach(a => {
+                pastAnswers[a.question_id] = a.user_answer
+            })
+            setAnswers(pastAnswers)
+            setShowResults(true)
+        }
+    }, [reviewMode, attempts, questions])
 
     // Per-question time tracking
     const questionStartRef = useRef(Date.now())
@@ -124,7 +141,7 @@ export function QuizView() {
     }, [showResults, quiz, questions])
 
     // Loading state
-    if (quizLoading || questionsLoading) {
+    if (quizLoading || questionsLoading || (reviewMode && attemptsLoading)) {
         return (
             <div className="max-w-3xl mx-auto">
                 <Card>
