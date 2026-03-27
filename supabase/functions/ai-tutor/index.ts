@@ -84,11 +84,46 @@ serve(async (req) => {
         const hasPremiumAccess = hasPremiumEntitlement(subscription)
         if (!hasPremiumAccess) {
             const { startIso, endIso } = getManilaDayRangeIso(new Date())
+            const manilaDayToken = startIso.slice(0, 10)
             const messagesUsedToday = await countUserMessagesForDay(supabase, userId, startIso, endIso)
             if (messagesUsedToday >= AI_TUTOR_FREE_DAILY_LIMIT) {
+                await emitInAppNotification(supabase, {
+                    userId,
+                    type: 'ai_tutor_quota_reached',
+                    title: 'AI Tutor Daily Limit Reached',
+                    body: `You reached the free daily AI Tutor limit (${AI_TUTOR_FREE_DAILY_LIMIT}). Upgrade for unlimited AI Tutor access.`,
+                    ctaRoute: '/subscription',
+                    entityType: 'subscription',
+                    payload: {
+                        limit: AI_TUTOR_FREE_DAILY_LIMIT,
+                        messagesUsed: messagesUsedToday,
+                        date: manilaDayToken,
+                    },
+                    dedupeKey: `ai_tutor_quota_reached:${manilaDayToken}`,
+                })
+
                 throw new Error(
                     `SUBSCRIPTION_LIMIT:Free plan daily AI Tutor limit (${AI_TUTOR_FREE_DAILY_LIMIT}) reached. Upgrade to Premium for unlimited access.`
                 )
+            }
+
+            const remainingMessages = AI_TUTOR_FREE_DAILY_LIMIT - messagesUsedToday
+            if (remainingMessages <= 3) {
+                await emitInAppNotification(supabase, {
+                    userId,
+                    type: 'ai_tutor_quota_warning',
+                    title: 'AI Tutor Limit Almost Reached',
+                    body: `You have ${remainingMessages} free AI Tutor message${remainingMessages === 1 ? '' : 's'} left today.`,
+                    ctaRoute: '/subscription',
+                    entityType: 'subscription',
+                    payload: {
+                        limit: AI_TUTOR_FREE_DAILY_LIMIT,
+                        messagesUsed: messagesUsedToday,
+                        remaining: remainingMessages,
+                        date: manilaDayToken,
+                    },
+                    dedupeKey: `ai_tutor_quota_warning:${manilaDayToken}`,
+                })
             }
         }
 
@@ -589,6 +624,43 @@ async function saveMessages(
 
     if (error) {
         console.error('⚠️ Failed to save chat messages:', error.message)
+    }
+}
+
+interface NotificationEmitInput {
+    userId: string
+    type: string
+    title: string
+    body: string
+    ctaRoute?: string
+    entityType?: string
+    entityId?: string | null
+    payload?: Record<string, unknown>
+    dedupeKey?: string
+}
+
+async function emitInAppNotification(
+    supabase: ReturnType<typeof createClient>,
+    input: NotificationEmitInput,
+): Promise<void> {
+    try {
+        const { error } = await supabase.rpc('create_notification', {
+            p_user_id: input.userId,
+            p_type: input.type,
+            p_title: input.title,
+            p_body: input.body,
+            p_cta_route: input.ctaRoute ?? null,
+            p_entity_type: input.entityType ?? null,
+            p_entity_id: input.entityId ?? null,
+            p_payload: input.payload ?? {},
+            p_dedupe_key: input.dedupeKey ?? null,
+        })
+
+        if (error) {
+            console.warn('⚠️ Failed to create in-app notification:', error.message)
+        }
+    } catch (err) {
+        console.warn('⚠️ Notification emit failed:', (err as Error).message)
     }
 }
 
