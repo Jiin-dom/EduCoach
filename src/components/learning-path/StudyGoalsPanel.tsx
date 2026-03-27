@@ -11,9 +11,6 @@ import {
     CheckCircle2,
     AlertCircle,
     Sparkles,
-    Wand2,
-    Gauge,
-    Layers,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
