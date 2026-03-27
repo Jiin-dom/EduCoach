@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -38,9 +38,10 @@ import { useAuth } from "@/contexts/AuthContext"
 import { useLearningStats, useConceptMasteryList } from "@/hooks/useLearning"
 import { useDocuments } from "@/hooks/useDocuments"
 import { supabase } from "@/lib/supabase"
+import { toast } from "sonner"
 
 export function ProfileContent() {
-    const { profile, user, signOut } = useAuth()
+    const { profile, user, signOut, updateProfile } = useAuth()
     const { data: stats, isLoading: statsLoading } = useLearningStats()
     const { data: masteryList } = useConceptMasteryList()
     const { data: documents } = useDocuments()
@@ -61,6 +62,8 @@ export function ProfileContent() {
     // Delete Account modal state
     const [deleteAccountOpen, setDeleteAccountOpen] = useState(false)
     const [deleteLoading, setDeleteLoading] = useState(false)
+    const [displayNameInput, setDisplayNameInput] = useState(profile?.display_name ?? "")
+    const [isSavingProfile, setIsSavingProfile] = useState(false)
 
     const handleOpenChangePassword = () => {
         setCurrentPassword("")
@@ -159,8 +162,15 @@ export function ProfileContent() {
         }
     }
 
+    useEffect(() => {
+        setDisplayNameInput(profile?.display_name ?? "")
+    }, [profile?.display_name])
+
     const displayName = profile?.display_name || "Student"
     const email = user?.email || profile?.email || ""
+    const normalizedCurrentDisplayName = (profile?.display_name ?? "").trim()
+    const normalizedInputDisplayName = displayNameInput.trim()
+    const hasDisplayNameChanged = normalizedInputDisplayName !== normalizedCurrentDisplayName
     const initials = displayName
         .split(' ')
         .map((w) => w[0])
@@ -215,6 +225,33 @@ export function ProfileContent() {
         { label: "Concepts Tracked", value: String(stats?.totalConcepts ?? 0), icon: Target },
         { label: "Readiness Score", value: `${stats?.averageMastery ?? 0}%`, icon: Award },
     ]
+
+    const handleSaveProfile = async () => {
+        if (!normalizedInputDisplayName) {
+            toast.error("Display name cannot be empty.")
+            return
+        }
+
+        if (!hasDisplayNameChanged) {
+            return
+        }
+
+        setIsSavingProfile(true)
+        try {
+            const { error } = await updateProfile({ display_name: normalizedInputDisplayName })
+            if (error) {
+                toast.error(error.message || "Failed to update display name.")
+                return
+            }
+
+            setDisplayNameInput(normalizedInputDisplayName)
+            toast.success("Profile updated successfully.")
+        } catch {
+            toast.error("An unexpected error occurred while updating your profile.")
+        } finally {
+            setIsSavingProfile(false)
+        }
+    }
 
     return (
         <>
@@ -311,7 +348,13 @@ export function ProfileContent() {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <Label htmlFor="fullName">Display Name</Label>
-                                    <Input id="fullName" defaultValue={displayName} />
+                                    <Input
+                                        id="fullName"
+                                        value={displayNameInput}
+                                        onChange={(e) => setDisplayNameInput(e.target.value)}
+                                        onKeyDown={(e) => e.key === "Enter" && handleSaveProfile()}
+                                        disabled={isSavingProfile}
+                                    />
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="email">Email</Label>
@@ -332,7 +375,20 @@ export function ProfileContent() {
                                 </div>
                             )}
 
-                            <Button className="mt-4">Save Changes</Button>
+                            <Button
+                                className="mt-4"
+                                onClick={handleSaveProfile}
+                                disabled={isSavingProfile || !hasDisplayNameChanged}
+                            >
+                                {isSavingProfile ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                        Saving...
+                                    </>
+                                ) : (
+                                    "Save Changes"
+                                )}
+                            </Button>
                         </CardContent>
                     </Card>
 
