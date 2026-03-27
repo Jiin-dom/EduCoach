@@ -1,6 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
-import { canAccessFullAnalytics } from '@/lib/subscription'
+import { hasPremiumEntitlement } from '@/lib/subscription'
 
 interface ProtectedRouteProps {
     children: React.ReactNode
@@ -68,9 +68,13 @@ export function ProtectedRoute({
             )
         }
 
-        const hasPremiumAccess = canAccessFullAnalytics(profile.subscription_plan, profile.subscription_status)
+        const hasPremiumAccess = hasPremiumEntitlement(
+            profile.subscription_plan,
+            profile.subscription_status,
+            profile.subscription_trial_ends_at
+        )
         if (!hasPremiumAccess) {
-            return <Navigate to="/dashboard" replace />
+            return <Navigate to="/subscription" replace />
         }
     }
 

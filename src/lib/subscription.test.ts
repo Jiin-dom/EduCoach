@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest"
 import {
   AI_TUTOR_FREE_DAILY_LIMIT,
   canAccessFullAnalytics,
+  getTrialDaysLeft,
   getPlanDisplayName,
   getQuizPriority,
+  hasPremiumEntitlement,
+  isTrialActive,
   isPremiumPlan,
   normalizeSubscriptionPlan,
   normalizeSubscriptionStatus,
@@ -39,6 +42,25 @@ describe("subscription helpers", () => {
     expect(canAccessFullAnalytics("premium", "active")).toBe(true)
     expect(canAccessFullAnalytics("premium", "suspended")).toBe(false)
     expect(canAccessFullAnalytics("free", "active")).toBe(false)
+  })
+
+  it("treats active trial as premium entitlement", () => {
+    const now = new Date("2026-03-27T00:00:00.000Z")
+    const activeTrialEndsAt = "2026-03-30T00:00:00.000Z"
+    const expiredTrialEndsAt = "2026-03-20T00:00:00.000Z"
+
+    expect(isTrialActive(activeTrialEndsAt, now)).toBe(true)
+    expect(isTrialActive(expiredTrialEndsAt, now)).toBe(false)
+    expect(hasPremiumEntitlement("free", "active", activeTrialEndsAt, now)).toBe(true)
+    expect(hasPremiumEntitlement("free", "active", expiredTrialEndsAt, now)).toBe(false)
+    expect(canAccessFullAnalytics("free", "active", activeTrialEndsAt, now)).toBe(true)
+  })
+
+  it("computes trial days left from the trial end timestamp", () => {
+    const now = new Date("2026-03-27T00:00:00.000Z")
+    expect(getTrialDaysLeft("2026-03-29T00:00:00.000Z", now)).toBe(2)
+    expect(getTrialDaysLeft("2026-03-27T00:00:00.000Z", now)).toBe(0)
+    expect(getTrialDaysLeft("invalid-date", now)).toBe(0)
   })
 
   it("exposes the free daily AI tutor limit constant", () => {

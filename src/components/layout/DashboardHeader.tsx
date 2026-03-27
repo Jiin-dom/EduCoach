@@ -1,4 +1,4 @@
-import { BarChart3, LogOut, User, FileQuestion, Calendar, FolderOpen, Bell, Menu, X } from "lucide-react"
+import { BarChart3, LogOut, User, FileQuestion, Calendar, FolderOpen, Bell, Menu, X, CreditCard } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
 import { useState } from "react"
 import { useAuth } from "@/contexts/AuthContext"
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { canAccessFullAnalytics } from "@/lib/subscription"
+import { hasPremiumEntitlement } from "@/lib/subscription"
 
 export function DashboardHeader() {
     const navigate = useNavigate()
@@ -44,7 +44,11 @@ export function DashboardHeader() {
 
     const unreadCount = notifications.filter((n) => !n.read).length
     const hasFullAnalytics = profile
-        ? canAccessFullAnalytics(profile.subscription_plan, profile.subscription_status)
+        ? hasPremiumEntitlement(
+            profile.subscription_plan,
+            profile.subscription_status,
+            profile.subscription_trial_ends_at
+        )
         : false
 
     const handleLogout = () => {
@@ -58,7 +62,7 @@ export function DashboardHeader() {
 
     const handlePremiumAnalyticsClick = () => {
         toast.info("Analytics is a Premium feature. Upgrade to unlock full analytics.")
-        navigate("/profile")
+        navigate("/subscription")
     }
 
     return (
@@ -119,6 +123,12 @@ export function DashboardHeader() {
                                     <Badge variant="outline" className="ml-1 text-[10px] uppercase">Premium</Badge>
                                 </Button>
                             )}
+                            <Link to="/subscription">
+                                <Button variant="ghost" className="gap-2 text-sm">
+                                    <CreditCard className="w-4 h-4" />
+                                    Subscription
+                                </Button>
+                            </Link>
                         </nav>
 
                         <DropdownMenu>
@@ -232,6 +242,12 @@ export function DashboardHeader() {
                                 <Badge variant="outline" className="ml-auto text-[10px] uppercase">Premium</Badge>
                             </Button>
                         )}
+                        <Link to="/subscription" onClick={() => setIsMobileMenuOpen(false)}>
+                            <Button variant="ghost" className="w-full justify-start gap-3 text-base">
+                                <CreditCard className="w-5 h-5" />
+                                Subscription
+                            </Button>
+                        </Link>
                     </nav>
                 )}
             </div>

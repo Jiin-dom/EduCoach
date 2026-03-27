@@ -70,6 +70,7 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
     const [selectedDocumentId, setSelectedDocumentId] = useState<string>("all")
     const [pendingMessages, setPendingMessages] = useState<DisplayMessage[]>([])
     const [error, setError] = useState<string | null>(null)
+    const [errorCode, setErrorCode] = useState<string | null>(null)
     const [showHistory, setShowHistory] = useState(false)
     const [hasAutoLoaded, setHasAutoLoaded] = useState(false)
 
@@ -173,6 +174,7 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
         if (!text || sendMessage.isPending) return
 
         setError(null)
+        setErrorCode(null)
         setInputMessage("")
 
         const userMsg: DisplayMessage = {
@@ -214,8 +216,15 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
             setPendingMessages(prev => prev.filter(m => !m.isLoading).concat(aiMsg))
         } catch (err) {
             setPendingMessages(prev => prev.filter(m => !m.isLoading))
-            const message = err instanceof Error ? err.message : "Something went wrong"
-            setError(message)
+            const message = err instanceof Error ? err.message : "UNKNOWN_ERROR:Something went wrong"
+            const [code, ...rest] = message.split(":")
+            if (rest.length > 0) {
+                setErrorCode(code)
+                setError(rest.join(":"))
+            } else {
+                setErrorCode(null)
+                setError(message)
+            }
         }
     }
 
@@ -230,6 +239,7 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
         setConversationId(undefined)
         setPendingMessages([])
         setError(null)
+        setErrorCode(null)
         setShowHistory(false)
     }
 
@@ -237,6 +247,7 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
         setConversationId(conv.id)
         setPendingMessages([])
         setError(null)
+        setErrorCode(null)
         setShowHistory(false)
     }
 
@@ -510,8 +521,15 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
 
                             {/* Error display */}
                             {error && (
-                                <div className="px-4 py-2 border-t border-[#f0d4e2] bg-destructive/10 text-destructive text-xs flex-shrink-0">
-                                    {error}
+                                <div className="px-4 py-2 border-t border-[#f0d4e2] bg-destructive/10 text-destructive text-xs flex-shrink-0 space-y-2">
+                                    <p>{error}</p>
+                                    {errorCode === "SUBSCRIPTION_LIMIT" && (
+                                        <Link to="/subscription">
+                                            <Button size="sm" variant="outline" className="h-7 text-xs">
+                                                Upgrade to Premium
+                                            </Button>
+                                        </Link>
+                                    )}
                                 </div>
                             )}
 

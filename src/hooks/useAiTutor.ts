@@ -57,6 +57,7 @@ export interface SendMessageResponse {
     conversationId: string
     chunksUsed: number
     error?: string
+    errorCode?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -138,11 +139,31 @@ export function useSendMessage() {
             })
 
             if (error) {
-                throw new Error(error.message || 'Failed to get AI response')
+                let errorCode = "FUNCTION_ERROR"
+                let errorMessage = error.message || "Failed to get AI response"
+                const response = (error as { context?: Response }).context
+
+                if (response instanceof Response) {
+                    try {
+                        const payload = (await response.json()) as { error?: string; errorCode?: string }
+                        if (typeof payload.errorCode === "string") {
+                            errorCode = payload.errorCode
+                        }
+                        if (typeof payload.error === "string") {
+                            errorMessage = payload.error
+                        }
+                    } catch {
+                        // Keep fallback error values when response body is unavailable.
+                    }
+                }
+
+                throw new Error(`${errorCode}:${errorMessage}`)
             }
 
             if (data && !data.success) {
-                throw new Error(data.error || 'AI tutor returned an error')
+                const code = typeof data.errorCode === "string" ? data.errorCode : "UNKNOWN_ERROR"
+                const message = typeof data.error === "string" ? data.error : "AI tutor returned an error"
+                throw new Error(`${code}:${message}`)
             }
 
             return data as SendMessageResponse

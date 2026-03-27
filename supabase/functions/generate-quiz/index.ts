@@ -261,7 +261,7 @@ serve(async (req) => {
         // 4. Query user mastery data for adaptive generation (Phase 6.1)
         const resolvedUserId = requestUserId || userId
         const subscription = await getSubscriptionForUser(supabase, resolvedUserId)
-        const priorityTier = subscription.plan === 'premium' && subscription.status === 'active' ? 'premium' : 'free'
+        const priorityTier = hasPremiumEntitlement(subscription) ? 'premium' : 'free'
         const priority = priorityTier === 'premium' ? QUIZ_PRIORITY_PREMIUM : QUIZ_PRIORITY_FREE
 
         interface MasteryInfo {
@@ -712,20 +712,20 @@ serve(async (req) => {
 async function getSubscriptionForUser(
     supabase: ReturnType<typeof createClient>,
     userId: string | undefined,
-): Promise<{ plan: 'free' | 'premium'; status: 'active' | 'cancelled' | 'suspended' }> {
+): Promise<{ plan: 'free' | 'premium'; status: 'active' | 'cancelled' | 'suspended'; trial_ends_at: string | null }> {
     if (!userId) {
-        return { plan: 'free', status: 'active' }
+        return { plan: 'free', status: 'active', trial_ends_at: null }
     }
 
     const { data, error } = await supabase
         .from('subscriptions')
-        .select('plan, status')
+        .select('plan, status, trial_ends_at')
         .eq('user_id', userId)
         .maybeSingle()
 
     if (error) {
         console.warn('⚠️ Failed to read subscription, defaulting to free:', error.message)
-        return { plan: 'free', status: 'active' }
+        return { plan: 'free', status: 'active', trial_ends_at: null }
     }
 
     return {
@@ -734,7 +734,21 @@ async function getSubscriptionForUser(
             data?.status === 'cancelled' || data?.status === 'suspended'
                 ? data.status
                 : 'active',
+        trial_ends_at: data?.trial_ends_at ?? null,
     }
+}
+
+function hasPremiumEntitlement(
+    subscription: { plan: 'free' | 'premium'; status: 'active' | 'cancelled' | 'suspended'; trial_ends_at: string | null },
+    now = new Date()
+): boolean {
+    const premiumActive = subscription.plan === 'premium' && subscription.status === 'active'
+    if (premiumActive) return true
+
+    if (!subscription.trial_ends_at) return false
+    const trialEnd = new Date(subscription.trial_ends_at)
+    if (Number.isNaN(trialEnd.getTime())) return false
+    return trialEnd.getTime() > now.getTime()
 }
 
 async function waitForPremiumQuizTurn(

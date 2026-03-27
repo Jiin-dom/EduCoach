@@ -54,6 +54,7 @@ interface ChatConversationRow {
 interface UserSubscriptionRow {
     plan: 'free' | 'premium'
     status: 'active' | 'cancelled' | 'suspended'
+    trial_ends_at: string | null
 }
 
 serve(async (req) => {
@@ -80,7 +81,7 @@ serve(async (req) => {
 
         // --- Subscription entitlement gate ---
         const subscription = await getUserSubscription(supabase, userId)
-        const hasPremiumAccess = subscription.plan === 'premium' && subscription.status === 'active'
+        const hasPremiumAccess = hasPremiumEntitlement(subscription)
         if (!hasPremiumAccess) {
             const { startIso, endIso } = getManilaDayRangeIso(new Date())
             const messagesUsedToday = await countUserMessagesForDay(supabase, userId, startIso, endIso)
@@ -387,7 +388,7 @@ async function getUserSubscription(
 ): Promise<UserSubscriptionRow> {
     const { data, error } = await supabase
         .from('subscriptions')
-        .select('plan, status')
+        .select('plan, status, trial_ends_at')
         .eq('user_id', userId)
         .maybeSingle()
 
@@ -405,7 +406,18 @@ async function getUserSubscription(
     return {
         plan: normalizedPlan,
         status: normalizedStatus,
+        trial_ends_at: data?.trial_ends_at ?? null,
     }
+}
+
+function hasPremiumEntitlement(subscription: UserSubscriptionRow, now = new Date()): boolean {
+    const premiumActive = subscription.plan === 'premium' && subscription.status === 'active'
+    if (premiumActive) return true
+
+    if (!subscription.trial_ends_at) return false
+    const trialEnd = new Date(subscription.trial_ends_at)
+    if (Number.isNaN(trialEnd.getTime())) return false
+    return trialEnd.getTime() > now.getTime()
 }
 
 function getManilaDayRangeIso(now: Date): { startIso: string; endIso: string } {
