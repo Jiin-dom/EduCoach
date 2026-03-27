@@ -46,6 +46,7 @@ export interface Document {
     processed_by?: 'pure_nlp' | 'gemini' | null
     processing_quality?: number | null
     deadline?: string | null
+    exam_date?: string | null
     created_at: string
     updated_at: string
 }
@@ -224,7 +225,7 @@ export function useUpdateDocument() {
             updates,
         }: {
             documentId: string
-            updates: Partial<Pick<Document, 'title' | 'status'>>
+            updates: Partial<Pick<Document, 'title' | 'status' | 'exam_date' | 'deadline'>>
         }) => {
             const { data, error } = await supabase
                 .from('documents')

@@ -78,7 +78,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
 
     const [selectedFile, setSelectedFile] = useState<File | null>(null)
     const [title, setTitle] = useState("")
-    const [deadline, setDeadline] = useState("")
+    const [goalDate, setGoalDate] = useState("")
     const [dragActive, setDragActive] = useState(false)
     const [phase, setPhase] = useState<UploadPhase>('idle')
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -113,7 +113,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
             setTimeout(() => {
                 setSelectedFile(null)
                 setTitle("")
-                setDeadline("")
+                setGoalDate("")
                 setPhase('idle')
                 setErrorMessage(null)
             }, 200)
@@ -190,7 +190,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                 file_type: getFileTypeFromMime(selectedFile.type),
                 file_size: selectedFile.size,
                 status: 'pending',
-                deadline: deadline || null,
+                exam_date: goalDate || null,
             }
 
             const { data: insertedDoc, error: dbError } = await supabase
@@ -229,7 +229,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
     const handleRemoveFile = () => {
         setSelectedFile(null)
         setTitle("")
-        setDeadline("")
+        setGoalDate("")
         setErrorMessage(null)
     }
 
@@ -338,16 +338,16 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                                         </p>
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="deadline">Deadline (Optional)</Label>
+                                        <Label htmlFor="goalDate">Study Goal (Completion Date)</Label>
                                         <Input
-                                            id="deadline"
+                                            id="goalDate"
                                             type="date"
-                                            value={deadline}
-                                            onChange={(e) => setDeadline(e.target.value)}
+                                            value={goalDate}
+                                            onChange={(e) => setGoalDate(e.target.value)}
                                             className="w-full"
                                         />
                                         <p className="text-xs text-muted-foreground">
-                                            Keep track of when you need to master this material
+                                            Target date for completing this document.
                                         </p>
                                     </div>
                                 </div>

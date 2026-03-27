@@ -224,6 +224,14 @@ export function FilesContent() {
                                                         </span>
                                                     </>
                                                 )}
+                                                {file.exam_date && (
+                                                    <>
+                                                        <span className="hidden sm:inline">•</span>
+                                                        <span className="text-red-500 dark:text-red-400 shrink-0 font-medium whitespace-nowrap">
+                                                            Exam {new Date(file.exam_date).toLocaleDateString()}
+                                                        </span>
+                                                    </>
+                                                )}
                                             </div>
                                             {file.status === 'error' && file.error_message && (
                                                 <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
