@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Clock, FileQuestion, CheckCircle2, Loader2, AlertCircle } from "lucide-react"
+import { Clock, FileQuestion, CheckCircle2, Loader2, AlertCircle, Eye } from "lucide-react"
 import { Link } from "react-router-dom"
 import type { Quiz } from "@/hooks/useQuizzes"
 
@@ -86,13 +86,23 @@ export function QuizCard({ quiz, lastScore }: QuizCardProps) {
                 )}
             </div>
 
-            <div className="shrink-0 w-full sm:w-auto flex flex-col items-stretch">
+            <div className="shrink-0 w-full sm:w-auto flex flex-row sm:flex-col items-center sm:items-stretch gap-2">
                 {isReady && (
-                    <Link to={`/quizzes/${quiz.id}`} className="w-full">
-                        <Button size="sm" variant={hasAttempt ? "outline" : "default"} className="w-full sm:w-auto">
-                            {hasAttempt ? "Retake" : "Start Quiz"}
-                        </Button>
-                    </Link>
+                    <>
+                        {hasAttempt && (
+                            <Link to={`/quizzes/${quiz.id}?review=true`} className="flex-1 sm:w-full">
+                                <Button size="sm" variant="outline" className="w-full gap-2">
+                                    <Eye className="w-4 h-4" />
+                                    View
+                                </Button>
+                            </Link>
+                        )}
+                        <Link to={`/quizzes/${quiz.id}`} className="flex-1 sm:w-full">
+                            <Button size="sm" variant={hasAttempt ? "ghost" : "default"} className="w-full">
+                                {hasAttempt ? "Retake" : "Start Quiz"}
+                            </Button>
+                        </Link>
+                    </>
                 )}
                 {isGenerating && (
                     <Button size="sm" variant="outline" disabled className="w-full sm:w-auto">

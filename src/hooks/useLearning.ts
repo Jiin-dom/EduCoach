@@ -50,6 +50,7 @@ export interface ConceptMasteryWithDetails extends ConceptMasteryRow {
     concept_category: string | null
     concept_difficulty: string | null
     document_title: string | null
+    document_exam_date: string | null
     /** Mastery after time-based decay (display only, raw value unchanged) */
     display_mastery_score: number
     /** Mastery level after decay */
@@ -228,8 +229,8 @@ export function useConceptMasteryList() {
             const [conceptsRes, docsRes] = await Promise.all([
                 supabase.from('concepts').select('id, name, category, difficulty_level').in('id', conceptIds),
                 docIds.length > 0
-                    ? supabase.from('documents').select('id, title').in('id', docIds)
-                    : Promise.resolve({ data: [] as { id: string; title: string }[], error: null }),
+                    ? supabase.from('documents').select('id, title, exam_date').in('id', docIds)
+                    : Promise.resolve({ data: [] as { id: string; title: string, exam_date: string | null }[], error: null }),
             ])
 
             const conceptMap = new Map((conceptsRes.data || []).map((c) => [c.id, c]))
@@ -238,19 +239,32 @@ export function useConceptMasteryList() {
             return masteryRows.map((row) => {
                 const concept = conceptMap.get(row.concept_id)
                 const doc = row.document_id ? docMap.get(row.document_id) : null
-                // Apply mastery decay for overdue concepts
+                
+                // If there's an exam date, it acts as a hard deadline.
+                // If the scheduled SM-2 due_date is AFTER the exam, we pull it forward to the exam date.
+                let effectiveDueDate = row.due_date;
+                if (doc?.exam_date) {
+                    const examDateOnly = doc.exam_date.split('T')[0];
+                    if (row.due_date > examDateOnly) {
+                        effectiveDueDate = examDateOnly;
+                    }
+                }
+
+                // Apply mastery decay for overdue concepts using the effective due date
                 const { displayMastery, displayLevel } = getMasteryLevelWithDecay(
                     Number(row.mastery_score),
                     Number(row.confidence),
-                    row.due_date,
+                    effectiveDueDate,
                     Number(row.interval_days) || 1,
                 )
                 return {
                     ...row,
+                    due_date: effectiveDueDate,
                     concept_name: concept?.name ?? 'Unknown',
                     concept_category: concept?.category ?? null,
                     concept_difficulty: concept?.difficulty_level ?? null,
                     document_title: doc?.title ?? null,
+                    document_exam_date: doc?.exam_date ?? null,
                     display_mastery_score: displayMastery,
                     display_mastery_level: displayLevel,
                 } as ConceptMasteryWithDetails

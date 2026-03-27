@@ -69,6 +69,7 @@ export interface GenerateQuizInput {
     questionTypes?: QuizTypeId[]
     questionTypeTargets?: Partial<Record<QuizTypeId, number>>
     enhanceWithLlm?: boolean
+    deadline?: string
 }
 
 export interface GenerateReviewQuizInput {
@@ -295,7 +296,17 @@ export function useGenerateQuiz() {
                 }
 
                 console.log('[Quiz] Generation successful:', data)
-                return data as { success: boolean; quizId: string; questionCount: number }
+                const result = data as { success: boolean; quizId: string; questionCount: number }
+
+                // If a deadline was provided, update the parent document's deadline field
+                if (input.deadline && result.quizId) {
+                    await supabase
+                        .from('documents')
+                        .update({ deadline: input.deadline })
+                        .eq('id', input.documentId)
+                }
+
+                return result
             } catch (err) {
                 // Recovery: if the fetch failed (timeout, network), the edge function
                 // may have already created the quiz record before the client gave up.
@@ -409,6 +420,28 @@ export function useSubmitAttempt() {
         onSuccess: (_data, variables) => {
             queryClient.invalidateQueries({ queryKey: quizKeys.attempts(variables.quizId) })
             queryClient.invalidateQueries({ queryKey: quizKeys.userAttempts() })
+        },
+    })
+}
+
+export function useUpdateQuiz() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: async ({ quizId, updates }: { quizId: string; updates: Partial<Quiz> }) => {
+            const { data, error } = await supabase
+                .from('quizzes')
+                .update(updates)
+                .eq('id', quizId)
+                .select()
+                .single()
+
+            if (error) throw new Error(error.message)
+            return data as Quiz
+        },
+        onSuccess: (data) => {
+            queryClient.invalidateQueries({ queryKey: quizKeys.all })
+            queryClient.invalidateQueries({ queryKey: quizKeys.detail(data.id) })
         },
     })
 }

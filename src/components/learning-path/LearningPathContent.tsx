@@ -71,10 +71,9 @@ function TopicCard({ topic, onSelect }: { topic: ConceptMasteryWithDetails; onSe
         <button
             onClick={() => onSelect(topic)}
             className="w-full flex items-start gap-3 p-4 rounded-lg border bg-card hover:bg-accent/5 transition-colors text-left">
-            <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-                topic.display_mastery_level === 'mastered' ? 'bg-green-100' :
-                topic.display_mastery_level === 'developing' ? 'bg-yellow-100' : 'bg-red-100'
-            }`}>
+            <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${topic.display_mastery_level === 'mastered' ? 'bg-green-100' :
+                    topic.display_mastery_level === 'developing' ? 'bg-yellow-100' : 'bg-red-100'
+                }`}>
                 {topic.display_mastery_level === 'mastered' ? (
                     <CheckCircle2 className="w-5 h-5 text-green-600" />
                 ) : topic.display_mastery_level === 'developing' ? (
