@@ -27,6 +27,7 @@ export interface StudentSubscriptionSnapshot {
   renewedAt: string | null
   trialStartedAt: string | null
   trialEndsAt: string | null
+  trialWelcomeSeenAt: string | null
   isTrialActive: boolean
   trialDaysLeft: number
   hasPremiumEntitlement: boolean
@@ -89,6 +90,41 @@ export function useMockSubscribePremium() {
       const payload = data as StudentSubscriptionApiResponse<StudentSubscriptionSnapshot>
       if (!payload?.success) {
         throw new Error(payload?.error || "Failed to upgrade subscription")
+      }
+
+      return payload.data
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: studentSubscriptionKeys.me() })
+      if (user) {
+        await refreshProfile()
+      }
+    },
+  })
+}
+
+export function useMarkTrialWelcomeSeen() {
+  const queryClient = useQueryClient()
+  const { user, refreshProfile } = useAuth()
+
+  return useMutation({
+    mutationFn: async (): Promise<StudentSubscriptionSnapshot> => {
+      const session = await ensureFreshSession()
+      if (!session) {
+        throw new Error("Your session has expired — please log in again")
+      }
+
+      const { data, error } = await supabase.functions.invoke("student-subscription", {
+        body: { action: "mark_trial_welcome_seen" },
+      })
+
+      if (error) {
+        throw new Error(error.message || "Failed to save trial welcome state")
+      }
+
+      const payload = data as StudentSubscriptionApiResponse<StudentSubscriptionSnapshot>
+      if (!payload?.success) {
+        throw new Error(payload?.error || "Failed to save trial welcome state")
       }
 
       return payload.data

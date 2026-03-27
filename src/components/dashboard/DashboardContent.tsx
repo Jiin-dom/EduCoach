@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Upload, FileText, Brain, Clock, TrendingUp, Eye, Trash2, Sparkles, Loader2, RefreshCw } from "lucide-react"
@@ -16,11 +16,15 @@ import { formatFileSize } from "@/lib/storage"
 import { Badge } from "@/components/ui/badge"
 import { useQuizzes, useUserAttempts, useGenerateQuiz } from "@/hooks/useQuizzes"
 import { useLearningStats } from "@/hooks/useLearning"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { useMarkTrialWelcomeSeen } from "@/hooks/useStudentSubscription"
 
 export function DashboardContent() {
-    const { profile } = useAuth()
+    const { profile, user } = useAuth()
     const navigate = useNavigate()
     const [showUploadDialog, setShowUploadDialog] = useState(false)
+    const [showTrialModal, setShowTrialModal] = useState(false)
+    const markTrialWelcomeSeen = useMarkTrialWelcomeSeen()
 
     // Use real document data
     const { data: documents, isLoading, refetch } = useDocuments()
@@ -99,14 +103,190 @@ export function DashboardContent() {
     }
 
     const displayName = profile?.display_name || "Student"
+    const isTrialActive = profile?.subscription_is_trial_active === true
+    const trialDaysLeft = profile?.subscription_trial_days_left ?? 0
+    const trialEndsAt = profile?.subscription_trial_ends_at
+    const trialWelcomeSeenAt = profile?.subscription_trial_welcome_seen_at
+    const hasPremiumEntitlement = profile?.has_premium_entitlement === true
+    const hasSeenTrialWelcome = trialWelcomeSeenAt !== null
+    const hasTrialEndedOnFree =
+        !isTrialActive &&
+        !hasPremiumEntitlement &&
+        profile?.subscription_plan === "free" &&
+        profile?.subscription_trial_ends_at !== null
+    const trialEndLabel = trialEndsAt
+        ? new Intl.DateTimeFormat(undefined, { month: "long", day: "numeric", year: "numeric" }).format(new Date(trialEndsAt))
+        : "your trial end date"
+    const trialFeatures = [
+        {
+            title: "Unlimited AI Tutor",
+            description: "Instant, nuanced explanations for complex topics 24/7.",
+            icon: Brain,
+        },
+        {
+            title: "Full Analytics Access",
+            description: "Deep-dive insights into your learning velocity and gaps.",
+            icon: TrendingUp,
+        },
+        {
+            title: "Priority Quiz Generation",
+            description: "Instant adaptive assessments created from any study material.",
+            icon: Sparkles,
+        },
+    ] as const
+
+    useEffect(() => {
+        if (!user?.id || !isTrialActive || hasSeenTrialWelcome) {
+            setShowTrialModal(false)
+            return
+        }
+        setShowTrialModal(true)
+    }, [hasSeenTrialWelcome, isTrialActive, user?.id])
+
+    const handleCloseTrialModal = () => {
+        if (isTrialActive && !hasSeenTrialWelcome && !markTrialWelcomeSeen.isPending) {
+            markTrialWelcomeSeen.mutate()
+        }
+        setShowTrialModal(false)
+    }
 
     return (
         <div className="space-y-8">
+            <Dialog open={showTrialModal} onOpenChange={(open) => !open && handleCloseTrialModal()}>
+                <DialogContent showCloseButton={false} className="max-w-5xl border-0 bg-transparent p-0 shadow-none sm:max-w-5xl">
+                    <DialogHeader className="sr-only">
+                        <DialogTitle>You’re On A 14-Day Premium Trial</DialogTitle>
+                        <DialogDescription>
+                            Welcome to EduCoach. Your account now has premium access for {trialDaysLeft} day{trialDaysLeft === 1 ? "" : "s"}.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="relative overflow-hidden rounded-2xl bg-white shadow-[0_30px_75px_-26px_rgba(55,39,77,0.4)]">
+                        <div className="pointer-events-none absolute -left-16 -top-20 h-56 w-56 rounded-full bg-[#a98fff]/40 blur-3xl" />
+                        <div className="pointer-events-none absolute -bottom-20 -right-16 h-64 w-64 rounded-full bg-[#e1c7ff]/55 blur-3xl" />
+
+                        <div className="relative flex flex-col md:flex-row">
+                            <div className="relative hidden w-5/12 overflow-hidden bg-[#f8edff] md:block">
+                                <img
+                                    className="absolute inset-0 h-full w-full object-cover opacity-80 mix-blend-multiply"
+                                    alt="Premium study setup"
+                                    src="https://lh3.googleusercontent.com/aida-public/AB6AXuAbzivyFu2h_lfUHmtRWelzT9a6iM8s5sf9ZhLlFnqEuKe-e0127t5VMcIehmWgXg0Saa8lQahVBPXAE1kRQc2j30PleoXyO2S_l7XK06wubd55duBghaAPzgcinBEcLk4NMlOkMiJ9M8eMvMxa29o9AKS65cobfmwOvG5lZZ9-YWH1Dus8kSs07iJxfCzmKlAIG2MeaRCiE0AJUflpHuYlTxEEGut_XNfNXVSYdbE1MolNiDo2UYDDCcqmALWGdI7xKIU6iEmCuFFK"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-t from-[#643ad5]/45 to-transparent" />
+                                <div className="absolute bottom-8 left-8 right-8 text-[#f7f0ff]">
+                                    <p className="text-2xl font-extrabold leading-tight">Elevating Every Study Session.</p>
+                                    <div className="mt-4 h-1 w-12 rounded-full bg-[#a98fff]" />
+                                </div>
+                            </div>
+
+                            <div className="flex-1 p-8 md:p-11">
+                                <div className="inline-flex items-center rounded-full bg-[#ff8db6] px-3 py-1">
+                                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#70103e]">
+                                        Premium Atelier
+                                    </span>
+                                </div>
+
+                                <h2 className="mt-4 text-3xl font-extrabold leading-tight tracking-tight text-[#37274d] md:text-4xl">
+                                    Your 14-Day Academic Upgrade is Here
+                                </h2>
+                                <p className="mt-3 text-base font-medium text-[#66547d] md:text-lg">
+                                    Welcome to a refined learning environment tailored for excellence. You still have{" "}
+                                    {trialDaysLeft} day{trialDaysLeft === 1 ? "" : "s"} of premium access.
+                                </p>
+
+                                <div className="mt-7 space-y-5">
+                                    {trialFeatures.map((feature) => {
+                                        const FeatureIcon = feature.icon
+                                        return (
+                                            <div key={feature.title} className="flex items-start gap-4">
+                                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#eedcff]">
+                                                    <FeatureIcon className="h-5 w-5 text-[#643ad5]" />
+                                                </div>
+                                                <div>
+                                                    <p className="font-semibold text-[#37274d]">{feature.title}</p>
+                                                    <p className="text-sm text-[#66547d]">{feature.description}</p>
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+
+                                <div className="mt-8 rounded-xl bg-[#f8edff] p-4">
+                                    <div className="flex items-center justify-between gap-3 text-sm">
+                                        <div className="flex items-center gap-2 text-[#66547d]">
+                                            <Clock className="h-4 w-4" />
+                                            <span>Trial ends on</span>
+                                        </div>
+                                        <span className="font-bold text-[#643ad5]">{trialEndLabel}</span>
+                                    </div>
+                                </div>
+
+                                <div className="mt-6 space-y-3">
+                                    <Button
+                                        className="h-12 w-full rounded-xl bg-[#643ad5] text-base font-semibold text-[#f7f0ff] hover:bg-[#582ac9]"
+                                        onClick={() => {
+                                            handleCloseTrialModal()
+                                            navigate("/subscription")
+                                        }}
+                                    >
+                                        Explore Premium Features
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        className="h-10 w-full rounded-xl text-sm font-semibold text-[#66547d] hover:bg-transparent hover:text-[#37274d]"
+                                        onClick={handleCloseTrialModal}
+                                    >
+                                        Dismiss
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
             {/* Welcome Section */}
             <div className="bg-gradient-to-r from-primary to-accent rounded-2xl p-8 text-primary-foreground">
                 <h1 className="text-3xl font-bold mb-2">{getGreeting()}, {displayName}!</h1>
                 <p className="text-primary-foreground/90 text-lg">Ready to continue your learning journey?</p>
             </div>
+
+            {isTrialActive && (
+                <Card className="border-primary/30 bg-primary/5">
+                    <CardContent className="p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                        <div className="flex items-start gap-2">
+                            <Sparkles className="w-5 h-5 text-primary mt-0.5" />
+                            <div>
+                                <p className="font-semibold text-primary">Premium Trial Active</p>
+                                <p className="text-sm text-muted-foreground">
+                                    You have {trialDaysLeft} day{trialDaysLeft === 1 ? "" : "s"} left in your 14-day free Premium trial.
+                                </p>
+                            </div>
+                        </div>
+                        <Button size="sm" onClick={() => navigate("/subscription")}>
+                            Manage Subscription
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
+
+            {hasTrialEndedOnFree && (
+                <Card className="border-amber-300 bg-amber-50">
+                    <CardContent className="p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                        <div className="flex items-start gap-2">
+                            <Clock className="w-5 h-5 text-amber-700 mt-0.5" />
+                            <div>
+                                <p className="font-semibold text-amber-800">Your Premium Trial Has Ended</p>
+                                <p className="text-sm text-amber-700">
+                                    You’re now on Free limits. Upgrade to continue with unlimited AI Tutor and full analytics.
+                                </p>
+                            </div>
+                        </div>
+                        <Button size="sm" onClick={() => navigate("/subscription/checkout")}>
+                            Upgrade To Premium
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Stats Grid with Readiness Score */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

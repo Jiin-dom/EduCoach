@@ -11,6 +11,7 @@ const BILLING_CYCLE_DAYS = 30
 
 type StudentSubscriptionRequest =
   | { action: "get_my_subscription" }
+  | { action: "mark_trial_welcome_seen" }
   | { action: "mock_subscribe_premium" }
 
 interface SubscriptionRow {
@@ -25,6 +26,7 @@ interface SubscriptionRow {
   renewed_at: string | null
   trial_started_at: string | null
   trial_ends_at: string | null
+  trial_welcome_seen_at: string | null
 }
 
 function extractBearerToken(authHeader: string | null): string | null {
@@ -87,6 +89,7 @@ function toSnapshot(subscription: SubscriptionRow) {
     renewedAt: subscription.renewed_at,
     trialStartedAt: subscription.trial_started_at,
     trialEndsAt: subscription.trial_ends_at,
+    trialWelcomeSeenAt: subscription.trial_welcome_seen_at,
     isTrialActive: isTrialActive(subscription.trial_ends_at, now),
     trialDaysLeft: getTrialDaysLeft(subscription.trial_ends_at, now),
     hasPremiumEntitlement: hasPremiumEntitlement(subscription, now),
@@ -110,7 +113,7 @@ async function getOrCreateSubscription(
   const { data, error } = await serviceClient
     .from("subscriptions")
     .select(
-      "user_id, plan, status, amount_php, currency, started_at, next_billing_at, ends_at, renewed_at, trial_started_at, trial_ends_at"
+      "user_id, plan, status, amount_php, currency, started_at, next_billing_at, ends_at, renewed_at, trial_started_at, trial_ends_at, trial_welcome_seen_at"
     )
     .eq("user_id", userId)
     .maybeSingle()
@@ -132,6 +135,7 @@ async function getOrCreateSubscription(
       renewed_at: data.renewed_at,
       trial_started_at: data.trial_started_at,
       trial_ends_at: data.trial_ends_at,
+      trial_welcome_seen_at: data.trial_welcome_seen_at,
     }
   }
 
@@ -147,9 +151,10 @@ async function getOrCreateSubscription(
       started_at: startedAt,
       trial_started_at: null,
       trial_ends_at: null,
+      trial_welcome_seen_at: null,
     })
     .select(
-      "user_id, plan, status, amount_php, currency, started_at, next_billing_at, ends_at, renewed_at, trial_started_at, trial_ends_at"
+      "user_id, plan, status, amount_php, currency, started_at, next_billing_at, ends_at, renewed_at, trial_started_at, trial_ends_at, trial_welcome_seen_at"
     )
     .single()
 
@@ -169,6 +174,7 @@ async function getOrCreateSubscription(
     renewed_at: created.renewed_at,
     trial_started_at: created.trial_started_at,
     trial_ends_at: created.trial_ends_at,
+    trial_welcome_seen_at: created.trial_welcome_seen_at,
   }
 }
 
@@ -212,6 +218,44 @@ serve(async (req) => {
       return jsonResponse(200, { success: true, data: toSnapshot(subscription) })
     }
 
+    if (body.action === "mark_trial_welcome_seen") {
+      const existing = await getOrCreateSubscription(serviceClient, callerUser.id)
+      if (existing.trial_welcome_seen_at) {
+        return jsonResponse(200, { success: true, data: toSnapshot(existing) })
+      }
+
+      const nowIso = new Date().toISOString()
+      const { data: updated, error: updateError } = await serviceClient
+        .from("subscriptions")
+        .update({ trial_welcome_seen_at: nowIso })
+        .eq("user_id", callerUser.id)
+        .select(
+          "user_id, plan, status, amount_php, currency, started_at, next_billing_at, ends_at, renewed_at, trial_started_at, trial_ends_at, trial_welcome_seen_at"
+        )
+        .single()
+
+      if (updateError || !updated) {
+        return jsonResponse(500, { success: false, error: updateError?.message || "Failed to mark trial welcome state" })
+      }
+
+      const normalized: SubscriptionRow = {
+        user_id: updated.user_id,
+        plan: normalizePlan(updated.plan),
+        status: normalizeStatus(updated.status),
+        amount_php: updated.amount_php ?? 0,
+        currency: updated.currency ?? "PHP",
+        started_at: updated.started_at,
+        next_billing_at: updated.next_billing_at,
+        ends_at: updated.ends_at,
+        renewed_at: updated.renewed_at,
+        trial_started_at: updated.trial_started_at,
+        trial_ends_at: updated.trial_ends_at,
+        trial_welcome_seen_at: updated.trial_welcome_seen_at,
+      }
+
+      return jsonResponse(200, { success: true, data: toSnapshot(normalized) })
+    }
+
     if (body.action === "mock_subscribe_premium") {
       const existing = await getOrCreateSubscription(serviceClient, callerUser.id)
       const now = new Date()
@@ -232,11 +276,12 @@ serve(async (req) => {
             renewed_at: nowIso,
             trial_started_at: existing.trial_started_at,
             trial_ends_at: existing.trial_ends_at,
+            trial_welcome_seen_at: existing.trial_welcome_seen_at,
           },
           { onConflict: "user_id" }
         )
         .select(
-          "user_id, plan, status, amount_php, currency, started_at, next_billing_at, ends_at, renewed_at, trial_started_at, trial_ends_at"
+          "user_id, plan, status, amount_php, currency, started_at, next_billing_at, ends_at, renewed_at, trial_started_at, trial_ends_at, trial_welcome_seen_at"
         )
         .single()
 
@@ -256,6 +301,7 @@ serve(async (req) => {
         renewed_at: updated.renewed_at,
         trial_started_at: updated.trial_started_at,
         trial_ends_at: updated.trial_ends_at,
+        trial_welcome_seen_at: updated.trial_welcome_seen_at,
       }
 
       return jsonResponse(200, { success: true, data: toSnapshot(normalized) })

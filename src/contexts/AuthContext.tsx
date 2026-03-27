@@ -35,6 +35,7 @@ interface UserProfile {
     subscription_status: SubscriptionStatus
     subscription_trial_started_at: string | null
     subscription_trial_ends_at: string | null
+    subscription_trial_welcome_seen_at: string | null
     subscription_is_trial_active: boolean
     subscription_trial_days_left: number
     has_premium_entitlement: boolean
@@ -76,7 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const { data: subscriptionRow, error: subscriptionError } = await supabase
             .from('subscriptions')
-            .select('plan, status, trial_started_at, trial_ends_at')
+            .select('plan, status, trial_started_at, trial_ends_at, trial_welcome_seen_at')
             .eq('user_id', userId)
             .maybeSingle()
 
@@ -93,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             subscription_status: normalizeSubscriptionStatus(subscriptionRow?.status),
             subscription_trial_started_at: subscriptionRow?.trial_started_at ?? null,
             subscription_trial_ends_at: trialEndsAt,
+            subscription_trial_welcome_seen_at: subscriptionRow?.trial_welcome_seen_at ?? null,
             subscription_is_trial_active: trialActive,
             subscription_trial_days_left: getTrialDaysLeft(trialEndsAt),
             has_premium_entitlement: hasPremiumEntitlement(subscriptionRow?.plan, subscriptionRow?.status, trialEndsAt),
