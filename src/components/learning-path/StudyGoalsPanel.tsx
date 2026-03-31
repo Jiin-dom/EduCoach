@@ -36,6 +36,7 @@ import { useQuizzes, useUserAttempts, type Quiz, type Attempt } from "@/hooks/us
 import { toast } from "sonner"
 import { ExamManager } from "./ExamManager"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useScheduleDocumentGoalWindow, useDeactivateDocumentGoalWindowPlaceholders } from '@/hooks/useGoalWindowScheduling'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -69,6 +70,7 @@ function DocumentGoalCard({
     onEdit: (doc: Document) => void
 }) {
     const updateDocument = useUpdateDocument()
+    const deactivatePlaceholders = useDeactivateDocumentGoalWindowPlaceholders()
     const goalStatus = daysRemaining(doc.exam_date || null)
     const isOverdue = goalStatus?.includes("overdue")
 
@@ -77,7 +79,10 @@ function DocumentGoalCard({
             documentId: doc.id,
             updates: { exam_date: null }
         }, {
-            onSuccess: () => toast.info("Goal date removed."),
+            onSuccess: () => {
+                toast.info("Goal date removed.")
+                deactivatePlaceholders.mutate({ documentId: doc.id })
+            },
             onError: () => toast.error("Failed to remove goal date."),
         })
     }
@@ -280,6 +285,7 @@ function SetGoalDialog({
     const { data: quizzes } = useQuizzes()
     const { data: documents } = useDocuments()
     const updateDocument = useUpdateDocument()
+    const scheduleGoalWindow = useScheduleDocumentGoalWindow()
     
     const [selectedId, setSelectedId] = useState<string>("")
     const [deadline, setDeadline] = useState<string>("")
@@ -326,9 +332,15 @@ function SetGoalDialog({
                 documentId: selectedId,
                 updates: { exam_date: deadline },
             }, {
-                onSuccess: () => {
+                onSuccess: (updatedDoc) => {
                     toast.success("File goal set!")
                     onClose()
+                    if (updatedDoc?.exam_date) {
+                        scheduleGoalWindow.mutate({
+                            document: { id: updatedDoc.id, exam_date: updatedDoc.exam_date },
+                            examDate: updatedDoc.exam_date,
+                        })
+                    }
                 },
                 onError: (err) => toast.error("Failed: " + err.message)
             })

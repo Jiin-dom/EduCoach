@@ -23,6 +23,7 @@ import { useProcessDocument, useUpdateDocument } from '@/hooks/useDocuments'
 import { useGenerateFlashcards } from '@/hooks/useFlashcards'
 import { getFileUrl, formatFileSize } from '@/lib/storage'
 import { GenerateQuizDialog } from './GenerateQuizDialog'
+import { useScheduleDocumentGoalWindow, useDeactivateDocumentGoalWindowPlaceholders } from '@/hooks/useGoalWindowScheduling'
 
 
 interface StudyHeaderProps {
@@ -89,13 +90,27 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
     const [downloadingUrl, setDownloadingUrl] = useState(false)
     const [quizDialogOpen, setQuizDialogOpen] = useState(false)
     const generateFlashcards = useGenerateFlashcards()
+    const scheduleGoalWindow = useScheduleDocumentGoalWindow()
+    const deactivatePlaceholders = useDeactivateDocumentGoalWindowPlaceholders()
 
     const handleGoalDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value
         updateDocument.mutate({
             documentId: document.id,
             updates: { exam_date: val ? new Date(val).toISOString() : null }
-        }, { onSuccess: () => refetchDoc() })
+        }, {
+            onSuccess: (updatedDoc) => {
+                refetchDoc()
+                if (updatedDoc?.exam_date) {
+                    scheduleGoalWindow.mutate({
+                        document: updatedDoc,
+                        examDate: updatedDoc.exam_date,
+                    })
+                } else {
+                    deactivatePlaceholders.mutate({ documentId: document.id })
+                }
+            }
+        })
     }
 
     const status = STATUS_MAP[document.status] || STATUS_MAP.pending
