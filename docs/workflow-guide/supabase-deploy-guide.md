@@ -85,7 +85,7 @@ These are set in Supabase Dashboard > Edge Functions > Secrets:
 
 ```powershell
 # 1. Navigate to project directory
-cd D:\UC Subjects\4th Year 2nd Sem\CAPSTONE2\code\Dev-EduCoachv1\educoach> 
+cd  D:\12.school-code\Dev-EduCoachv1\educoach> 
 
 # 2. Login (first time only - will open browser)
 npx supabase login

@@ -27,11 +27,11 @@ flowchart LR
 
 | File | Role |
 |------|------|
-| [QuizView.tsx](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/components/quizzes/QuizView.tsx) | Where the user takes quizzes — triggers the learning engine on submit |
-| [learningAlgorithms.ts](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/lib/learningAlgorithms.ts) | Pure math functions — WMS, SM-2, Priority Score (zero side effects) |
-| [useLearning.ts](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts) | React Query hooks — reads/writes to Supabase, orchestrates the pipeline |
-| [LearningPathContent.tsx](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/components/learning-path/LearningPathContent.tsx) | The Learning Path page — displays the prioritized topic list |
-| [AnalyticsContent.tsx](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/components/analytics/AnalyticsContent.tsx) | The Analytics page — charts, heatmaps, drill-downs |
+| [QuizView.tsx](../../src/components/quizzes/QuizView.tsx) | Where the user takes quizzes — triggers the learning engine on submit |
+| [learningAlgorithms.ts](../../src/lib/learningAlgorithms.ts) | Pure math functions — WMS, SM-2, Priority Score (zero side effects) |
+| [useLearning.ts](../../src/hooks/useLearning.ts) | React Query hooks — reads/writes to Supabase, orchestrates the pipeline |
+| [LearningPathContent.tsx](../../src/components/learning-path/LearningPathContent.tsx) | The Learning Path page — displays the prioritized topic list |
+| [AnalyticsContent.tsx](../../src/components/analytics/AnalyticsContent.tsx) | The Analytics page — charts, heatmaps, drill-downs |
 
 ---
 
@@ -61,9 +61,9 @@ submitAttempt.mutate(attemptData, {
 
 ### Step 2: Fan Out Per-Question Logs
 
-Inside [useProcessQuizResults](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#527-678), the mutation does this:
+Inside [useProcessQuizResults](../../src/hooks/useLearning.ts#527-678), the mutation does this:
 
-1. **Resolves concept IDs** — each quiz question is linked to a [concept](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/lib/learningAlgorithms.ts#313-325). If `concept_id` is missing on the question, it tries to resolve it via `source_chunk_id → concept` mapping, or falls back to the document's most important concept.
+1. **Resolves concept IDs** — each quiz question is linked to a [concept](../../src/lib/learningAlgorithms.ts#313-325). If `concept_id` is missing on the question, it tries to resolve it via `source_chunk_id → concept` mapping, or falls back to the document's most important concept.
 
 2. **Computes `attempt_index`** — queries existing logs to figure out "this is the Nth time the user has answered a question about this concept."
 
@@ -83,9 +83,9 @@ Inside [useProcessQuizResults](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/C
 
 After logging, the mutation groups all answers by `concept_id` and for **each concept**:
 
-1. Calculates the concept's quiz accuracy ([conceptAccuracyPercent](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/lib/learningAlgorithms.ts#313-325))
+1. Calculates the concept's quiz accuracy ([conceptAccuracyPercent](../../src/lib/learningAlgorithms.ts#313-325))
 2. Maps that accuracy to an SM-2 quality rating (0–5)
-3. Calls [recomputeConceptMastery()](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#435-524) which runs the full pipeline ↓
+3. Calls [recomputeConceptMastery()](../../src/hooks/useLearning.ts#435-524) which runs the full pipeline ↓
 
 ---
 
@@ -269,16 +269,16 @@ A typical quiz covers **multiple concepts**. So one quiz with 10 questions might
 - **Ongoing quizzes** = SM-2 adjusts review schedules, mastery fluctuates based on performance
 
 > [!TIP]
-> The system also integrates **flashcard reviews** (not just quizzes). When you review flashcards linked to concepts, those also update mastery scores through the same [recomputeConceptMastery](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#435-524) function. So flashcards + quizzes both feed into the same learning path.
+> The system also integrates **flashcard reviews** (not just quizzes). When you review flashcards linked to concepts, those also update mastery scores through the same [recomputeConceptMastery](../../src/hooks/useLearning.ts#435-524) function. So flashcards + quizzes both feed into the same learning path.
 
 ---
 
 ## 🛤️ How the Learning Path Page Displays Data
 
-The [LearningPathContent.tsx](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/components/learning-path/LearningPathContent.tsx) component pulls data from two hooks:
+The [LearningPathContent.tsx](../../src/components/learning-path/LearningPathContent.tsx) component pulls data from two hooks:
 
-1. **[useConceptMasteryList()](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#160-210)** — all concept mastery records with concept names and document titles
-2. **[useLearningStats()](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#251-336)** — aggregated stats (totals, averages, streak)
+1. **[useConceptMasteryList()](../../src/hooks/useLearning.ts#160-210)** — all concept mastery records with concept names and document titles
+2. **[useLearningStats()](../../src/hooks/useLearning.ts#251-336)** — aggregated stats (totals, averages, streak)
 
 ### The Four Priority Sections
 
@@ -304,9 +304,9 @@ flowchart TD
 | Card | Data Source |
 |------|-----------|
 | Due Today count | Filtered from mastery list where `due_date <= today` |
-| Needs Review count | From [useLearningStats().needsReviewCount](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#251-336) |
-| Developing count | From [useLearningStats().developingCount](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#251-336) |
-| Mastered count | From [useLearningStats().masteredCount](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#251-336) |
+| Needs Review count | From [useLearningStats().needsReviewCount](../../src/hooks/useLearning.ts#251-336) |
+| Developing count | From [useLearningStats().developingCount](../../src/hooks/useLearning.ts#251-336) |
+| Mastered count | From [useLearningStats().masteredCount](../../src/hooks/useLearning.ts#251-336) |
 
 ### Overall Readiness Bar
 
@@ -325,20 +325,20 @@ Shows `averageMastery` across ALL tracked concepts as a progress bar with percen
 
 ## 📈 Analytics — How It All Gets Visualized
 
-The [AnalyticsContent.tsx](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/components/analytics/AnalyticsContent.tsx) page provides multiple views into the same underlying data:
+The [AnalyticsContent.tsx](../../src/components/analytics/AnalyticsContent.tsx) page provides multiple views into the same underlying data:
 
 ### Overview Stats (4 cards at top)
 
 | Stat | Source | What it means |
 |------|--------|---------------|
-| **Concepts Tracked** | [useLearningStats().totalConcepts](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#251-336) | Total unique concepts with mastery data (broken down: mastered / developing / needs review) |
-| **Quizzes Completed** | [useLearningStats().quizzesCompleted](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#251-336) | Count of completed attempts from `attempts` table |
-| **Average Score** | [useLearningStats().averageScore](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#251-336) | Mean score across all quiz attempts |
-| **Study Streak** | [useLearningStats().studyStreak](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#251-336) | Consecutive UTC days with at least one quiz attempt |
+| **Concepts Tracked** | [useLearningStats().totalConcepts](../../src/hooks/useLearning.ts#251-336) | Total unique concepts with mastery data (broken down: mastered / developing / needs review) |
+| **Quizzes Completed** | [useLearningStats().quizzesCompleted](../../src/hooks/useLearning.ts#251-336) | Count of completed attempts from `attempts` table |
+| **Average Score** | [useLearningStats().averageScore](../../src/hooks/useLearning.ts#251-336) | Mean score across all quiz attempts |
+| **Study Streak** | [useLearningStats().studyStreak](../../src/hooks/useLearning.ts#251-336) | Consecutive UTC days with at least one quiz attempt |
 
 ### Study Activity Heatmap
 
-- **Hook:** [useStudyActivity()](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#396-432)
+- **Hook:** [useStudyActivity()](../../src/hooks/useLearning.ts#396-432)
 - **Data:** Queries `question_attempt_log` for the last **90 days**, counts questions per day
 - **Display:** GitHub-style green heatmap, 5 intensity levels (0 = gray, 1-4 = green shades)
 - **Purpose:** Shows consistency of study habits at a glance
@@ -360,14 +360,14 @@ Three sub-sections:
 
 ### Tab 2: Trends
 
-- **Hook:** [useScoreTrend()](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#344-388)
+- **Hook:** [useScoreTrend()](../../src/hooks/useLearning.ts#344-388)
 - **Data:** Daily average quiz scores from the `attempts` table for the last **30 days**
 - **Display:** Recharts `LineChart` showing score over time
 - **Purpose:** Shows whether you're improving, plateauing, or declining
 
 ### Tab 3: Weak Topics
 
-- **Hook:** [useWeakTopics(10)](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#237-250)
+- **Hook:** [useWeakTopics(10)](../../src/hooks/useLearning.ts#237-250)
 - Lists concepts with `mastery_level = 'needs_review'`, sorted by lowest mastery first
 - Each topic is clickable → opens the concept drill-down
 - Shows: concept name, document, category, mastery %, attempt count, confidence %
@@ -438,10 +438,10 @@ The learning path isn't just fed by quizzes. Two sources update mastery:
 
 | Source | How it works |
 |--------|-------------|
-| **Quizzes** | [useProcessQuizResults](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#527-678) mutation runs after every quiz submission. Inserts log rows, runs WMS + SM-2 per concept. |
-| **Flashcard Reviews** | `useReviewFlashcard` in `useFlashcards.ts` — after rating a flashcard (SM-2 quality), it inserts a `question_attempt_log` entry and calls [recomputeConceptMastery](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#435-524). |
+| **Quizzes** | [useProcessQuizResults](../../src/hooks/useLearning.ts#527-678) mutation runs after every quiz submission. Inserts log rows, runs WMS + SM-2 per concept. |
+| **Flashcard Reviews** | `useReviewFlashcard` in `useFlashcards.ts` — after rating a flashcard (SM-2 quality), it inserts a `question_attempt_log` entry and calls [recomputeConceptMastery](../../src/hooks/useLearning.ts#435-524). |
 
-Both sources use the **same** [recomputeConceptMastery()](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#435-524) function, so quizzes and flashcards are treated equally by the mastery engine.
+Both sources use the **same** [recomputeConceptMastery()](../../src/hooks/useLearning.ts#435-524) function, so quizzes and flashcards are treated equally by the mastery engine.
 
 ---
 

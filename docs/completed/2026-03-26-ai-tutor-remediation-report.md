@@ -41,7 +41,7 @@ This report documents the remediation pass for Phase 6 AI Tutor Chat across Edge
 - Added assistant text cleanup for legacy markdown artifacts in stored/new messages.
 - Improved message readability with better wrapping and spacing.
 
-### 4) Mobile Chat (`src/screens/AiTutorChatScreen.tsx`, `src/hooks/useAiTutor.ts`)
+### 4) Mobile Chat (`educoach-mobile/src/screens/AiTutorChatScreen.tsx`, `educoach-mobile/src/hooks/useAiTutor.ts`)
 - Removed Bloom chips/state and stopped sending `bloomLevel`.
 - Added history citation rendering from persisted `source_citations`.
 - Added assistant text cleanup for markdown artifacts.
