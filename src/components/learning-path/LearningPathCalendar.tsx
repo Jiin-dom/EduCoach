@@ -23,6 +23,7 @@ import {
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
 import { useQuizzes } from "@/hooks/useQuizzes"
 import { useDocuments } from "@/hooks/useDocuments"
+import { useNavigate } from "react-router-dom"
 
 // Helper function to get days in a month
 function getDaysInMonth(year: number, month: number) {
@@ -34,7 +35,9 @@ function formatDateToLocalString(d: Date) {
 }
 
 export function LearningPathCalendar() {
+    const navigate = useNavigate()
     const [viewMode, setViewMode] = useState<"week" | "month">("week")
+    const [anchorDate, setAnchorDate] = useState(() => new Date())
 
     // Filter toggles
     const [showMastered, setShowMastered] = useState(true)
@@ -48,7 +51,7 @@ export function LearningPathCalendar() {
     const rescheduleDueDate = useRescheduleConceptDueDate()
 
     // Compute Dates
-    const now = new Date();
+    const now = anchorDate
     // Week calculations
     const dayOfWeek = now.getDay() === 0 ? 6 : now.getDay() - 1; // 0 for Monday
     const startOfWeek = new Date(now);
@@ -163,7 +166,7 @@ export function LearningPathCalendar() {
     
     // Group goals/deadlines by date for calendar display
     const examsByDate = useMemo(() => {
-        const map: Record<string, Array<{ title: string; type: 'quiz' | 'file' }>> = {};
+        const map: Record<string, Array<{ id: string; title: string; type: 'quiz' | 'file' }>> = {};
         
         if (quizzes && documents) {
             quizzes.forEach(q => {
@@ -171,7 +174,7 @@ export function LearningPathCalendar() {
                 if (doc?.deadline) {
                     const dateStr = doc.deadline.split('T')[0];
                     if (!map[dateStr]) map[dateStr] = [];
-                    map[dateStr].push({ title: q.title, type: 'quiz' });
+                    map[dateStr].push({ id: q.id, title: q.title, type: 'quiz' });
                 }
             });
         }
@@ -181,7 +184,7 @@ export function LearningPathCalendar() {
                 if (d.exam_date) {
                     const dateStr = d.exam_date.split('T')[0];
                     if (!map[dateStr]) map[dateStr] = [];
-                    map[dateStr].push({ title: d.title, type: 'file' });
+                    map[dateStr].push({ id: d.id, title: d.title, type: 'file' });
                 }
             });
         }
@@ -208,7 +211,27 @@ export function LearningPathCalendar() {
                         <CardHeader className="pb-4">
                             {/* Calendar Navigator */}
                             <div className="flex items-center justify-between mb-4">
-                                <Button variant="outline" size="icon" className="h-8 w-8 rounded-full">
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-8 w-8 rounded-full"
+                                    onClick={() => {
+                                        setAnchorDate((prev) => {
+                                            const d = new Date(prev)
+                                            if (viewMode === 'week') {
+                                                d.setDate(d.getDate() - 7)
+                                            } else {
+                                                const day = d.getDate()
+                                                d.setMonth(d.getMonth() - 1)
+                                                // If the previous month doesn't have this day, JS will roll over.
+                                                // Clamp by re-setting date to min(lastDayOfMonth, originalDay).
+                                                const last = getDaysInMonth(d.getFullYear(), d.getMonth())
+                                                d.setDate(Math.min(day, last))
+                                            }
+                                            return d
+                                        })
+                                    }}
+                                >
                                     <ChevronLeft className="h-4 w-4" />
                                 </Button>
                                 <div className="text-center">
@@ -217,7 +240,25 @@ export function LearningPathCalendar() {
                                     </h3>
                                     <p className="text-xs text-muted-foreground">Your preferred study time: 6 PM - 12 AM</p>
                                 </div>
-                                <Button variant="outline" size="icon" className="h-8 w-8 rounded-full">
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-8 w-8 rounded-full"
+                                    onClick={() => {
+                                        setAnchorDate((prev) => {
+                                            const d = new Date(prev)
+                                            if (viewMode === 'week') {
+                                                d.setDate(d.getDate() + 7)
+                                            } else {
+                                                const day = d.getDate()
+                                                d.setMonth(d.getMonth() + 1)
+                                                const last = getDaysInMonth(d.getFullYear(), d.getMonth())
+                                                d.setDate(Math.min(day, last))
+                                            }
+                                            return d
+                                        })
+                                    }}
+                                >
                                     <ChevronRight className="h-4 w-4" />
                                 </Button>
                             </div>
@@ -271,12 +312,27 @@ export function LearningPathCalendar() {
                                                 </div>
                                                 <div className="space-y-2">
                                                     {examsByDate[dateStr]?.map((item, ei) => (
-                                                        <div key={`exam-${ei}`} className={`p-2 rounded-md border text-xs mb-2 ${item.type === 'file' ? 'bg-blue-100 text-blue-800 border-blue-200' : 'bg-purple-100 text-purple-800 border-purple-200'}`}>
-                                                            <div className="flex items-center gap-1 font-bold mb-1 truncate">
-                                                                {item.type === 'file' ? <BookOpen className="w-3 h-3" /> : <Target className="w-3 h-3" />}
-                                                                {item.type === 'file' ? 'Study: ' : 'Quiz: '}{item.title}
+                                                        item.type === 'quiz' ? (
+                                                            <button
+                                                                key={`exam-${ei}`}
+                                                                type="button"
+                                                                onClick={() => navigate(`/quizzes/${item.id}`)}
+                                                                className="w-full text-left p-2 rounded-md border text-xs mb-2 bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-200 transition-colors cursor-pointer"
+                                                                title="Open quiz"
+                                                            >
+                                                                <div className="flex items-center gap-1 font-bold mb-1 truncate">
+                                                                    <Target className="w-3 h-3" />
+                                                                    Quiz: {item.title}
+                                                                </div>
+                                                            </button>
+                                                        ) : (
+                                                            <div key={`exam-${ei}`} className="p-2 rounded-md border text-xs mb-2 bg-blue-100 text-blue-800 border-blue-200">
+                                                                <div className="flex items-center gap-1 font-bold mb-1 truncate">
+                                                                    <BookOpen className="w-3 h-3" />
+                                                                    Study: {item.title}
+                                                                </div>
                                                             </div>
-                                                        </div>
+                                                        )
                                                     ))}
                                                     {sessions.length > 0 ? (
                                                         sessions.map((s, i) => <div key={i}>{renderSessionBadge(s)}</div>)
@@ -322,10 +378,23 @@ export function LearningPathCalendar() {
                                                 >
                                                     <span className="text-xs font-medium">{i + 1}</span>
                                                     {examsByDate[dateStr]?.map((item, ei) => (
-                                                        <div key={`exam-${ei}`} className={`mt-1 text-[10px] font-bold p-1 rounded truncate border flex items-center gap-1 ${item.type === 'file' ? 'bg-blue-100 text-blue-800 border-blue-200' : 'bg-purple-100 text-purple-800 border-purple-200'}`}>
-                                                            {item.type === 'file' ? <BookOpen className="w-2.5 h-2.5 hidden sm:block" /> : <Target className="w-2.5 h-2.5 hidden sm:block" />}
-                                                            {item.title}
-                                                        </div>
+                                                        item.type === 'quiz' ? (
+                                                            <button
+                                                                key={`exam-${ei}`}
+                                                                type="button"
+                                                                onClick={() => navigate(`/quizzes/${item.id}`)}
+                                                                className="w-full mt-1 text-[10px] font-bold p-1 rounded truncate border flex items-center gap-1 bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-200 transition-colors cursor-pointer"
+                                                                title="Open quiz"
+                                                            >
+                                                                <Target className="w-2.5 h-2.5 hidden sm:block" />
+                                                                {item.title}
+                                                            </button>
+                                                        ) : (
+                                                            <div key={`exam-${ei}`} className="mt-1 text-[10px] font-bold p-1 rounded truncate border flex items-center gap-1 bg-blue-100 text-blue-800 border-blue-200">
+                                                                <BookOpen className="w-2.5 h-2.5 hidden sm:block" />
+                                                                {item.title}
+                                                            </div>
+                                                        )
                                                     ))}
                                                     {sessions.slice(0, 3).map((s, si) => (
                                                         <div key={si}>{renderMonthSessionBadge(s)}</div>

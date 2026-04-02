@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext"
 import { uploadFile, validateFile, formatFileSize, getFileTypeFromMime, ALLOWED_FILE_TYPES } from "@/lib/storage"
 import { supabase, ensureFreshSession } from "@/lib/supabase"
 import { useProcessDocument } from "@/hooks/useDocuments"
+import { useScheduleDocumentGoalWindow } from '@/hooks/useGoalWindowScheduling'
 
 interface FileUploadDialogProps {
     open: boolean
@@ -75,6 +76,7 @@ function getStepIndex(phase: UploadPhase): number {
 export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplete }: FileUploadDialogProps) {
     const { user } = useAuth()
     const processDocument = useProcessDocument()
+    const scheduleGoalWindow = useScheduleDocumentGoalWindow()
 
     const [selectedFile, setSelectedFile] = useState<File | null>(null)
     const [title, setTitle] = useState("")
@@ -207,6 +209,17 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
 
             try {
                 await processDocument.mutateAsync(insertedDoc.id)
+                if (goalDate) {
+                    // After processing, concepts exist; now bootstrap and plan within the goal window.
+                    try {
+                        await scheduleGoalWindow.mutateAsync({
+                            document: { id: insertedDoc.id, exam_date: insertedDoc.exam_date },
+                            examDate: goalDate,
+                        })
+                    } catch (e) {
+                        console.warn('[FileUpload] Goal-window scheduling failed (non-fatal):', e)
+                    }
+                }
             } catch (processingError) {
                 console.warn('[FileUpload] Processing continues in background:', processingError)
             }

@@ -10,6 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { scheduleDocumentGoalWindow } from '@/services/goalWindowScheduling'
 import {
     computeMastery,
     calculateSM2,
@@ -927,7 +928,7 @@ export async function recomputeConceptMastery(
  */
 export function useProcessQuizResults() {
     const queryClient = useQueryClient()
-    const { user } = useAuth()
+    const { user, profile } = useAuth()
 
     return useMutation({
         mutationFn: async (input: ProcessQuizResultsInput) => {
@@ -1050,6 +1051,27 @@ export function useProcessQuizResults() {
                 const quizAccuracy = conceptAccuracyPercent(currentAnswers)
                 const quality = mapScoreToQuality(quizAccuracy, learningConfig.quality_thresholds)
                 await recomputeConceptMastery(user.id, conceptId, documentId, quality, learningConfig)
+            }
+
+            // Goal-window scheduling:
+            // If the document has a file goal end-date (`documents.exam_date`), keep the plan
+            // continuously adapted as mastery data changes.
+            const { data: docRow } = await supabase
+                .from('documents')
+                .select('exam_date')
+                .eq('id', documentId)
+                .maybeSingle()
+
+            const activeExamDate = docRow?.exam_date
+            if (activeExamDate) {
+                await scheduleDocumentGoalWindow({
+                    userId: user.id,
+                    documentId,
+                    examDate: activeExamDate,
+                    availableStudyDays: profile?.available_study_days ?? null,
+                    dailyStudyMinutes: profile?.daily_study_minutes ?? 30,
+                    learningConfig,
+                })
             }
 
             return { processedConcepts: conceptAnswers.size }
