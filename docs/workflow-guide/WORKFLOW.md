@@ -25,6 +25,9 @@ EDUCOACH is an AI-powered personalized learning platform that helps students:
 - Create quizzes and flashcards from materials
 - Track learning progress with analytics
 - Follow a personalized learning path
+- Identify weak or developing concepts from student performance
+- Automatically generate targeted quizzes, flashcards, and review sessions from those weak areas
+- Continuously re-plan the learning path as the student completes new study work
 
 ### Tech Stack
 
@@ -304,6 +307,8 @@ USING (auth.uid() = user_id);
 | Function | Path | Trigger |
 |----------|------|---------|
 | `process-document` | `supabase/functions/process-document` | Manual via UI button |
+| `generate-quiz` | `supabase/functions/generate-quiz` | Manual generation plus targeted review quiz generation |
+| `ai-tutor` | `supabase/functions/ai-tutor` | Grounded chat over uploaded documents |
 
 ---
 
@@ -350,16 +355,17 @@ GEMINI_API_KEY=your-gemini-api-key
 
 | Phase | Feature | Status |
 |-------|---------|--------|
-| Phase 1 | Authentication & Database | ✅ Complete |
-| Phase 2 | User Profiling | ✅ Complete |
-| Phase 2 | File Upload to Storage | ✅ Complete |
-| Phase 3 | Document Processing (Edge Function) | ✅ Complete |
-| Phase 3 | Concept Extraction | ✅ Complete |
-| Phase 3 | Embeddings & Semantic Search | ✅ Complete |
-| Phase 4 | Quiz Generation | 🔲 Not Started |
-| Phase 4 | Flashcard Generation | 🔲 Not Started |
-| Phase 5 | Learning Path Scheduling | 🔲 Not Started |
-| Phase 5 | Analytics & Progress Tracking | 🔲 Not Started |
+| Phase 1 | Authentication & Database | Complete |
+| Phase 2 | User Profiling | Complete |
+| Phase 2 | File Upload to Storage | Complete |
+| Phase 3 | Document Processing (Edge Function) | Complete |
+| Phase 3 | Concept Extraction | Complete |
+| Phase 3 | Embeddings & Semantic Search | Complete |
+| Phase 4 | Quiz Generation & Attempts | Complete |
+| Phase 5 | Learning Intelligence & Analytics | Complete |
+| Phase 6 | AI Tutor Chat with RAG | Complete |
+| Phase 6.x | Adaptive Review Quiz Generation | Implemented |
+| Product Direction | Automatic weak-area flashcards, reviews, and continuous replanning on the learning path | Intended behavior to keep documenting and building toward |
 
 ---
 
