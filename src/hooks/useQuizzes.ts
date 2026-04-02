@@ -8,6 +8,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { adaptiveStudyKeys } from '@/hooks/useAdaptiveStudy'
 import { ALL_QUIZ_TYPES, type QuizTypeId } from '@/types/quiz'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -377,6 +378,7 @@ export function useGenerateReviewQuiz() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: quizKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
         },
         onError: (error) => {
             console.error('[Quiz] Review quiz generation error:', error)
@@ -442,6 +444,7 @@ export function useUpdateQuiz() {
         onSuccess: (data) => {
             queryClient.invalidateQueries({ queryKey: quizKeys.all })
             queryClient.invalidateQueries({ queryKey: quizKeys.detail(data.id) })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
         },
     })
 }
@@ -461,6 +464,7 @@ export function useDeleteQuiz() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: quizKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
         },
     })
 }

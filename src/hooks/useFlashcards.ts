@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { adaptiveStudyKeys } from '@/hooks/useAdaptiveStudy'
 import {
     recomputeConceptMastery,
     learningKeys,
@@ -29,6 +30,7 @@ export interface Flashcard {
 export const flashcardKeys = {
     all: ['flashcards'] as const,
     byDocument: (documentId: string) => [...flashcardKeys.all, 'document', documentId] as const,
+    filtered: (documentId?: string) => [...flashcardKeys.all, 'filtered', documentId ?? 'all'] as const,
     due: () => [...flashcardKeys.all, 'due'] as const,
 }
 
@@ -76,19 +78,25 @@ export function useDueFlashcards() {
     })
 }
 
-export function useAllFlashcards() {
+export function useAllFlashcards(documentId?: string) {
     const { user } = useAuth()
 
     return useQuery({
-        queryKey: flashcardKeys.all,
+        queryKey: flashcardKeys.filtered(documentId),
         queryFn: async (): Promise<Flashcard[]> => {
             if (!user) return []
 
-            const { data, error } = await supabase
+            let query = supabase
                 .from('flashcards')
                 .select('*')
                 .eq('user_id', user.id)
                 .order('due_date')
+
+            if (documentId) {
+                query = query.eq('document_id', documentId)
+            }
+
+            const { data, error } = await query
 
             if (error) throw new Error(error.message)
             return data as Flashcard[]
@@ -123,6 +131,7 @@ export function useGenerateFlashcards() {
                 queryClient.invalidateQueries({ queryKey: flashcardKeys.byDocument(documentId) })
             }
             queryClient.invalidateQueries({ queryKey: learningKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
         },
     })
 }
@@ -235,6 +244,7 @@ export function useReviewFlashcard() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: flashcardKeys.all })
             queryClient.invalidateQueries({ queryKey: learningKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
         },
     })
 }

@@ -10,7 +10,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { adaptiveStudyKeys } from '@/hooks/useAdaptiveStudy'
 import { scheduleDocumentGoalWindow } from '@/services/goalWindowScheduling'
+import { ensureAdaptiveReviewQuizForDocument } from '@/services/adaptiveStudy'
 import {
     computeMastery,
     calculateSM2,
@@ -366,6 +368,7 @@ export function useRescheduleConceptDueDate() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: learningKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
         },
     })
 }
@@ -1074,10 +1077,20 @@ export function useProcessQuizResults() {
                 })
             }
 
+            try {
+                await ensureAdaptiveReviewQuizForDocument({
+                    userId: user.id,
+                    documentId,
+                })
+            } catch (adaptiveQuizError) {
+                console.warn('[Learning] Adaptive review quiz sync failed:', adaptiveQuizError)
+            }
+
             return { processedConcepts: conceptAnswers.size }
         },
         onSuccess: (result) => {
             queryClient.invalidateQueries({ queryKey: learningKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
             if (result && result.processedConcepts > 0) {
                 toast.success('Mastery scores updated', {
                     description: `${result.processedConcepts} concept${result.processedConcepts > 1 ? 's' : ''} updated based on your quiz performance.`,
