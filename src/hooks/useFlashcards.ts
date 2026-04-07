@@ -177,7 +177,14 @@ export function useReviewFlashcard() {
     const { user } = useAuth()
 
     return useMutation({
-        mutationFn: async ({ card, rating }: { card: Flashcard; rating: ReviewRating }) => {
+        mutationFn: async ({
+            card,
+            rating,
+        }: {
+            card: Flashcard
+            rating: ReviewRating
+            deferAdaptiveInvalidation?: boolean
+        }) => {
             const updates = computeSM2(card, rating)
 
             const { error } = await supabase
@@ -241,10 +248,12 @@ export function useReviewFlashcard() {
 
             return { ...card, ...updates }
         },
-        onSuccess: () => {
+        onSuccess: (_data, variables) => {
             queryClient.invalidateQueries({ queryKey: flashcardKeys.all })
             queryClient.invalidateQueries({ queryKey: learningKeys.all })
-            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
+            if (!variables.deferAdaptiveInvalidation) {
+                queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
+            }
         },
     })
 }
