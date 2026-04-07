@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ArrowLeft, Loader2, AlertCircle, BookOpen, Brain, Sparkles, StickyNote, Layers, RefreshCw, FileText } from 'lucide-react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useDocument, useProcessDocument } from '@/hooks/useDocuments'
 import { useDocumentConcepts } from '@/hooks/useConcepts'
 import { AiTutorChat } from '@/components/shared/AiTutorChat'
@@ -18,7 +18,9 @@ import { DocumentPane } from './DocumentPane'
 
 export function FileViewer() {
     const { id } = useParams<{ id: string }>()
-    const [activeTab, setActiveTab] = useState('guide')
+    const [searchParams, setSearchParams] = useSearchParams()
+    const requestedTab = searchParams.get('tab')
+    const [activeTab, setActiveTab] = useState(requestedTab || 'guide')
     const [currentPage, setCurrentPage] = useState(1)
     const [tutorPrompt, setTutorPrompt] = useState<string | null>(null)
     const [showMobileDoc, setShowMobileDoc] = useState(false)
@@ -26,6 +28,12 @@ export function FileViewer() {
     const { data: document, isLoading: docLoading, error: docError, refetch: refetchDoc } = useDocument(id)
     const { data: concepts, isLoading: conceptsLoading } = useDocumentConcepts(id)
     const processDocument = useProcessDocument()
+
+    useEffect(() => {
+        if (requestedTab) {
+            setActiveTab(requestedTab)
+        }
+    }, [requestedTab])
 
     const handlePageJump = (page: number) => {
         setCurrentPage(page)
@@ -194,7 +202,12 @@ export function FileViewer() {
                         <StudyPath documentId={document.id} onSelectTab={setActiveTab} />
                     )}
 
-                    <Tabs value={activeTab} onValueChange={setActiveTab}>
+                    <Tabs value={activeTab} onValueChange={(value) => {
+                        setActiveTab(value)
+                        const nextParams = new URLSearchParams(searchParams)
+                        nextParams.set('tab', value)
+                        setSearchParams(nextParams, { replace: true })
+                    }}>
                         <TabsList className="flex w-full overflow-x-auto justify-start no-scrollbar">
                             <TabsTrigger value="guide" className="gap-1.5 text-xs sm:text-sm whitespace-nowrap">
                                 <BookOpen className="w-3.5 h-3.5" />

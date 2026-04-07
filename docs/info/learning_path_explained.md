@@ -19,7 +19,7 @@ flowchart LR
     G --> I["📈 Analytics Updated"]
 ```
 
-**In plain English:** You upload study materials → take quizzes on them → every answer you give is logged → three algorithms (WMS, SM-2, Priority Scheduler) crunch the numbers → your personalized learning path and analytics update automatically.
+**In plain English:** You upload study materials -> take quizzes on them -> every answer you give is logged -> three algorithms (WMS, SM-2, Priority Scheduler) crunch the numbers -> EduCoach identifies what needs work -> targeted quizzes, flashcards, and review sessions should be generated around those weak areas -> your personalized learning path and analytics update automatically.
 
 ---
 
@@ -273,6 +273,34 @@ A typical quiz covers **multiple concepts**. So one quiz with 10 questions might
 
 ---
 
+## Adaptive Study Generation
+
+The learning path should act as an **active planner**, not just a reporting screen.
+
+Once EduCoach identifies weak, overdue, or still-developing concepts, it should turn those findings into new study work:
+
+1. **Targeted quizzes**
+   - Generate quizzes weighted toward weak concepts or overdue review topics.
+   - Reduce emphasis on already-mastered concepts unless spaced repetition says they are due again.
+
+2. **Targeted flashcards**
+   - Create flashcards for repeated recall on the same weak concepts.
+   - Use them as lighter-weight follow-up practice between larger quizzes.
+
+3. **Review sessions**
+   - Group due or weak concepts into review blocks that can be scheduled on the learning path.
+   - Use the student's availability, deadlines, and review urgency to decide when they should appear.
+
+4. **Continuous replanning**
+   - Every time the student completes a quiz, flashcard session, or review, the mastery engine runs again.
+   - The next generated study set should change based on the latest mastery, confidence, and due-date data.
+
+This means the product goal is a closed loop:
+
+`performance data -> weakness detection -> generated study work -> scheduled learning path -> new performance data`
+
+---
+
 ## 🛤️ How the Learning Path Page Displays Data
 
 The [LearningPathContent.tsx](../../src/components/learning-path/LearningPathContent.tsx) component pulls data from two hooks:
@@ -434,14 +462,15 @@ erDiagram
 
 ## 🔁 Sources That Feed Into the Learning Path
 
-The learning path isn't just fed by quizzes. Two sources update mastery:
+The learning path isn't just fed by quizzes. Multiple study activities should feed mastery and future planning:
 
 | Source | How it works |
 |--------|-------------|
 | **Quizzes** | [useProcessQuizResults](../../src/hooks/useLearning.ts#527-678) mutation runs after every quiz submission. Inserts log rows, runs WMS + SM-2 per concept. |
 | **Flashcard Reviews** | `useReviewFlashcard` in `useFlashcards.ts` — after rating a flashcard (SM-2 quality), it inserts a `question_attempt_log` entry and calls [recomputeConceptMastery](../../src/hooks/useLearning.ts#435-524). |
+| **Scheduled Review Sessions** | Review activities placed on the learning path should also update the same mastery records once they produce student performance data. |
 
-Both sources use the **same** [recomputeConceptMastery()](../../src/hooks/useLearning.ts#435-524) function, so quizzes and flashcards are treated equally by the mastery engine.
+All of these study activities should converge on the **same mastery engine** so the next generated quizzes, flashcards, and review sessions reflect the student's latest performance.
 
 ---
 
@@ -469,4 +498,4 @@ Say a student uploads their "Data Structures" lecture notes. The NLP pipeline ex
 - 📖 Developing: Stacks, Queues
 - ⚠️ Needs Review: Linked Lists (priority score is highest — study this first!)
 
-**The system keeps adapting with every quiz and flashcard review.**
+**The system keeps adapting with every quiz, flashcard review, and scheduled review activity.**

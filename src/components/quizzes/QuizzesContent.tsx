@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Brain, Loader2, AlertCircle, RefreshCw, FileText, Layers, RotateCcw, ChevronRight, CheckCircle2 } from "lucide-react"
-import { Link, useLocation, useNavigate } from "react-router-dom"
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom"
 import { QuizCard } from "@/components/dashboard/QuizCard"
 import { useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
 import { useAllFlashcards, useReviewFlashcard, type Flashcard } from "@/hooks/useFlashcards"
@@ -17,6 +17,12 @@ export function QuizzesContent() {
     const { data: attempts } = useUserAttempts()
     const location = useLocation()
     const navigate = useNavigate()
+    const [searchParams, setSearchParams] = useSearchParams()
+    const requestedTab = searchParams.get('tab')
+    const requestedDocumentId = searchParams.get('documentId') || undefined
+    const [activeTab, setActiveTab] = useState<'available' | 'completed' | 'flashcards'>(
+        requestedTab === 'completed' || requestedTab === 'flashcards' ? requestedTab : 'available',
+    )
     const state = location.state as { highlightQuizId?: string } | null
     const routeHighlightQuizId = state?.highlightQuizId ?? null
     const persistedHighlightRef = useRef<string | null>(routeHighlightQuizId)
@@ -36,6 +42,12 @@ export function QuizzesContent() {
             navigate(location.pathname, { replace: true })
         }
     }, [routeHighlightQuizId, navigate, location.pathname])
+
+    useEffect(() => {
+        if (requestedTab === 'available' || requestedTab === 'completed' || requestedTab === 'flashcards') {
+            setActiveTab(requestedTab)
+        }
+    }, [requestedTab])
 
     const handleSelectDocument = (id: string) => {
         setSelectedDocId(id)
@@ -153,7 +165,17 @@ export function QuizzesContent() {
                 </div>
             </div>
 
-            <Tabs defaultValue="available" className="w-full">
+            <Tabs value={activeTab} onValueChange={(value) => {
+                const nextTab = value as 'available' | 'completed' | 'flashcards'
+                setActiveTab(nextTab)
+
+                const nextParams = new URLSearchParams(searchParams)
+                nextParams.set('tab', nextTab)
+                if (nextTab !== 'flashcards') {
+                    nextParams.delete('documentId')
+                }
+                setSearchParams(nextParams, { replace: true })
+            }} className="w-full">
                 <TabsList className="grid w-full max-w-md grid-cols-3">
                     <TabsTrigger value="available">Available ({availableQuizzes.length})</TabsTrigger>
                     <TabsTrigger value="completed">Completed ({completedQuizzes.length})</TabsTrigger>
@@ -239,7 +261,7 @@ export function QuizzesContent() {
                 </TabsContent>
 
                 <TabsContent value="flashcards" className="mt-6">
-                    <FlashcardsPanel />
+                    <FlashcardsPanel documentId={requestedDocumentId} />
                 </TabsContent>
             </Tabs>
 
@@ -266,8 +288,8 @@ export function QuizzesContent() {
 
 type ReviewRating = 'again' | 'hard' | 'good' | 'easy'
 
-function FlashcardsPanel() {
-    const { data: allCards, isLoading } = useAllFlashcards()
+function FlashcardsPanel({ documentId }: { documentId?: string }) {
+    const { data: allCards, isLoading } = useAllFlashcards(documentId)
     const reviewMutation = useReviewFlashcard()
     const [studyMode, setStudyMode] = useState(false)
     const [currentIdx, setCurrentIdx] = useState(0)
@@ -310,7 +332,11 @@ function FlashcardsPanel() {
             <Card>
                 <CardHeader>
                     <CardTitle>Flashcards</CardTitle>
-                    <CardDescription>Review and memorize key concepts</CardDescription>
+                    <CardDescription>
+                        {documentId
+                            ? 'Review the flashcards linked to this document'
+                            : 'Review and memorize key concepts'}
+                    </CardDescription>
                 </CardHeader>
                 <CardContent>
                     <div className="text-center py-12">
@@ -432,10 +458,14 @@ function FlashcardsPanel() {
     // Dashboard view
     return (
         <Card>
-            <CardHeader>
-                <CardTitle>Flashcards</CardTitle>
-                <CardDescription>Review and memorize key concepts with spaced repetition</CardDescription>
-            </CardHeader>
+                <CardHeader>
+                    <CardTitle>Flashcards</CardTitle>
+                    <CardDescription>
+                        {documentId
+                            ? 'Focused practice for this document using spaced repetition'
+                            : 'Review and memorize key concepts with spaced repetition'}
+                    </CardDescription>
+                </CardHeader>
             <CardContent>
                 <div className="space-y-4">
                     <div className="grid grid-cols-3 gap-3 text-center">

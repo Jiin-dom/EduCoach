@@ -20,6 +20,7 @@ import {
     useStudyEfficiency,
     type ConceptMasteryWithDetails,
 } from "@/hooks/useLearning"
+import { useAdaptiveStudyTasks, type AdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
 import { useQuizzes } from "@/hooks/useQuizzes"
 import { useDocuments } from "@/hooks/useDocuments"
@@ -48,6 +49,7 @@ export function LearningPathCalendar() {
     const { data: stats } = useLearningStats();
     const { data: weeklyProgress } = useWeeklyProgress();
     const { data: efficiency } = useStudyEfficiency();
+    const { data: adaptiveTasks } = useAdaptiveStudyTasks()
     const rescheduleDueDate = useRescheduleConceptDueDate()
 
     // Compute Dates
@@ -84,6 +86,10 @@ export function LearningPathCalendar() {
                 if (m.display_mastery_level === 'needs_review') return showNeedsReview;
                 return true;
             })
+    }
+
+    const getAdaptiveTasksForDate = (dateStr: string) => {
+        return (adaptiveTasks || []).filter((task) => task.scheduledDate === dateStr)
     }
 
     // Helper to render pills based on session type
@@ -141,6 +147,53 @@ export function LearningPathCalendar() {
                 {session.display_mastery_level === 'needs_review' && <BookOpen className="w-2.5 h-2.5 hidden sm:block" />}
                 <span>{session.concept_name}</span>
             </div>
+        )
+    }
+
+    const renderAdaptiveTaskBadge = (task: AdaptiveStudyTask, compact = false) => {
+        const colors = task.type === 'quiz'
+            ? 'bg-primary/10 text-primary border-primary/20'
+            : task.type === 'flashcards'
+                ? 'bg-blue-100 text-blue-700 border-blue-200'
+                : 'bg-amber-100 text-amber-700 border-amber-200'
+
+        const label = task.type === 'quiz'
+            ? 'Quiz'
+            : task.type === 'flashcards'
+                ? 'Cards'
+                : 'Review'
+
+        const openTask = () => {
+            if (task.type === 'quiz') {
+                if (task.quizId) {
+                    navigate(task.status === 'ready' ? `/quizzes/${task.quizId}` : '/quizzes', {
+                        state: task.quizId ? { highlightQuizId: task.quizId } : undefined,
+                    })
+                } else {
+                    navigate('/learning-path')
+                }
+                return
+            }
+
+            if (task.type === 'flashcards') {
+                navigate(`/quizzes?tab=flashcards&documentId=${task.documentId}`)
+                return
+            }
+
+            navigate(`/files/${task.documentId}?tab=concepts`)
+        }
+
+        return (
+            <button
+                type="button"
+                onClick={openTask}
+                className={`${compact ? 'mt-1 text-[10px] p-1' : 'p-2 text-xs mb-2'} w-full rounded-md border ${colors} text-left hover:opacity-90 transition-opacity`}
+                title={task.title}
+            >
+                <div className="font-bold truncate">
+                    {label}: {task.documentTitle}
+                </div>
+            </button>
         )
     }
 
@@ -290,6 +343,7 @@ export function LearningPathCalendar() {
                                     {weekDays.map((dateObj, idx) => {
                                         const dateStr = formatDateToLocalString(dateObj)
                                         const sessions = getSessionsForDate(dateStr)
+                                        const plannedTasks = getAdaptiveTasksForDate(dateStr)
 
                                         return (
                                             <div
@@ -311,6 +365,9 @@ export function LearningPathCalendar() {
                                                     <div className="text-xs text-muted-foreground">{dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
                                                 </div>
                                                 <div className="space-y-2">
+                                                    {plannedTasks.map((task) => (
+                                                        <div key={task.id}>{renderAdaptiveTaskBadge(task)}</div>
+                                                    ))}
                                                     {examsByDate[dateStr]?.map((item, ei) => (
                                                         item.type === 'quiz' ? (
                                                             <button
@@ -361,6 +418,7 @@ export function LearningPathCalendar() {
                                             const dayDate = new Date(now.getFullYear(), now.getMonth(), i + 1);
                                             const dateStr = formatDateToLocalString(dayDate);
                                             const sessions = getSessionsForDate(dateStr);
+                                            const plannedTasks = getAdaptiveTasksForDate(dateStr)
 
                                             return (
                                                 <div
@@ -377,6 +435,9 @@ export function LearningPathCalendar() {
                                                     }}
                                                 >
                                                     <span className="text-xs font-medium">{i + 1}</span>
+                                                    {plannedTasks.slice(0, 2).map((task) => (
+                                                        <div key={task.id}>{renderAdaptiveTaskBadge(task, true)}</div>
+                                                    ))}
                                                     {examsByDate[dateStr]?.map((item, ei) => (
                                                         item.type === 'quiz' ? (
                                                             <button

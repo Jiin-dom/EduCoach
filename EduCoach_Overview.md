@@ -1,51 +1,54 @@
 # EduCoach Overview
 
-Welcome, apprentice! This document provides a high-level overview of the **EduCoach** project. Think of it as your map to the territory.
+This document gives a high-level view of the EduCoach product, its purpose, and the core learning loop the application is trying to build.
 
 ## What is EduCoach?
 
-EduCoach is an **AI-powered personalized learning platform**. Its main goal is to help students study smarter, not just harder. It takes raw study materials and transforms them into active learning tools. 
+EduCoach is an **AI-powered personalized learning platform**. Its goal is to help students study more effectively by turning raw study materials into structured, adaptive study work.
 
-Here is what it allows users to do:
-- **Upload Study Materials:** Users can upload PDFs, Word documents, text files, and markdown files.
-- **AI Extraction:** The system uses Google Gemini AI to read these documents, summarize them, and extract core concepts.
-- **Active Recall:** (Coming soon) Generating quizzes and flashcards directly from the uploaded materials.
-- **Personalized Learning Path:** (Coming soon) A study schedule and analytics tracker tailored to the student's learning style and goals.
+Here is what the platform is trying to do:
+- **Upload Study Materials:** Students upload PDFs, Word documents, text files, and markdown files.
+- **AI Extraction:** The system reads those files, creates summaries, extracts core concepts, and stores searchable representations of the material.
+- **Active Recall Generation:** EduCoach generates quizzes and flashcards directly from uploaded materials so students can practice instead of only rereading notes.
+- **Adaptive Learning Intelligence:** EduCoach tracks how well the student performs on concepts, identifies strengths and weak areas, and estimates what the student should focus on next.
+- **Personalized Learning Path:** EduCoach should turn weak, overdue, or still-developing concepts into scheduled study work, including targeted quizzes, flashcards, and review sessions.
+- **Continuous Replanning:** As the student completes those activities, the system should keep updating mastery and regenerating the next best study tasks.
 
-## The Technology Stack (What's Under the Hood)
+## The Technology Stack
 
-A good mechanic knows their tools. Here are ours:
+### Frontend
+- **React 18 and Vite:** Fast user interface and development workflow.
+- **TypeScript:** Safer application code and better maintainability.
+- **Tailwind CSS and shadcn/ui:** Reusable UI components and styling.
+- **TanStack Query:** Data fetching, caching, and async state management.
 
-### Frontend (The Face of the App)
-- **React 18 & Vite:** For building a lightning-fast user interface.
-- **TypeScript:** To catch bugs before they even run. Types are your best friend!
-- **Tailwind CSS & shadcn/ui:** For styling. clean, modern, and highly reusable components.
-- **TanStack Query (React Query):** For managing async state and API calls without losing our minds.
+### Backend
+- **Supabase:** Backend-as-a-Service for database, authentication, and storage.
+- **PostgreSQL:** Relational data storage.
+- **Supabase Storage:** Uploaded document storage.
+- **Supabase Edge Functions:** Server-side document processing, quiz generation, and AI tutor orchestration.
 
-### Backend (The Engine Room)
-- **Supabase:** Our Backend-as-a-Service (BaaS). It handles:
-  - **PostgreSQL Database:** Where all our relational data lives.
-  - **Authentication:** Keeping user data secure.
-  - **Storage:** Where we keep the uploaded document files.
-- **Supabase Edge Functions:** Serverless functions that run our heavy backend tasks, like processing documents.
+### AI and Machine Learning
+- **Google Gemini API (`gemini-2.5-flash-lite`):** Summary generation, concept extraction, and grounded responses.
+- **Embeddings:** Vector embeddings for semantic search over uploaded materials.
+- **pgvector:** Vector similarity search inside PostgreSQL.
 
-### AI & Machine Learning (The Brains)
-- **Google Gemini API (gemini-2.5-flash-lite):** We use this to read the text and pull out summaries and concepts.
-- **text-embedding-004:** We generate "vector embeddings" of the text chunks.
-- **pgvector:** A PostgreSQL extension that lets us search through these vectors. This is how we find relevant document chunks when generating quizzes!
+## How It All Connects
 
-## How It All Connects (The Architecture)
+When a student uses EduCoach, the intended system loop looks like this:
 
-When a user uses EduCoach, here is the journey their data takes:
+1. **Onboarding:** The student signs up, logs in, and completes profiling such as learning preferences, goals, and study availability.
+2. **Uploading:** The student uploads study files, which are stored in Supabase Storage.
+3. **Processing:** EduCoach processes the file, extracts text, chunks content, generates summaries, identifies concepts, and stores embeddings.
+4. **Study Generation:** The app uses those processed materials to generate quizzes, flashcards, and document-grounded study interactions.
+5. **Performance Tracking:** When the student answers quizzes or completes flashcard reviews, EduCoach records performance at the concept level.
+6. **Learning Intelligence:** The system updates mastery, confidence, strengths, weaknesses, readiness, and review timing.
+7. **Adaptive Planning:** EduCoach should automatically generate targeted quizzes, flashcards, and review sessions for weak or developing concepts, place them on the learning path, and keep refreshing that plan as new data arrives.
 
-1. **Onboarding:** A user registers, logs in, and fills out a profiling form (learning style, goals, study time). This sets up their `user_profile` in Supabase.
-2. **Uploading:** The user drops a PDF into the dashboard. It gets saved to **Supabase Storage**.
-3. **Processing:** They click "Process". An **Edge Function** kicks off! It downloads the file, splits it into small text chunks, and sends them to **Gemini AI**.
-4. **Extraction:** Gemini returns a summary, concepts, and vector embeddings. All of this gets saved back into the PostgreSQL database.
-5. **Learning:** The frontend fetches these derived concepts so the user can review them, laying the groundwork for flashcards and quizzes.
+## Current Project Direction
 
-## Current Project Status
+EduCoach should be understood as more than a file processor or quiz generator. The real product direction is a closed learning loop:
 
-As of right now, we have successfully built the **Foundation and AI Processing**:
-- Authentication, profiling, file uploads, and AI concept extraction are **working**.
-- Next up on the chopping block: Quiz generation, flashcards, and the personalized learning path scheduling!
+`materials -> generated study activities -> student performance -> mastery updates -> new targeted study activities`
+
+That means the learning path is not just a passive calendar. It is supposed to become the orchestration layer that decides what the student should study next, generates the right study tasks for those weak areas, and keeps adjusting as the student improves.

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react"
+import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import {
     Brain,
     Clock,
@@ -13,6 +13,9 @@ import {
     TrendingUp,
     Zap,
     HelpCircle,
+    Layers,
+    Sparkles,
+    FileText,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -29,6 +32,7 @@ import { useConceptMasteryList, useLearningStats } from "@/hooks/useLearning"
 import type { ConceptMasteryWithDetails } from "@/hooks/useLearning"
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
 import { useGenerateReviewQuiz } from "@/hooks/useQuizzes"
+import { useAdaptiveStudyTasks, type AdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { Link, useNavigate } from "react-router-dom"
 import { toast } from 'sonner'
 
@@ -63,6 +67,79 @@ interface TopicSections {
     needsReview: ConceptMasteryWithDetails[]
     developing: ConceptMasteryWithDetails[]
     mastered: ConceptMasteryWithDetails[]
+}
+
+function adaptiveTaskIcon(task: AdaptiveStudyTask) {
+    switch (task.type) {
+        case 'quiz':
+            return <Sparkles className="w-4 h-4 text-primary" />
+        case 'flashcards':
+            return <Layers className="w-4 h-4 text-blue-600" />
+        default:
+            return <FileText className="w-4 h-4 text-amber-600" />
+    }
+}
+
+function adaptiveTaskActionLabel(task: AdaptiveStudyTask) {
+    if (task.type === 'quiz') {
+        if (task.status === 'generating') return 'View Quiz Queue'
+        if (task.status === 'ready') return 'Start Quiz'
+        return 'Generate Quiz'
+    }
+    if (task.type === 'flashcards') return 'Study Cards'
+    return 'Review Concepts'
+}
+
+function AdaptiveTaskCard({
+    task,
+    onAction,
+}: {
+    task: AdaptiveStudyTask
+    onAction: (task: AdaptiveStudyTask) => void
+}) {
+    const isUrgent = task.reason === 'due_today' || task.reason === 'needs_review'
+
+    return (
+        <Card>
+            <CardContent className="p-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3 min-w-0">
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isUrgent ? 'bg-red-50' : 'bg-primary/10'}`}>
+                        {adaptiveTaskIcon(task)}
+                    </div>
+                    <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <p className="font-medium">{task.title}</p>
+                            <Badge variant="outline" className="text-xs">
+                                {task.type === 'quiz' ? `${task.count} questions` : task.type === 'flashcards' ? `${task.count} cards` : `${task.count} concepts`}
+                            </Badge>
+                            <Badge variant="secondary" className="text-xs">
+                                {task.reason === 'due_today' ? 'Due now' : task.reason === 'needs_review' ? 'Weak area' : 'Build mastery'}
+                            </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground mb-1">{task.description}</p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                            <span>{task.documentTitle}</span>
+                            <span>·</span>
+                            <span>{task.scheduledDate}</span>
+                            <span>·</span>
+                            <span>{Math.round(task.priorityScore * 100)}% priority</span>
+                        </div>
+                    </div>
+                </div>
+                <Button
+                    onClick={() => onAction(task)}
+                    variant={task.type === 'quiz' ? 'default' : 'outline'}
+                    disabled={task.type === 'quiz' && task.status === 'generating' && !task.quizId}
+                    className="w-full sm:w-auto"
+                >
+                    {task.type === 'quiz' && task.status === 'generating' ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    ) : null}
+                    {adaptiveTaskActionLabel(task)}
+                </Button>
+            </CardContent>
+        </Card>
+    )
 }
 
 function TopicCard({ topic, onSelect }: { topic: ConceptMasteryWithDetails; onSelect: (t: ConceptMasteryWithDetails) => void }) {
@@ -268,10 +345,12 @@ export function LearningPathContent() {
     const { data: masteryList, isLoading: masteryLoading, isError: masteryError } = useConceptMasteryList()
     const { data: stats, isLoading: statsLoading, isError: statsError } = useLearningStats()
     const { data: weeklyProgress } = useWeeklyProgress()
+    const { data: adaptiveTasks, isLoading: adaptiveLoading, isError: adaptiveError } = useAdaptiveStudyTasks()
     const generateReview = useGenerateReviewQuiz()
     const navigate = useNavigate()
 
     const [selectedConcept, setSelectedConcept] = useState<ConceptMasteryWithDetails | null>(null)
+    const autoGeneratedTaskIds = useRef<Set<string>>(new Set())
 
     const sections: TopicSections = useMemo(() => {
         const all = masteryList || []
@@ -346,7 +425,77 @@ export function LearningPathContent() {
         )
     }, [sections, generateReview, navigate])
 
-    const isLoading = masteryLoading || statsLoading
+    const handleAdaptiveTaskAction = useCallback((task: AdaptiveStudyTask) => {
+        if (task.type === 'quiz') {
+            if (task.status === 'ready' && task.quizId) {
+                navigate(`/quizzes/${task.quizId}`)
+                return
+            }
+            if (task.status === 'generating' && task.quizId) {
+                navigate('/quizzes', { state: { highlightQuizId: task.quizId } })
+                return
+            }
+
+            toast.loading('Generating adaptive quiz...')
+            generateReview.mutate(
+                {
+                    documentId: task.documentId,
+                    focusConceptIds: task.conceptIds,
+                    questionCount: Math.max(5, Math.min(12, task.conceptIds.length * 2)),
+                },
+                {
+                    onSuccess: (data) => {
+                        toast.dismiss()
+                        toast.success('Adaptive review quiz ready')
+                        navigate(`/quizzes/${data.quizId}`)
+                    },
+                    onError: (err) => {
+                        toast.dismiss()
+                        autoGeneratedTaskIds.current.delete(task.id)
+                        toast.error('Failed to generate adaptive quiz: ' + (err as Error).message)
+                    },
+                },
+            )
+            return
+        }
+
+        if (task.type === 'flashcards') {
+            navigate(`/quizzes?tab=flashcards&documentId=${task.documentId}`)
+            return
+        }
+
+        navigate(`/files/${task.documentId}?tab=concepts`)
+    }, [generateReview, navigate])
+
+    useEffect(() => {
+        const nextQuizTask = (adaptiveTasks || []).find((task) =>
+            task.type === 'quiz' && task.status === 'needs_generation',
+        )
+
+        if (!nextQuizTask) return
+        if (generateReview.isPending) return
+        if (autoGeneratedTaskIds.current.has(nextQuizTask.id)) return
+
+        autoGeneratedTaskIds.current.add(nextQuizTask.id)
+        generateReview.mutate(
+            {
+                documentId: nextQuizTask.documentId,
+                focusConceptIds: nextQuizTask.conceptIds,
+                questionCount: Math.max(5, Math.min(12, nextQuizTask.conceptIds.length * 2)),
+            },
+            {
+                onSuccess: () => {
+                    toast.success('A new adaptive review quiz has been generated for your weak areas.')
+                },
+                onError: (err) => {
+                    autoGeneratedTaskIds.current.delete(nextQuizTask.id)
+                    toast.error('Adaptive quiz generation failed: ' + (err as Error).message)
+                },
+            },
+        )
+    }, [adaptiveTasks, generateReview])
+
+    const isLoading = masteryLoading || statsLoading || adaptiveLoading
 
     return (
         <main className="container mx-auto px-4 py-8">
@@ -381,7 +530,7 @@ export function LearningPathContent() {
                     <div className="flex items-center justify-center py-16">
                         <Loader2 className="w-8 h-8 animate-spin text-primary" />
                     </div>
-                ) : (masteryError || statsError) ? (
+                ) : (masteryError || statsError || adaptiveError) ? (
                     <Card>
                         <CardContent className="text-center py-16">
                             <AlertTriangle className="w-16 h-16 mx-auto text-amber-500 mb-4" />
@@ -444,6 +593,26 @@ export function LearningPathContent() {
                                     </div>
                                 </CardContent>
                             </Card>
+                        )}
+
+                        {adaptiveTasks && adaptiveTasks.length > 0 && (
+                            <div className="space-y-3">
+                                <div>
+                                    <h2 className="text-lg font-semibold">Adaptive Study Queue</h2>
+                                    <p className="text-sm text-muted-foreground">
+                                        EduCoach is turning your weak and developing concepts into the next set of study tasks.
+                                    </p>
+                                </div>
+                                <div className="space-y-3">
+                                    {adaptiveTasks.map((task) => (
+                                        <AdaptiveTaskCard
+                                            key={task.id}
+                                            task={task}
+                                            onAction={handleAdaptiveTaskAction}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
                         )}
 
                         {/* Summary Stats */}
