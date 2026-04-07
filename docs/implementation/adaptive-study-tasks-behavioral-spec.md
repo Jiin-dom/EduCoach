@@ -20,12 +20,18 @@ The flow begins when:
 
 ## Expected Behavior
 
-After one of these triggers, the system should recompute the adaptive study tasks for the affected student and document.
+After one of these triggers, the system should record the latest learning state for the affected student and document.
+
+Task projection in the Learning Path should follow a checkpoint model:
+- while an assessment session is in progress, keep the visible adaptive task list stable
+- when the session completes (or the user exits), apply the latest recompute result
+- if no assessment session is active, recompute can apply immediately
 
 This phase exists to:
 - keep the Learning Path aligned with the student's latest performance
 - persist adaptive work so it survives refreshes, sessions, and devices
 - ensure the app can distinguish between work that is ready, generating, or no longer needed
+- prevent mid-session task churn that interrupts the student's current assessment flow
 
 The system should then resolve into one of the following branches.
 
@@ -72,6 +78,11 @@ The following state must be handled correctly:
 - `adaptive_study_tasks.scheduled_date`: set to the next relevant study date for the targeted work
 - `adaptive_study_tasks.metadata`: store task-specific details such as question count or due flashcard count
 
+Session stability requirements:
+- Active flashcard, quiz, or review sessions should use a session snapshot so card/question order is not rewritten mid-session.
+- Adaptive recompute during a session should be treated as pending projection changes, not immediate UI replacement.
+- Recompute may archive or create tasks in persistence, but active session routing should not force-close the current session.
+
 ## Completion Criteria
 
 The flow is complete when:
@@ -79,12 +90,14 @@ The flow is complete when:
 - the affected document has the correct active or archived adaptive task rows
 - the task rows reflect the latest mastery and review state
 - the Learning Path can load those rows and render the right task actions
+- an in-progress assessment session is not interrupted by task recompute
 
 The flow is not complete if:
 
 - stale tasks remain active after the underlying weak-area condition is gone
 - a new weak area exists but no adaptive task appears
 - a task remains stuck in the wrong lifecycle status after the underlying state changed
+- the student is exited from an active assessment session because adaptive tasks refreshed mid-session
 
 ## Product-Facing Result
 
@@ -105,17 +118,18 @@ The implementation may need to change in the following way:
 
 Important:
 - task recomputation should be document-scoped so one document's changes do not rewrite unrelated adaptive work
-- the frontend should invalidate task queries whenever mutations can affect adaptive state
+- the frontend should defer adaptive-task query invalidation while an assessment session is active, and flush once the session ends
 
 ## Acceptance Criteria
 
 This spec is satisfied if:
 
-1. When quiz or flashcard performance changes concept mastery for a document, the system updates the adaptive tasks for that document.
+1. When quiz or flashcard performance changes concept mastery for a document, the system updates persisted adaptive tasks for that document.
 2. When a document has weak or due concepts, the system exposes persistent adaptive `quiz`, `flashcards`, and `review` tasks for that document.
 3. When a document no longer has actionable weak or due concepts, the previously active adaptive tasks are archived and stop appearing in the Learning Path.
 4. The student is not left with stale adaptive tasks that no longer match current mastery state.
-5. The final Learning Path and calendar views reflect the currently persisted adaptive task state.
+5. The final Learning Path and calendar views reflect the currently persisted adaptive task state after session checkpoint application.
+6. While an assessment session is active, the student is not force-exited due to adaptive task recomputation.
 
 ## Open Questions
 

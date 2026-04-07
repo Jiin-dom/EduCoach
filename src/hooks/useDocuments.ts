@@ -182,21 +182,21 @@ export function useDeleteDocument() {
 
     return useMutation({
         mutationFn: async (document: Document) => {
-            // 1. Delete from storage first
-            const { error: storageError } = await deleteFile(document.file_path)
-            if (storageError) {
-                console.error('Storage deletion failed:', storageError)
-                // Continue anyway - database entry should be removed
-            }
-
-            // 2. Delete from database
+            // Delete the database row first so a relational conflict does not
+            // orphan the UI record after the storage object has already been removed.
             const { error: dbError } = await supabase
                 .from('documents')
                 .delete()
                 .eq('id', document.id)
+                .eq('user_id', document.user_id)
 
             if (dbError) {
                 throw new Error(dbError.message)
+            }
+
+            const { error: storageError } = await deleteFile(document.file_path)
+            if (storageError) {
+                console.error('Storage deletion failed after document row removal:', storageError)
             }
 
             return document.id

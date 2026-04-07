@@ -22,10 +22,13 @@ The flow begins when:
 
 After the trigger, the system should determine whether a fresh adaptive review quiz already exists for the affected document and targeted concepts.
 
+During an active flashcard, quiz, or review session, adaptive quiz generation intent can be computed immediately but should be applied to the visible Learning Path at a checkpoint (session completion or explicit exit) to avoid mid-session route churn.
+
 This phase exists to:
 - avoid creating duplicate review quizzes
 - ensure the student gets a focused quiz tied to current weak areas
 - preserve manual quiz generation as a separate user-controlled path
+- avoid interrupting an in-progress assessment with immediate path/task rewrites
 
 The system should then resolve into one of the following branches.
 
@@ -94,6 +97,7 @@ The following state must be handled correctly:
 - adaptive task status: keep it aligned with whether a fresh review quiz is needed, generating, or ready
 - latest mastery-driving activity timestamp: use it to decide whether an older ready review quiz is stale
 - manual quiz creation flow: preserve it as a separate path that remains available to students at all times
+- session checkpoint handling: defer adaptive-task projection updates while another assessment session is active, then apply once the session ends
 
 ## Completion Criteria
 
@@ -102,12 +106,14 @@ The flow is complete when:
 - the student has either a reusable ready review quiz, a generating review quiz, or no adaptive quiz because none is needed
 - the adaptive task correctly reflects that lifecycle state
 - the student can still create normal quizzes independently
+- active non-quiz assessment sessions are not interrupted by adaptive quiz task updates
 
 The flow is not complete if:
 
 - duplicate review quizzes are created for the same current adaptive need
 - a stale review quiz is reused after mastery state has materially changed
 - adaptive quiz generation blocks or replaces normal manual quiz generation
+- adaptive quiz task recompute ejects the student from an active flashcard or review session
 
 ## Product-Facing Result
 
@@ -129,6 +135,7 @@ The implementation may need to change in the following way:
 Important:
 - adaptive review quizzes should be identifiable without blocking standard quizzes for the same document
 - freshness checks should key off recent mastery-driving activity, not only quiz existence
+- adaptive quiz projection should respect session checkpoints so active assessment UX stays stable
 
 ## Acceptance Criteria
 
@@ -139,6 +146,7 @@ This spec is satisfied if:
 3. When an adaptive review quiz is already generating, the system does not start a duplicate generation request.
 4. Students can still generate normal quizzes independently even when adaptive review quizzes exist.
 5. The adaptive quiz task shown in the Learning Path matches the current quiz lifecycle state.
+6. Adaptive quiz-task updates do not force-close an in-progress flashcard or review session.
 
 ## Open Questions
 
