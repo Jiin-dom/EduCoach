@@ -184,6 +184,10 @@ export function AnalyticsContent() {
     const [drillDownConcept, setDrillDownConcept] = useState<ConceptMasteryWithDetails | null>(null)
 
     const { data: conceptTimeline } = useMasteryTimeline(drillDownConcept?.concept_id ?? undefined)
+    const performanceMasteryList = useMemo(
+        () => (masteryList || []).filter((item) => item.total_attempts > 0),
+        [masteryList],
+    )
 
     const quizMap = useMemo(() => {
         return new Map((quizzes || []).map((q) => [q.id, q]))
@@ -201,7 +205,7 @@ export function AnalyticsContent() {
 
     const performanceByDocument = useMemo(() => {
         const groups = new Map<string, { title: string; concepts: typeof masteryList }>()
-        for (const item of masteryList || []) {
+        for (const item of performanceMasteryList) {
             const key = item.document_id ?? 'unknown'
             const title = item.document_title ?? 'Unknown Document'
             if (!groups.has(key)) {
@@ -223,7 +227,7 @@ export function AnalyticsContent() {
                 masteredCount: group.concepts!.filter((c) => c.display_mastery_level === 'mastered').length,
             }
         }).sort((a, b) => b.averageMastery - a.averageMastery)
-    }, [masteryList])
+    }, [performanceMasteryList])
 
     const distributionData = useMemo(() => [
         { name: 'Mastered', value: stats?.masteredCount ?? 0 },
@@ -426,7 +430,7 @@ export function AnalyticsContent() {
                                         </CardHeader>
                                         <CardContent>
                                             <div className="space-y-2">
-                                                {(masteryList || []).map((c) => (
+                                                {performanceMasteryList.map((c) => (
                                                     <button
                                                         key={c.id}
                                                         onClick={() => setDrillDownConcept(c)}
