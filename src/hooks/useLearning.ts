@@ -297,7 +297,9 @@ export function useDueTopics() {
     const { data: all, ...rest } = useConceptMasteryList()
 
     const today = todayUTC()
-    const due = (all || []).filter((m) => m.due_date <= today)
+    const due = (all || [])
+        // Exclude bootstrap placeholders; due/review should reflect real performance only.
+        .filter((m) => m.total_attempts > 0 && m.due_date <= today)
         .sort((a, b) => b.priority_score - a.priority_score)
 
     return { data: due, ...rest }
@@ -310,7 +312,9 @@ export function useWeakTopics(limit = 5) {
     const { data: all, ...rest } = useConceptMasteryList()
 
     const weak = (all || [])
-        .filter((m) => m.mastery_level === 'needs_review')
+        // Exclude bootstrap placeholders created during file goal-window scheduling.
+        // Weak topics should only appear after at least one real student attempt.
+        .filter((m) => m.total_attempts > 0 && m.mastery_level === 'needs_review')
         .sort((a, b) => a.mastery_score - b.mastery_score)
         .slice(0, limit)
 
@@ -393,7 +397,7 @@ export function useLearningStats() {
             const [masteryRes, attemptsRes] = await Promise.all([
                 supabase
                     .from('user_concept_mastery')
-                    .select('mastery_score, mastery_level, confidence, due_date, interval_days')
+                    .select('mastery_score, mastery_level, confidence, due_date, interval_days, total_attempts')
                     .eq('user_id', user.id)
                     .abortSignal(signal),
                 supabase
@@ -408,7 +412,8 @@ export function useLearningStats() {
             if (masteryRes.error) throw new Error(masteryRes.error.message)
             if (attemptsRes.error) throw new Error(attemptsRes.error.message)
 
-            const mastery = masteryRes.data || []
+            // Exclude bootstrap placeholders from performance analytics.
+            const mastery = (masteryRes.data || []).filter((m) => Number(m.total_attempts ?? 0) > 0)
             const attempts = attemptsRes.data || []
 
             // Apply mastery decay for stats — use display values

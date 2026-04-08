@@ -26,7 +26,7 @@ export function TodaysStudyPlan() {
     const topItems = (dueTopics || []).slice(0, 5)
 
     const completionPercent = useMemo(() => {
-        const all = allMastery || []
+        const all = (allMastery || []).filter((m) => m.total_attempts > 0)
         if (all.length === 0) return 0
         const today = todayUTC()
         const totalDue = all.filter((m) => m.due_date <= today).length
