@@ -15,6 +15,8 @@ It focuses on:
 The flow begins when:
 
 - a student uploads/processes a new document and EduCoach bootstraps a baseline plan
+- a student updates profile availability (study days/time window/daily minutes)
+- a student manually triggers "Replan Learning Path" from profile settings
 - the student completes a quiz
 - the student reviews flashcards and changes concept review state
 - the system updates concept mastery, confidence, due dates, or priority scores
@@ -74,6 +76,21 @@ Expected system behavior:
 Expected user-facing result:
 - the student should not see unnecessary review work for a document they are currently caught up on
 
+### D. Profile availability changes
+
+Condition:
+- the student edits available study days, study time window, or daily study minutes in Profile
+
+Expected system behavior:
+- the system should persist the updated availability settings
+- goal-window scheduling should be recomputed for goal-dated documents using the new availability
+- replanning should be document-scoped and continue even if one document fails to replan
+- the UI should show replanning progress and completion/partial-success feedback
+
+Expected user-facing result:
+- the student should see schedule changes reflected without re-uploading files
+- the student can manually trigger replanning if needed
+
 ## State Handling Requirements
 
 The following state must be handled correctly:
@@ -83,6 +100,8 @@ The following state must be handled correctly:
 - linked review quiz state: preserve or clear links depending on whether the current adaptive quiz is still fresh
 - Learning Path query cache: refresh after mutations that affect mastery, flashcards, or quizzes
 - scheduled task ordering: keep tasks sorted by due date, reason, and priority in a way the student can understand
+- profile availability state: store and use `available_study_days`, `preferred_study_time_start`, `preferred_study_time_end`, and `daily_study_minutes` for scheduling
+- replanning progress state: expose in-flight progress and partial-failure outcomes in the profile UX
 
 ## Completion Criteria
 
@@ -91,12 +110,14 @@ The flow is complete when:
 - updated student performance produces a corresponding update in adaptive tasks
 - the Learning Path and calendar render the latest adaptive state
 - the student can act on the updated plan immediately
+- profile-driven replanning updates schedule distribution for goal-dated documents
 
 The flow is not complete if:
 
 - the Learning Path still shows a stale plan after new quiz or flashcard data is recorded
 - weak concepts change but the visible study queue does not
 - the student is left with tasks that no longer match the latest mastery state
+- profile availability changes are saved but schedule is not recomputed
 
 ## Product-Facing Result
 
@@ -127,7 +148,9 @@ This spec is satisfied if:
 2. When mastery worsens or review urgency rises, the Learning Path surfaces targeted adaptive work for the affected concepts.
 3. When mastery improves enough that targeted work is no longer needed, stale adaptive tasks are removed from active views.
 4. The student can open the updated adaptive tasks directly from the Learning Path and calendar.
-5. The visible plan reflects current adaptive state without requiring a new login or manual reconstruction of tasks.
+5. Editing profile availability triggers schedule replanning for goal-dated documents.
+6. A manual "Replan Learning Path" action is available in Profile and provides progress feedback.
+7. The visible plan reflects current adaptive/scheduling state without requiring a new login.
 
 ## Open Questions
 

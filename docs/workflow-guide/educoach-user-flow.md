@@ -12,6 +12,7 @@ This document describes the user-facing workflow of EduCoach: from registration 
 4. These preferences are used to build (and later re-build) the student’s learning path schedule.
 
 > Users can update their profiling (study days/times) later in Account Settings / Profile.
+> In Profile, users can also update daily study minutes and manually trigger **Replan Learning Path**.
 
 ## 2. Upload Study Materials (Files Page)
 
@@ -117,6 +118,10 @@ Because the learning path is built on a scheduled timeframe derived from profili
 
 - If this happens, the user can move the scheduled assessment(s) to a day/time where they are available.
 - The rescheduling should take the updated availability into account while preserving the overall deadline constraints.
+- Profile now supports two replanning paths:
+  - **Automatic replanning on save** when availability fields are edited.
+  - **Manual replanning button** ("Replan Learning Path") for explicit re-run.
+- Replanning should show progress and report partial success when some goal-dated documents fail to update.
 
 ## 6. Learning Path Views (Month + Calendar)
 
@@ -150,11 +155,12 @@ flowchart LR
 ## 9. Summary (What the Student Experiences)
 
 - Set up availability during onboarding.
+- View and edit availability later in Profile (days, study window, daily minutes).
 - Upload materials and study them directly with annotations.
 - Generate flashcards and quizzes from uploaded content.
 - Take quizzes and practice with flashcards.
 - EduCoach processes results, identifies weak or developing concepts, and should automatically generate targeted quizzes, flashcards, and review work around them.
 - Those generated study items are placed on the learning path and re-planned as the student produces more results.
-- Adjust schedule when availability changes, then follow the month/calendar plan.
+- Adjust schedule when availability changes using Profile save or manual replan, then follow the month/calendar plan.
 - Track progress and insights in analytics.
 

@@ -32,6 +32,7 @@ flowchart LR
 | [useLearning.ts](../../src/hooks/useLearning.ts) | React Query hooks — reads/writes to Supabase, orchestrates the pipeline |
 | [LearningPathContent.tsx](../../src/components/learning-path/LearningPathContent.tsx) | The Learning Path page — displays the prioritized topic list |
 | [AnalyticsContent.tsx](../../src/components/analytics/AnalyticsContent.tsx) | The Analytics page — charts, heatmaps, drill-downs |
+| [ProfileContent.tsx](../../src/components/profile/ProfileContent.tsx) | Profile availability editor — updates days/time/minutes and triggers replanning |
 
 ---
 
@@ -302,6 +303,15 @@ Once EduCoach has concept and scheduling data, it should turn those findings int
 This means the product goal is a closed loop:
 
 `performance data -> weakness detection -> generated study work -> scheduled learning path -> new performance data`
+
+### Availability Updates and Replanning
+
+The schedule is also availability-driven, not only performance-driven:
+
+- Students can edit `available_study_days`, `preferred_study_time_start`, `preferred_study_time_end`, and `daily_study_minutes` from Profile.
+- Saving availability changes automatically replans goal-window schedules for goal-dated documents.
+- Profile also exposes a manual **Replan Learning Path** action.
+- Replanning runs per document and may complete partially; progress/feedback should be shown in UI.
 
 ---
 
