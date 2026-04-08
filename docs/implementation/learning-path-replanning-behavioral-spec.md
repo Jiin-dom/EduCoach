@@ -14,6 +14,7 @@ It focuses on:
 
 The flow begins when:
 
+- a student uploads/processes a new document and EduCoach bootstraps a baseline plan
 - the student completes a quiz
 - the student reviews flashcards and changes concept review state
 - the system updates concept mastery, confidence, due dates, or priority scores
@@ -25,6 +26,7 @@ After the trigger, the system should refresh the student's current learning prio
 
 This phase exists to:
 - keep the study plan aligned with real performance rather than static assumptions
+- provide an immediate, scheduled baseline plan before performance data exists
 - turn new weak-area evidence into new study work
 - remove or downgrade work that no longer matches the student's current needs
 

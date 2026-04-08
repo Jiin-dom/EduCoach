@@ -19,7 +19,7 @@ flowchart LR
     G --> I["📈 Analytics Updated"]
 ```
 
-**In plain English:** You upload study materials -> take quizzes on them -> every answer you give is logged -> three algorithms (WMS, SM-2, Priority Scheduler) crunch the numbers -> EduCoach identifies what needs work -> targeted quizzes, flashcards, and review sessions should be generated around those weak areas -> your personalized learning path and analytics update automatically.
+**In plain English:** You upload study materials -> EduCoach bootstraps an initial scheduled plan (quiz/flashcards/review) using extracted concepts and your availability -> every answer you give later is logged -> three algorithms (WMS, SM-2, Priority Scheduler) crunch the numbers -> EduCoach adapts priorities based on performance -> targeted quizzes, flashcards, and review sessions update automatically -> your personalized learning path and analytics stay current.
 
 ---
 
@@ -277,7 +277,7 @@ A typical quiz covers **multiple concepts**. So one quiz with 10 questions might
 
 The learning path should act as an **active planner**, not just a reporting screen.
 
-Once EduCoach identifies weak, overdue, or still-developing concepts, it should turn those findings into new study work:
+Once EduCoach has concept and scheduling data, it should turn those findings into study work. At first upload this is a baseline plan; after attempts it becomes performance-adaptive:
 
 1. **Targeted quizzes**
    - Generate quizzes weighted toward weak concepts or overdue review topics.
@@ -295,6 +295,10 @@ Once EduCoach identifies weak, overdue, or still-developing concepts, it should 
    - Every time the student completes a quiz, flashcard session, or review, the mastery engine runs again.
    - The next generated study set should change based on the latest mastery, confidence, and due-date data.
 
+5. **Manual quiz creation remains independent**
+   - Students can manually create quizzes at any time.
+   - Adaptive quizzes should complement manual quizzes, not replace or block them.
+
 This means the product goal is a closed loop:
 
 `performance data -> weakness detection -> generated study work -> scheduled learning path -> new performance data`
@@ -310,7 +314,7 @@ The [LearningPathContent.tsx](../../src/components/learning-path/LearningPathCon
 
 ### The Four Priority Sections
 
-The component sorts all concepts into four groups:
+The component sorts concept mastery records into four groups (performance views exclude placeholder rows with no attempts):
 
 ```mermaid
 flowchart TD
@@ -322,10 +326,10 @@ flowchart TD
     D -- mastered --> G["✅ Mastered\n(sorted by highest mastery first)"]
 ```
 
-1. **🎯 Due Today** — Topics where `due_date ≤ today`. Sorted by priority score (most urgent first). These are overdue or due-now SM-2 reviews.
-2. **⚠️ Needs Review** — Topics with mastery < 60% (that aren't already in "Due Today"). Sorted weakest first.
-3. **📖 Developing** — Topics with mastery 60–79%. Still learning. Sorted weakest first.
-4. **✅ Mastered** — Topics with mastery ≥ 80% and confidence ≥ 67%. Sorted strongest first.
+1. **🎯 Due Today** — Topics where `due_date ≤ today` and there is real attempt data. Sorted by priority score (most urgent first).
+2. **⚠️ Needs Review** — Attempt-backed topics with mastery < 60% (that aren't already in "Due Today"). Sorted weakest first.
+3. **📖 Developing** — Attempt-backed topics with mastery 60–79%. Sorted weakest first.
+4. **✅ Mastered** — Attempt-backed topics with mastery ≥ 80% and confidence ≥ 67%. Sorted strongest first.
 
 ### Summary Stats (Top Cards)
 
@@ -396,7 +400,7 @@ Three sub-sections:
 ### Tab 3: Weak Topics
 
 - **Hook:** [useWeakTopics(10)](../../src/hooks/useLearning.ts#237-250)
-- Lists concepts with `mastery_level = 'needs_review'`, sorted by lowest mastery first
+- Lists attempt-backed concepts with `mastery_level = 'needs_review'`, sorted by lowest mastery first
 - Each topic is clickable → opens the concept drill-down
 - Shows: concept name, document, category, mastery %, attempt count, confidence %
 
