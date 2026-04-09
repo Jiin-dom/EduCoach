@@ -8,6 +8,7 @@ import { ReadinessScoreCard } from "@/components/dashboard/ReadinessScoreCard"
 import { TodaysStudyPlan } from "@/components/dashboard/TodaysStudyPlan"
 import { WeakTopicsPanel } from "@/components/dashboard/WeakTopicsPanel"
 import { MotivationalCard } from "@/components/dashboard/MotivationalCard"
+import { ProgressInsightsSection } from "@/components/dashboard/ProgressInsightsSection"
 import { AiTutorChat } from "@/components/shared/AiTutorChat"
 import { Link, useNavigate } from "react-router-dom"
 import { useAuth } from "@/contexts/AuthContext"
@@ -327,6 +328,8 @@ export function DashboardContent() {
             </div>
 
             <TodaysStudyPlan />
+
+            <ProgressInsightsSection hasPremiumEntitlement={hasPremiumEntitlement} />
 
             {/* Main Content Grid with Weak Topics Panel */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

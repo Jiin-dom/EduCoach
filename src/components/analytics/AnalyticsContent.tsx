@@ -32,6 +32,7 @@ import {
 } from "@/hooks/useLearning"
 import type { ConceptMasteryWithDetails } from "@/hooks/useLearning"
 import { useUserAttempts, useQuizzes } from "@/hooks/useQuizzes"
+import { ActivityHeatmap } from "@/components/analytics/ActivityHeatmap"
 
 function masteryLevelBadge(level: string) {
     switch (level) {
@@ -45,47 +46,6 @@ function masteryLevelBadge(level: string) {
 }
 
 const PIE_COLORS = ['#22c55e', '#eab308', '#ef4444']
-
-function ActivityHeatmap({ data }: { data: { date: string; count: number }[] }) {
-    const weeks = useMemo(() => {
-        const map = new Map(data.map((d) => [d.date, d.count]))
-        const cells: { date: string; count: number; weekIndex: number; dayIndex: number }[] = []
-        const today = new Date()
-        for (let i = 89; i >= 0; i--) {
-            const d = new Date(today)
-            d.setUTCDate(d.getUTCDate() - i)
-            const dateStr = d.toISOString().split('T')[0]
-            const weekIndex = Math.floor((89 - i) / 7)
-            const dayIndex = d.getUTCDay()
-            cells.push({ date: dateStr, count: map.get(dateStr) ?? 0, weekIndex, dayIndex })
-        }
-        return cells
-    }, [data])
-
-    const maxCount = Math.max(1, ...weeks.map((w) => w.count))
-
-    return (
-        <div className="flex gap-[3px] flex-wrap">
-            {weeks.map((cell) => {
-                const intensity = cell.count === 0 ? 0 : Math.min(4, Math.ceil((cell.count / maxCount) * 4))
-                const bg = [
-                    'bg-muted',
-                    'bg-green-200',
-                    'bg-green-300',
-                    'bg-green-500',
-                    'bg-green-700',
-                ][intensity]
-                return (
-                    <div
-                        key={cell.date}
-                        className={`w-3 h-3 rounded-sm ${bg}`}
-                        title={`${cell.date}: ${cell.count} question${cell.count !== 1 ? 's' : ''}`}
-                    />
-                )
-            })}
-        </div>
-    )
-}
 
 function ConceptDrillDown({ concept, onBack, timeline }: { concept: ConceptMasteryWithDetails; onBack: () => void; timeline?: { date: string; mastery: number }[] }) {
     return (
@@ -240,16 +200,18 @@ export function AnalyticsContent() {
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center">
-                        <BarChart3 className="w-6 h-6 text-primary" />
-                    </div>
-                    <div>
-                        <h1 className="text-2xl sm:text-3xl font-bold">Analytics</h1>
-                        <p className="text-sm sm:text-base text-muted-foreground">Track your learning progress and performance</p>
+                    <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center">
+                            <BarChart3 className="w-6 h-6 text-primary" />
+                        </div>
+                        <div>
+                            <h1 className="text-2xl sm:text-3xl font-bold">Analytics</h1>
+                            <p className="text-sm sm:text-base text-muted-foreground">
+                                Advanced analytics workspace for deep-dive trends, mastery breakdowns, and quiz history.
+                            </p>
+                        </div>
                     </div>
                 </div>
-            </div>
 
             {isLoading ? (
                 <div className="flex items-center justify-center py-16">

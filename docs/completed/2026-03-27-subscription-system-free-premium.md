@@ -24,7 +24,8 @@ Delivered scope:
 - Entitlement enforcement:
   - Free: `20` AI Tutor user messages/day (Asia/Manila boundary)
   - Premium (or active trial): unlimited AI Tutor
-  - Free blocked from full `/analytics`
+  - Free blocked from full `/analytics` advanced analytics workspace
+  - Free still sees lightweight dashboard progress insights and topic mastery summaries
   - Quiz generation priority metadata (`premium` above `free`, trial users treated as premium)
 
 Out of scope in this pass:
@@ -112,8 +113,14 @@ Out of scope in this pass:
   - `src/App.tsx` enforces premium on `/analytics`
 - Updated header behavior:
   - `src/components/layout/DashboardHeader.tsx`
-  - hides direct analytics access for non-entitled users and shows upgrade CTA
+  - hides direct access to the advanced analytics workspace for non-entitled users and shows upgrade CTA
   - adds `Subscription` navigation item
+
+- Updated dashboard entitlement behavior:
+  - `src/components/dashboard/DashboardContent.tsx`
+  - `src/components/dashboard/ProgressInsightsSection.tsx`
+  - keeps lightweight progress chart and topic-mastery summary visible for all students
+  - routes advanced analytics CTA by entitlement (`/analytics` for entitled users, `/subscription` for free users)
 
 - Updated AI Tutor edge function:
   - `supabase/functions/ai-tutor/index.ts`

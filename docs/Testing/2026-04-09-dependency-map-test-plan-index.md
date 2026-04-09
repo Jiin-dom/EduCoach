@@ -23,3 +23,6 @@
 
 - These test plans follow the current dependency maps, not older historical architecture assumptions.
 - Where historical docs and the current app differed, the test plans were aligned to the dependency maps and the live `src` routing/component tree.
+- Phase 5 and Subscription test plans include the hybrid analytics access model:
+  - dashboard progress insights for all students
+  - premium-only advanced analytics workspace on `/analytics`
