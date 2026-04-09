@@ -41,11 +41,18 @@ The `effectiveDueDate` is used to calculate the `priority_score`:
 
 ## 4. UI components
 
-### 4.1. Profiling & Setup (`src/components/forms/ProfilingForm.tsx`)
-Users may be prompted to enter exam dates during the initial profiling phase to bootstrap their study schedule.
+### 4.1. Setting Exam Dates
 
-### 4.2. Learning Path Calendar
-The `LearningPathCalendar` and `LearningPathHeader` components utilize the `exam_date` to provide visual countdowns and alerts for upcoming exams.
+Exam dates (study goals) are assigned per-document and are not part of the initial user profiling phase. They can be set in two primary ways:
+
+1. **File Upload Dialog** (`src/components/files/FileUploadDialog.tsx`): Users can optionally set a "Study Goal (Completion Date)" during the initial upload of a document.
+2. **Study Goals Panel** (`src/components/learning-path/StudyGoalsPanel.tsx`): Users can use the "Set New Goal" button or the edit icon on existing documents to set or update the `exam_date` via the `SetGoalDialog`. This is located in the **Learning Path** under the **Goals & Planning** tab.
+
+### 4.2. Learning Path Calendar & Management
+The `LearningPathCalendar` and `ExamManager` components utilize the `exam_date` to provide visual countdowns and alerts for upcoming exams. 
+
+- **Exam Manager**: Viewable in the "Goals & Planning" tab, it aggregates all active study goals sorted by proximity.
+- **Study Goals Panel** (`src/components/learning-path/StudyGoalsPanel.tsx`): Displays **Goal Readiness** (Low, Medium, High) for both Document Goals and Quiz Deadlines. This readiness is calculated by averaging the current mastery scores of the concepts associated with the document, rather than showing a simple quiz score. This provides a real-time indicator of the user's preparedness for their target date.
 
 ---
 

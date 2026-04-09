@@ -37,8 +37,27 @@ import { toast } from "sonner"
 import { ExamManager } from "./ExamManager"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useScheduleDocumentGoalWindow, useDeactivateDocumentGoalWindowPlaceholders } from '@/hooks/useGoalWindowScheduling'
+import { useConceptMasteryList, type ConceptMasteryWithDetails } from "@/hooks/useLearning"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+export type ReadinessLevel = 'High' | 'Medium' | 'Low' | 'Not Started'
+
+function getReadinessLevel(score: number | null): ReadinessLevel {
+    if (score === null) return 'Not Started'
+    if (score >= 80) return 'High'
+    if (score >= 60) return 'Medium'
+    return 'Low'
+}
+
+function getReadinessColor(level: ReadinessLevel): string {
+    switch (level) {
+        case 'High': return 'bg-green-100 text-green-700 ring-green-200'
+        case 'Medium': return 'bg-blue-100 text-blue-700 ring-blue-200'
+        case 'Low': return 'bg-amber-100 text-amber-700 ring-amber-200'
+        default: return 'bg-slate-100 text-slate-600 ring-slate-200'
+    }
+}
 
 function daysRemaining(deadline: string | null): string | null {
     if (!deadline) return null
@@ -65,14 +84,19 @@ function getLatestScore(quizId: string, attempts: Attempt[] | undefined): number
 function DocumentGoalCard({
     doc,
     onEdit,
+    readinessScore,
 }: {
     doc: Document
     onEdit: (doc: Document) => void
+    readinessScore: number | null
 }) {
     const updateDocument = useUpdateDocument()
     const deactivatePlaceholders = useDeactivateDocumentGoalWindowPlaceholders()
     const goalStatus = daysRemaining(doc.exam_date || null)
     const isOverdue = goalStatus?.includes("overdue")
+    
+    const readiness = getReadinessLevel(readinessScore)
+    const readinessColor = getReadinessColor(readiness)
 
     const handleRemoveGoal = () => {
         updateDocument.mutate({
@@ -129,7 +153,7 @@ function DocumentGoalCard({
                             </div>
                         </div>
 
-                        <div className="mt-4">
+                        <div className="mt-4 flex flex-wrap gap-2">
                             {doc.exam_date && (
                                 <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ring-1 ${
                                     isOverdue 
@@ -140,6 +164,11 @@ function DocumentGoalCard({
                                     {goalStatus}
                                 </div>
                             )}
+
+                            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ring-1 ${readinessColor}`}>
+                                <Sparkles className="w-3.5 h-3.5" />
+                                {readiness} Readiness
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -153,18 +182,21 @@ function DocumentGoalCard({
 function QuizGoalCard({
     quiz,
     doc,
-    latestScore,
+    readinessScore,
     onEdit,
 }: {
     quiz: Quiz
     doc: Document | undefined
-    latestScore: number | null
+    readinessScore: number | null
     onEdit: (quiz: Quiz) => void
 }) {
     const updateDocument = useUpdateDocument()
     const goalStatus = daysRemaining(doc?.deadline || null)
     const isOverdue = goalStatus?.includes("overdue")
-    const isMastered = latestScore !== null && latestScore >= 90
+    
+    const readiness = getReadinessLevel(readinessScore)
+    const readinessColor = getReadinessColor(readiness)
+    const isMastered = readiness === 'High'
 
     const handleRemoveGoal = () => {
         if (!doc) return
@@ -238,28 +270,19 @@ function QuizGoalCard({
                                 </div>
                             )}
 
-                            {latestScore !== null ? (
-                                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ring-1 ${
-                                    isMastered ? 'bg-green-100 text-green-700 ring-green-200' : 'bg-blue-100 text-blue-700 ring-blue-200'
-                                }`}>
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                    {latestScore}% Last Attempt
-                                </div>
-                            ) : (
-                                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700 ring-1 ring-amber-200 border-amber-200">
-                                    <AlertCircle className="w-3.5 h-3.5" />
-                                    No Attempts
-                                </div>
-                            )}
+                            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ring-1 ${readinessColor}`}>
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                {readiness} Readiness
+                            </div>
                         </div>
 
-                        {latestScore !== null && (
+                        {readinessScore !== null && (
                             <div className="mt-4 space-y-1.5">
                                 <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
-                                    <span>Goal Progress</span>
-                                    <span>{latestScore}%</span>
+                                    <span>Goal Readiness</span>
+                                    <span>{readiness}</span>
                                 </div>
-                                <Progress value={latestScore} className={`h-1.5 ${isMastered ? '[&>div]:bg-green-500' : ''}`} />
+                                <Progress value={readinessScore} className={`h-1.5 ${isMastered ? '[&>div]:bg-green-500' : ''}`} />
                             </div>
                         )}
                     </div>
@@ -413,11 +436,19 @@ function SetGoalDialog({
 export function StudyGoalsPanel() {
     const { data: documents, isLoading: docsLoading } = useDocuments()
     const { data: quizzes, isLoading: quizzesLoading, isError: quizzesError } = useQuizzes()
-    const { data: allAttempts } = useUserAttempts()
+    const { data: allMastery } = useConceptMasteryList()
     
     const [showAddDialog, setShowAddDialog] = useState(false)
     const [quizToEdit, setQuizToEdit] = useState<Quiz | undefined>(undefined)
     const [docToEdit, setDocToEdit] = useState<Document | undefined>(undefined)
+
+    // Helper to calculate average mastery for a document
+    const getDocReadiness = (docId: string) => {
+        if (!allMastery) return null
+        const docConcepts = allMastery.filter(m => m.document_id === docId && m.total_attempts > 0)
+        if (docConcepts.length === 0) return null
+        return Math.round(docConcepts.reduce((acc, m) => acc + m.display_mastery_score, 0) / docConcepts.length)
+    }
 
     const docsWithGoals = useMemo(() => {
         if (!documents) return []
@@ -497,7 +528,12 @@ export function StudyGoalsPanel() {
                             </div>
                         ) : (
                             docsWithGoals.map(doc => (
-                                <DocumentGoalCard key={doc.id} doc={doc} onEdit={handleEditDoc} />
+                                <DocumentGoalCard 
+                                    key={doc.id} 
+                                    doc={doc} 
+                                    onEdit={handleEditDoc} 
+                                    readinessScore={getDocReadiness(doc.id)}
+                                />
                             ))
                         )}
                     </div>
@@ -527,7 +563,7 @@ export function StudyGoalsPanel() {
                                     key={quiz.id} 
                                     quiz={quiz} 
                                     doc={documents?.find(d => d.id === quiz.document_id)}
-                                    latestScore={getLatestScore(quiz.id, allAttempts)}
+                                    readinessScore={getDocReadiness(quiz.document_id)}
                                     onEdit={handleEditQuiz}
                                 />
                             ))
