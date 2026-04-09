@@ -37,6 +37,8 @@ export interface Document {
     id: string
     user_id: string
     title: string
+    goal_label?: string | null
+    quiz_deadline_label?: string | null
     file_name: string
     file_path: string
     file_type: 'pdf' | 'docx' | 'txt' | 'md'
@@ -228,7 +230,7 @@ export function useUpdateDocument() {
             updates,
         }: {
             documentId: string
-            updates: Partial<Pick<Document, 'title' | 'status' | 'exam_date' | 'deadline'>>
+            updates: Partial<Pick<Document, 'title' | 'status' | 'exam_date' | 'deadline' | 'goal_label' | 'quiz_deadline_label'>>
         }) => {
             const { data, error } = await supabase
                 .from('documents')

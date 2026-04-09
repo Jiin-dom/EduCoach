@@ -313,6 +313,7 @@ function SetGoalDialog({
     const [selectedId, setSelectedId] = useState<string>("")
     const [deadline, setDeadline] = useState<string>("")
     const [goalType, setGoalType] = useState<"quiz" | "file">(quizToEdit ? "quiz" : docToEdit ? "file" : "file")
+    const [goalLabel, setGoalLabel] = useState<string>("")
 
     useEffect(() => {
         if (quizToEdit) {
@@ -320,13 +321,16 @@ function SetGoalDialog({
             setSelectedId(quizToEdit.id)
             const parentDoc = documents?.find(d => d.id === quizToEdit.document_id)
             setDeadline(parentDoc?.deadline ? parentDoc.deadline.split('T')[0] : "")
+            setGoalLabel(parentDoc?.quiz_deadline_label || "")
         } else if (docToEdit) {
             setGoalType("file")
             setSelectedId(docToEdit.id)
             setDeadline(docToEdit.exam_date ? docToEdit.exam_date.split('T')[0] : "")
+            setGoalLabel(docToEdit.goal_label || "")
         } else {
             setSelectedId("")
             setDeadline("")
+            setGoalLabel("")
         }
     }, [quizToEdit, docToEdit, open])
 
@@ -342,7 +346,7 @@ function SetGoalDialog({
 
             updateDocument.mutate({
                 documentId: quiz.document_id,
-                updates: { deadline },
+                updates: { deadline, quiz_deadline_label: goalLabel.trim() ? goalLabel.trim() : null },
             }, {
                 onSuccess: () => {
                     toast.success("Quiz deadline set!")
@@ -353,7 +357,7 @@ function SetGoalDialog({
         } else {
             updateDocument.mutate({
                 documentId: selectedId,
-                updates: { exam_date: deadline },
+                updates: { exam_date: deadline, goal_label: goalLabel.trim() ? goalLabel.trim() : null },
             }, {
                 onSuccess: (updatedDoc) => {
                     toast.success("File goal set!")
@@ -389,6 +393,17 @@ function SetGoalDialog({
                     )}
 
                     <div className="space-y-4 py-2">
+                        <div className="space-y-1.5">
+                            <Label>
+                                {goalType === "file" ? "Goal name (optional)" : "Deadline label (optional)"}
+                            </Label>
+                            <Input
+                                value={goalLabel}
+                                onChange={(e) => setGoalLabel(e.target.value)}
+                                placeholder={goalType === "file" ? "e.g., Finish Chapter 4" : "e.g., Midterm quiz"}
+                                maxLength={80}
+                            />
+                        </div>
                         <div className="space-y-1.5">
                             <Label>{goalType === "file" ? "Select Document" : "Select Quiz"}</Label>
                             <Select value={selectedId} onValueChange={setSelectedId} disabled={!!quizToEdit || !!docToEdit}>

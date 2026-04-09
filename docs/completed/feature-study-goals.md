@@ -78,3 +78,39 @@ This version does **not** include a full manual task planner for adaptive tasks.
 - [ ] Edit each target date and confirm the learning path refreshes automatically.
 - [ ] Remove a goal and confirm the associated marker disappears.
 - [ ] Drag a planned review to another day in the calendar and confirm the new date persists.
+
+---
+
+## 6. Goal Labels v2 (Calendar & Upload Integration)
+
+### 6.1. New Database Columns
+
+- Migration `028_goal_labels_on_documents.sql` added two optional columns on `public.documents`:
+  - `goal_label TEXT` — optional student-defined label for a file study goal (e.g., "Midterm review").
+  - `quiz_deadline_label TEXT` — optional student-defined label for a quiz deadline marker.
+
+These are purely presentational and do not affect scheduling logic.
+
+### 6.2. Where Labels Come From
+
+- **Upload flow** (`src/components/files/FileUploadDialog.tsx`)
+  - Dialog now includes a **“Study Goal Name (optional)”** field.
+  - On insert, the dialog writes `goal_label` along with `exam_date` when a student provides a name.
+- **Study goals panel** (`src/components/learning-path/StudyGoalsPanel.tsx`)
+  - Set/Update File Goal:
+    - Dialog includes a text field for **Goal name (optional)**.
+    - Saves to `documents.goal_label` when a file goal is created or edited.
+  - Set/Update Quiz Deadline:
+    - Dialog includes a text field for **Deadline label (optional)**.
+    - Saves to `documents.quiz_deadline_label` on the parent document.
+
+### 6.3. How the Learning Path Uses Labels
+
+- Plan builder (`src/lib/learningPathPlan.ts`):
+  - File goal markers:
+    - `title` now prefers `document.goal_label` and falls back to `document.title`.
+  - Quiz deadline markers:
+    - `title` now prefers `document.quiz_deadline_label` and falls back to `quiz.title`.
+- Calendar (`src/components/learning-path/LearningPathCalendar.tsx`):
+  - Renders goal markers using the `title` computed above.
+  - Result: students see their own goal names/labels in both week and month calendar views whenever they’ve provided them.

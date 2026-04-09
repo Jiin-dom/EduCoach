@@ -81,6 +81,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
     const [selectedFile, setSelectedFile] = useState<File | null>(null)
     const [title, setTitle] = useState("")
     const [goalDate, setGoalDate] = useState("")
+    const [goalLabel, setGoalLabel] = useState("")
     const [dragActive, setDragActive] = useState(false)
     const [phase, setPhase] = useState<UploadPhase>('idle')
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -116,6 +117,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                 setSelectedFile(null)
                 setTitle("")
                 setGoalDate("")
+                setGoalLabel("")
                 setPhase('idle')
                 setErrorMessage(null)
             }, 200)
@@ -187,6 +189,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
             const documentData = {
                 user_id: user.id,
                 title: title.trim() || selectedFile.name,
+                goal_label: goalLabel.trim() ? goalLabel.trim() : null,
                 file_name: selectedFile.name,
                 file_path: uploadData.path,
                 file_type: getFileTypeFromMime(selectedFile.type),
@@ -243,6 +246,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
         setSelectedFile(null)
         setTitle("")
         setGoalDate("")
+        setGoalLabel("")
         setErrorMessage(null)
     }
 
@@ -349,6 +353,16 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                                         <p className="text-xs text-muted-foreground">
                                             This will help you identify the document later
                                         </p>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="goalLabel">Study Goal Name (optional)</Label>
+                                        <Input
+                                            id="goalLabel"
+                                            value={goalLabel}
+                                            onChange={(e) => setGoalLabel(e.target.value)}
+                                            placeholder="e.g., Midterm review, Finish Chapter 4"
+                                            maxLength={80}
+                                        />
                                     </div>
                                     <div className="space-y-2">
                                         <Label htmlFor="goalDate">Study Goal (Completion Date)</Label>
