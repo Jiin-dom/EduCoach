@@ -38,6 +38,8 @@ export interface LearningPathDocumentInput {
     title: string
     exam_date?: string | null
     deadline?: string | null
+    goal_label?: string | null
+    quiz_deadline_label?: string | null
 }
 
 export interface LearningPathQuizInput {
@@ -167,7 +169,7 @@ export function buildLearningPathPlan(input: {
                 date: examDate,
                 markerType: "file_goal",
                 documentId: document.id,
-                title: document.title,
+                title: document.goal_label || document.title,
                 documentTitle: document.title,
             })
         }
@@ -185,7 +187,7 @@ export function buildLearningPathPlan(input: {
             markerType: "quiz_deadline",
             documentId: parentDocument.id,
             quizId: quiz.id,
-            title: quiz.title,
+            title: parentDocument.quiz_deadline_label || quiz.title,
             documentTitle: parentDocument.title,
         })
     }
