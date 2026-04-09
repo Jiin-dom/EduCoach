@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState } from "react"
 import {
     ChevronLeft,
     ChevronRight,
@@ -9,22 +9,23 @@ import {
     BookOpen,
     Filter,
     Target,
+    Loader2,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import {
-    useConceptMasteryList,
     useLearningStats,
     useRescheduleConceptDueDate,
     useStudyEfficiency,
-    type ConceptMasteryWithDetails,
 } from "@/hooks/useLearning"
-import { useAdaptiveStudyTasks, type AdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
-import { useQuizzes } from "@/hooks/useQuizzes"
-import { useDocuments } from "@/hooks/useDocuments"
 import { useNavigate } from "react-router-dom"
+import { useLearningPathPlan } from "@/hooks/useLearningPathPlan"
+import { getLearningPathItemsForDate, type LearningPathPlanItem, type PlannedReviewPlanItem } from "@/lib/learningPathPlan"
+import { useReplanLearningPath } from "@/hooks/useGoalWindowScheduling"
+import { useAuth } from "@/contexts/AuthContext"
+import { toast } from "sonner"
 
 // Helper function to get days in a month
 function getDaysInMonth(year: number, month: number) {
@@ -33,6 +34,11 @@ function getDaysInMonth(year: number, month: number) {
 
 function formatDateToLocalString(d: Date) {
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, '0') + "-" + String(d.getDate()).padStart(2, '0');
+}
+
+function formatStudyWindow(start: string | null | undefined, end: string | null | undefined) {
+    if (!start || !end) return "Not set"
+    return `${start} - ${end}`
 }
 
 export function LearningPathCalendar() {
@@ -45,12 +51,13 @@ export function LearningPathCalendar() {
     const [showDeveloping, setShowDeveloping] = useState(true)
     const [showNeedsReview, setShowNeedsReview] = useState(true)
 
-    const { data: masteryList } = useConceptMasteryList();
     const { data: stats } = useLearningStats();
     const { data: weeklyProgress } = useWeeklyProgress();
     const { data: efficiency } = useStudyEfficiency();
-    const { data: adaptiveTasks } = useAdaptiveStudyTasks()
+    const plan = useLearningPathPlan()
     const rescheduleDueDate = useRescheduleConceptDueDate()
+    const replanLearningPath = useReplanLearningPath()
+    const { profile } = useAuth()
 
     // Compute Dates
     const now = anchorDate
@@ -77,29 +84,28 @@ export function LearningPathCalendar() {
 
     // Session logic
     const getSessionsForDate = (dateStr: string) => {
-        if (!masteryList) return [];
-        return masteryList
-            .filter(m => m.due_date === dateStr)
-            .filter(m => {
-                if (m.display_mastery_level === 'mastered') return showMastered;
-                if (m.display_mastery_level === 'developing') return showDeveloping;
-                if (m.display_mastery_level === 'needs_review') return showNeedsReview;
+        return plan.items
+            .filter((item): item is PlannedReviewPlanItem => item.kind === "planned_review" && item.date === dateStr)
+            .filter(({ mastery }) => {
+                if (mastery.display_mastery_level === 'mastered') return showMastered;
+                if (mastery.display_mastery_level === 'developing') return showDeveloping;
+                if (mastery.display_mastery_level === 'needs_review') return showNeedsReview;
                 return true;
             })
     }
 
-    const getAdaptiveTasksForDate = (dateStr: string) => {
-        return (adaptiveTasks || []).filter((task) => task.scheduledDate === dateStr)
-    }
-
     // Helper to render pills based on session type
-    const renderSessionBadge = (session: ConceptMasteryWithDetails) => {
+    const renderSessionBadge = (session: PlannedReviewPlanItem) => {
         let colors = ""
-        switch (session.display_mastery_level) {
+        switch (session.mastery.display_mastery_level) {
             case "mastered": colors = "bg-green-100 text-green-700 border-green-200"; break;
             case "developing": colors = "bg-yellow-100 text-yellow-700 border-yellow-200"; break;
             case "needs_review": colors = "bg-red-100 text-red-700 border-red-200"; break;
             default: colors = "bg-gray-100 text-gray-700 border-gray-200"; break;
+        }
+
+        if (session.source === "baseline") {
+            colors = "bg-primary/10 text-primary border-primary/20"
         }
 
         return (
@@ -107,50 +113,105 @@ export function LearningPathCalendar() {
                 draggable
                 onDragStart={(e) => {
                     // Store the concept being moved; on drop we resolve masteryScore/confidence from `masteryList`.
-                    e.dataTransfer.setData('text/plain', session.concept_id)
+                    e.dataTransfer.setData('text/plain', session.conceptId)
                     e.dataTransfer.effectAllowed = 'move'
                 }}
                 className={`p-2 rounded-md border text-xs mb-2 ${colors} cursor-grab active:cursor-grabbing`}
-                title="Drag to reschedule review deadline"
+                title={session.source === "baseline" ? "Drag to reschedule baseline plan" : "Drag to reschedule review deadline"}
             >
                 <div className="flex items-center gap-1 font-medium mb-1 truncate">
-                    {session.display_mastery_level === 'mastered' && <CheckCircle2 className="w-3 h-3" />}
-                    {session.display_mastery_level === 'developing' && <Clock className="w-3 h-3" />} {/* changed from Flashcard icon */}
-                    {session.display_mastery_level === 'needs_review' && <BookOpen className="w-3 h-3" />}
-                    {session.concept_name}
+                    {session.mastery.display_mastery_level === 'mastered' && <CheckCircle2 className="w-3 h-3" />}
+                    {session.mastery.display_mastery_level === 'developing' && <Clock className="w-3 h-3" />}
+                    {session.mastery.display_mastery_level === 'needs_review' && <BookOpen className="w-3 h-3" />}
+                    {session.source === "baseline" ? `Planned: ${session.conceptName}` : session.conceptName}
                 </div>
-                {/* Time was omitted based on the plan */}
             </div>
         )
     }
 
-    const renderMonthSessionBadge = (session: ConceptMasteryWithDetails) => {
+    const renderMonthSessionBadge = (session: PlannedReviewPlanItem) => {
         let colors = ""
-        switch (session.display_mastery_level) {
+        switch (session.mastery.display_mastery_level) {
             case "mastered": colors = "bg-green-100 text-green-700 border-green-200"; break;
             case "developing": colors = "bg-yellow-100 text-yellow-700 border-yellow-200"; break;
             case "needs_review": colors = "bg-red-100 text-red-700 border-red-200"; break;
             default: colors = "bg-gray-100 text-gray-700 border-gray-200"; break;
         }
+        if (session.source === "baseline") {
+            colors = "bg-primary/10 text-primary border-primary/20"
+        }
         return (
             <div
                 draggable
                 onDragStart={(e) => {
-                    e.dataTransfer.setData('text/plain', session.concept_id)
+                    e.dataTransfer.setData('text/plain', session.conceptId)
                     e.dataTransfer.effectAllowed = 'move'
                 }}
                 className={`mt-1 text-[10px] p-1 rounded truncate border flex items-center gap-1 ${colors} cursor-grab active:cursor-grabbing`}
-                title="Drag to reschedule review deadline"
+                title={session.source === "baseline" ? "Drag to reschedule baseline plan" : "Drag to reschedule review deadline"}
             >
-                {session.display_mastery_level === 'mastered' && <CheckCircle2 className="w-2.5 h-2.5 hidden sm:block" />}
-                {session.display_mastery_level === 'developing' && <Clock className="w-2.5 h-2.5 hidden sm:block" />}
-                {session.display_mastery_level === 'needs_review' && <BookOpen className="w-2.5 h-2.5 hidden sm:block" />}
-                <span>{session.concept_name}</span>
+                {session.mastery.display_mastery_level === 'mastered' && <CheckCircle2 className="w-2.5 h-2.5 hidden sm:block" />}
+                {session.mastery.display_mastery_level === 'developing' && <Clock className="w-2.5 h-2.5 hidden sm:block" />}
+                {session.mastery.display_mastery_level === 'needs_review' && <BookOpen className="w-2.5 h-2.5 hidden sm:block" />}
+                <span>{session.source === "baseline" ? `Planned: ${session.conceptName}` : session.conceptName}</span>
             </div>
         )
     }
 
-    const renderAdaptiveTaskBadge = (task: AdaptiveStudyTask, compact = false) => {
+    const renderCalendarItem = (item: LearningPathPlanItem, compact = false) => {
+        if (item.kind === "planned_review") {
+            return compact ? renderMonthSessionBadge(item) : renderSessionBadge(item)
+        }
+
+        if (item.kind === "goal_marker") {
+            const colors = item.markerType === "quiz_deadline"
+                ? "bg-purple-100 text-purple-800 border-purple-200"
+                : "bg-blue-100 text-blue-800 border-blue-200"
+            const icon = item.markerType === "quiz_deadline" ? <Target className="w-3 h-3" /> : <BookOpen className="w-3 h-3" />
+            const label = item.markerType === "quiz_deadline" ? "Quiz" : "Study"
+
+            if (compact) {
+                return item.quizId ? (
+                    <button
+                        type="button"
+                        onClick={() => navigate(`/quizzes/${item.quizId}`)}
+                        className={`w-full mt-1 text-[10px] font-bold p-1 rounded truncate border flex items-center gap-1 ${colors} hover:opacity-90 transition-opacity`}
+                        title={item.title}
+                    >
+                        {icon}
+                        {item.title}
+                    </button>
+                ) : (
+                    <div className={`mt-1 text-[10px] font-bold p-1 rounded truncate border flex items-center gap-1 ${colors}`}>
+                        {icon}
+                        {item.title}
+                    </div>
+                )
+            }
+
+            return item.quizId ? (
+                <button
+                    type="button"
+                    onClick={() => navigate(`/quizzes/${item.quizId}`)}
+                    className={`w-full text-left p-2 rounded-md border text-xs mb-2 ${colors} hover:opacity-90 transition-opacity cursor-pointer`}
+                    title={`${label} goal`}
+                >
+                    <div className="flex items-center gap-1 font-bold mb-1 truncate">
+                        {icon}
+                        {label}: {item.title}
+                    </div>
+                </button>
+            ) : (
+                <div className={`p-2 rounded-md border text-xs mb-2 ${colors}`}>
+                    <div className="flex items-center gap-1 font-bold mb-1 truncate">
+                        {icon}
+                        {label}: {item.title}
+                    </div>
+                </div>
+            )
+        }
+
+        const task = item.task
         const colors = task.type === 'quiz'
             ? 'bg-primary/10 text-primary border-primary/20'
             : task.type === 'flashcards'
@@ -199,51 +260,43 @@ export function LearningPathCalendar() {
 
     const handleRescheduleDrop = (conceptId: string, targetDateStr: string) => {
         if (!conceptId || !targetDateStr) return
-        if (!masteryList) return
-
-        const current = masteryList.find((m) => m.concept_id === conceptId)
-        if (!current) return
-        if (current.due_date === targetDateStr) return // no-op
+        const current = getSessionsForDate(targetDateStr)
+        if (current.some((item) => item.conceptId === conceptId)) return
+        const source = plan.items.find((item) => item.kind === "planned_review" && item.conceptId === conceptId)
+        if (!source || source.kind !== "planned_review") return
+        const currentMastery = source.mastery
+        if (!currentMastery) return
+        if (currentMastery.due_date === targetDateStr) return // no-op
 
         rescheduleDueDate.mutate({
             conceptId,
             newDueDate: targetDateStr,
-            masteryScore: Number(current.mastery_score),
-            confidence: Number(current.confidence),
+            masteryScore: Number(currentMastery.mastery_score),
+            confidence: Number(currentMastery.confidence),
         })
     }
 
-    
-    const { data: quizzes } = useQuizzes()
-    const { data: documents } = useDocuments()
-    
-    // Group goals/deadlines by date for calendar display
-    const examsByDate = useMemo(() => {
-        const map: Record<string, Array<{ id: string; title: string; type: 'quiz' | 'file' }>> = {};
-        
-        if (quizzes && documents) {
-            quizzes.forEach(q => {
-                const doc = documents.find(d => d.id === q.document_id)
-                if (doc?.deadline) {
-                    const dateStr = doc.deadline.split('T')[0];
-                    if (!map[dateStr]) map[dateStr] = [];
-                    map[dateStr].push({ id: q.id, title: q.title, type: 'quiz' });
-                }
-            });
+    const handleAutomaticReplan = async () => {
+        try {
+            const availableStudyDays = profile?.available_study_days ?? []
+            const dailyStudyMinutes = profile?.daily_study_minutes ?? 30
+            const result = await replanLearningPath.mutateAsync({ availableStudyDays, dailyStudyMinutes })
+
+            if (result.total === 0) {
+                toast.info("No goal-dated documents found to replan.")
+                return
+            }
+
+            if (result.failed > 0) {
+                toast.warning(`Replanned ${result.success}/${result.total} goal-based document schedules.`)
+                return
+            }
+
+            toast.success(`Replanned ${result.total} goal-based document schedule${result.total !== 1 ? "s" : ""}.`)
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to replan your learning path.")
         }
-        
-        if (documents) {
-            documents.forEach(d => {
-                if (d.exam_date) {
-                    const dateStr = d.exam_date.split('T')[0];
-                    if (!map[dateStr]) map[dateStr] = [];
-                    map[dateStr].push({ id: d.id, title: d.title, type: 'file' });
-                }
-            });
-        }
-        
-        return map;
-    }, [quizzes, documents]);
+    }
 
     // Identify upcoming exams for the sidebar widget
     return (
@@ -291,7 +344,9 @@ export function LearningPathCalendar() {
                                     <h3 className="font-semibold text-base sm:text-lg">
                                         {viewMode === 'week' ? `Week of ${startOfWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${endOfWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${now.getFullYear()}` : `${now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`}
                                     </h3>
-                                    <p className="text-xs text-muted-foreground">Your preferred study time: 6 PM - 12 AM</p>
+                                    <p className="text-xs text-muted-foreground">
+                                        Your preferred study time: {formatStudyWindow(profile?.preferred_study_time_start, profile?.preferred_study_time_end)}
+                                    </p>
                                 </div>
                                 <Button
                                     variant="outline"
@@ -342,8 +397,7 @@ export function LearningPathCalendar() {
                                 <div className="flex overflow-x-auto pb-4 gap-4 snap-x hide-scrollbar">
                                     {weekDays.map((dateObj, idx) => {
                                         const dateStr = formatDateToLocalString(dateObj)
-                                        const sessions = getSessionsForDate(dateStr)
-                                        const plannedTasks = getAdaptiveTasksForDate(dateStr)
+                                        const dayItems = getLearningPathItemsForDate(plan.items, dateStr)
 
                                         return (
                                             <div
@@ -365,35 +419,10 @@ export function LearningPathCalendar() {
                                                     <div className="text-xs text-muted-foreground">{dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
                                                 </div>
                                                 <div className="space-y-2">
-                                                    {plannedTasks.map((task) => (
-                                                        <div key={task.id}>{renderAdaptiveTaskBadge(task)}</div>
+                                                    {dayItems.map((item) => (
+                                                        <div key={item.id}>{renderCalendarItem(item)}</div>
                                                     ))}
-                                                    {examsByDate[dateStr]?.map((item, ei) => (
-                                                        item.type === 'quiz' ? (
-                                                            <button
-                                                                key={`exam-${ei}`}
-                                                                type="button"
-                                                                onClick={() => navigate(`/quizzes/${item.id}`)}
-                                                                className="w-full text-left p-2 rounded-md border text-xs mb-2 bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-200 transition-colors cursor-pointer"
-                                                                title="Open quiz"
-                                                            >
-                                                                <div className="flex items-center gap-1 font-bold mb-1 truncate">
-                                                                    <Target className="w-3 h-3" />
-                                                                    Quiz: {item.title}
-                                                                </div>
-                                                            </button>
-                                                        ) : (
-                                                            <div key={`exam-${ei}`} className="p-2 rounded-md border text-xs mb-2 bg-blue-100 text-blue-800 border-blue-200">
-                                                                <div className="flex items-center gap-1 font-bold mb-1 truncate">
-                                                                    <BookOpen className="w-3 h-3" />
-                                                                    Study: {item.title}
-                                                                </div>
-                                                            </div>
-                                                        )
-                                                    ))}
-                                                    {sessions.length > 0 ? (
-                                                        sessions.map((s, i) => <div key={i}>{renderSessionBadge(s)}</div>)
-                                                    ) : examsByDate[dateStr]?.length ? null : (
+                                                    {dayItems.length > 0 ? null : (
                                                         <div className="h-full flex items-center justify-center text-xs text-muted-foreground py-8 text-center text-balance">
                                                             No topics due
                                                         </div>
@@ -417,8 +446,7 @@ export function LearningPathCalendar() {
                                         {Array.from({ length: monthDaysCount }).map((_, i) => {
                                             const dayDate = new Date(now.getFullYear(), now.getMonth(), i + 1);
                                             const dateStr = formatDateToLocalString(dayDate);
-                                            const sessions = getSessionsForDate(dateStr);
-                                            const plannedTasks = getAdaptiveTasksForDate(dateStr)
+                                            const dayItems = getLearningPathItemsForDate(plan.items, dateStr)
 
                                             return (
                                                 <div
@@ -435,34 +463,12 @@ export function LearningPathCalendar() {
                                                     }}
                                                 >
                                                     <span className="text-xs font-medium">{i + 1}</span>
-                                                    {plannedTasks.slice(0, 2).map((task) => (
-                                                        <div key={task.id}>{renderAdaptiveTaskBadge(task, true)}</div>
+                                                    {dayItems.slice(0, 3).map((item) => (
+                                                        <div key={item.id}>{renderCalendarItem(item, true)}</div>
                                                     ))}
-                                                    {examsByDate[dateStr]?.map((item, ei) => (
-                                                        item.type === 'quiz' ? (
-                                                            <button
-                                                                key={`exam-${ei}`}
-                                                                type="button"
-                                                                onClick={() => navigate(`/quizzes/${item.id}`)}
-                                                                className="w-full mt-1 text-[10px] font-bold p-1 rounded truncate border flex items-center gap-1 bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-200 transition-colors cursor-pointer"
-                                                                title="Open quiz"
-                                                            >
-                                                                <Target className="w-2.5 h-2.5 hidden sm:block" />
-                                                                {item.title}
-                                                            </button>
-                                                        ) : (
-                                                            <div key={`exam-${ei}`} className="mt-1 text-[10px] font-bold p-1 rounded truncate border flex items-center gap-1 bg-blue-100 text-blue-800 border-blue-200">
-                                                                <BookOpen className="w-2.5 h-2.5 hidden sm:block" />
-                                                                {item.title}
-                                                            </div>
-                                                        )
-                                                    ))}
-                                                    {sessions.slice(0, 3).map((s, si) => (
-                                                        <div key={si}>{renderMonthSessionBadge(s)}</div>
-                                                    ))}
-                                                    {sessions.length > 3 && (
+                                                    {dayItems.length > 3 && (
                                                         <div className="mt-1 text-[10px] text-muted-foreground px-1 truncate">
-                                                            +{sessions.length - 3} more
+                                                            +{dayItems.length - 3} more
                                                         </div>
                                                     )}
                                                 </div>
@@ -484,9 +490,26 @@ export function LearningPathCalendar() {
                                     : `You don't have any reviews yet this week. Remember, spaced repetition is the key to mastery!`}
                                 {(stats?.needsReviewCount ?? 0) > 0 && ` Consider adding a review session for some weak topics.`}
                             </p>
-                            <Button className="bg-purple-500 hover:bg-purple-600 text-white border-0 shadow-sm">
+                            <Button
+                                className="bg-purple-500 hover:bg-purple-600 text-white border-0 shadow-sm"
+                                disabled={replanLearningPath.isPending}
+                                onClick={handleAutomaticReplan}
+                            >
+                                {replanLearningPath.isPending ? (
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                ) : null}
                                 Reschedule Automatically
                             </Button>
+                            {replanLearningPath.progress.total > 0 && replanLearningPath.isPending ? (
+                                <p className="text-xs text-muted-foreground mt-3">
+                                    Applying your saved availability to goal-based documents ({replanLearningPath.progress.done}/{replanLearningPath.progress.total}).
+                                </p>
+                            ) : null}
+                            {replanLearningPath.data?.total === 0 ? (
+                                <p className="text-xs text-muted-foreground mt-3">
+                                    No goal-dated documents are available to replan yet.
+                                </p>
+                            ) : null}
                         </CardContent>
                     </Card>
 
@@ -560,10 +583,10 @@ export function LearningPathCalendar() {
                             <CardTitle className="text-sm font-semibold">Quick Actions</CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-2">
-                            <Button variant="outline" className="w-full justify-start text-sm">
+                            <Button variant="outline" className="w-full justify-start text-sm" onClick={() => navigate("/quizzes")}>
                                 <BookOpen className="w-4 h-4 mr-2" /> View All Quizzes
                             </Button>
-                            <Button variant="outline" className="w-full justify-start text-sm">
+                            <Button variant="outline" className="w-full justify-start text-sm" onClick={() => navigate("/quizzes?tab=flashcards")}>
                                 <Clock className="w-4 h-4 mr-2" /> Practice Flashcards
                             </Button>
                         </CardContent>

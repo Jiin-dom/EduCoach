@@ -276,9 +276,9 @@ A typical quiz covers **multiple concepts**. So one quiz with 10 questions might
 
 ## Adaptive Study Generation
 
-The learning path should act as an **active planner**, not just a reporting screen.
+The learning path now acts as a **shipped planner surface**, not just a reporting screen.
 
-Once EduCoach has concept and scheduling data, it should turn those findings into study work. At first upload this is a baseline plan; after attempts it becomes performance-adaptive:
+Once EduCoach has concept and scheduling data, it turns those findings into visible study work. At first upload this appears as a baseline plan; after attempts it becomes performance-adaptive:
 
 1. **Targeted quizzes**
    - Generate quizzes weighted toward weak concepts or overdue review topics.
@@ -300,7 +300,7 @@ Once EduCoach has concept and scheduling data, it should turn those findings int
    - Students can manually create quizzes at any time.
    - Adaptive quizzes should complement manual quizzes, not replace or block them.
 
-This means the product goal is a closed loop:
+This creates the current shipped loop:
 
 `performance data -> weakness detection -> generated study work -> scheduled learning path -> new performance data`
 
@@ -311,20 +311,27 @@ The schedule is also availability-driven, not only performance-driven:
 - Students can edit `available_study_days`, `preferred_study_time_start`, `preferred_study_time_end`, and `daily_study_minutes` from Profile.
 - Saving availability changes automatically replans goal-window schedules for goal-dated documents.
 - Profile also exposes a manual **Replan Learning Path** action.
-- Replanning runs per document and may complete partially; progress/feedback should be shown in UI.
+- The Learning Path calendar also exposes a manual **Reschedule Automatically** action that uses the same replanning flow.
+- Replanning runs per document, may complete partially, and shows progress/feedback in the UI.
 
 ---
 
 ## 🛤️ How the Learning Path Page Displays Data
 
-The [LearningPathContent.tsx](../../src/components/learning-path/LearningPathContent.tsx) component pulls data from two hooks:
+The page now builds a shared read-model through `useLearningPathPlan()` so the content view and calendar use the same visible schedule.
 
-1. **[useConceptMasteryList()](../../src/hooks/useLearning.ts#160-210)** — all concept mastery records with concept names and document titles
-2. **[useLearningStats()](../../src/hooks/useLearning.ts#251-336)** — aggregated stats (totals, averages, streak)
+The plan combines:
+
+1. **[useConceptMasteryList()](../../src/hooks/useLearning.ts#160-210)** — concept mastery records and due dates
+2. **Adaptive study tasks** — generated quiz, flashcard, and review work
+3. **Document goal markers** — file goals from `exam_date`
+4. **Quiz deadline markers** — assessment targets derived from document `deadline`
+
+`useLearningStats()` still powers the aggregate stat cards and readiness summaries.
 
 ### The Four Priority Sections
 
-The component sorts concept mastery records into four groups (performance views exclude placeholder rows with no attempts):
+The component sorts attempt-backed concept mastery records into four performance groups (placeholder rows with no attempts are shown separately in the generated plan):
 
 ```mermaid
 flowchart TD
@@ -340,6 +347,16 @@ flowchart TD
 2. **⚠️ Needs Review** — Attempt-backed topics with mastery < 60% (that aren't already in "Due Today"). Sorted weakest first.
 3. **📖 Developing** — Attempt-backed topics with mastery 60–79%. Sorted weakest first.
 4. **✅ Mastered** — Attempt-backed topics with mastery ≥ 80% and confidence ≥ 67%. Sorted strongest first.
+
+### Generated Plan Section
+
+The page also renders a generated-plan section for goal-window placeholders and goal markers:
+
+- **Planned Baseline** items show scheduled study work for concepts that have no attempts yet.
+- **File Goal** markers show document target dates from `exam_date`.
+- **Quiz Deadline** markers show assessment target dates derived from `deadline`.
+
+This keeps the learning path visible even before the student has produced enough quiz history to populate the four mastery sections.
 
 ### Summary Stats (Top Cards)
 
