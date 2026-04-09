@@ -14,6 +14,7 @@ It focuses on:
 
 The flow begins when:
 
+- a document is first uploaded/processed and bootstrap adaptive planning creates a quiz task
 - the system detects weak, due, or developing concepts for a document after performance updates
 - the Learning Path encounters a quiz task that still needs a focused review quiz
 - the student explicitly starts an adaptive quiz from the Learning Path
@@ -26,7 +27,7 @@ During an active flashcard, quiz, or review session, adaptive quiz generation in
 
 This phase exists to:
 - avoid creating duplicate review quizzes
-- ensure the student gets a focused quiz tied to current weak areas
+- ensure the student gets a focused quiz tied to current study priorities
 - preserve manual quiz generation as a separate user-controlled path
 - avoid interrupting an in-progress assessment with immediate path/task rewrites
 
@@ -65,11 +66,11 @@ Expected user-facing result:
 ### C. No fresh adaptive review quiz exists
 
 Condition:
-- there is no existing generating quiz and no ready quiz that is still fresh for the current weak-area state
+- there is no existing generating quiz and no ready quiz that is still fresh for the current adaptive state
 
 Expected system behavior:
 - the system should generate a focused review quiz for the document
-- the quiz should target the current high-priority weak, due, or developing concepts
+- the quiz should target current high-priority due/developing concepts and later weak concepts once attempt data exists
 - the resulting adaptive task should move from `pending_generation` to `generating`, then to `ready` when the quiz is available
 
 Expected user-facing result:
@@ -86,7 +87,7 @@ Expected system behavior:
 - the corresponding adaptive quiz task should be archived or remain absent from active views
 
 Expected user-facing result:
-- the student should not see a forced adaptive quiz when there is no clear weak-area target
+- the student should not see a forced adaptive quiz when there is no clear adaptive target
 
 ## State Handling Requirements
 
@@ -144,9 +145,10 @@ This spec is satisfied if:
 1. When actionable weak-area concepts exist and no fresh review quiz exists, the system generates a focused adaptive review quiz.
 2. When a fresh adaptive review quiz already exists, the system reuses it instead of creating another one.
 3. When an adaptive review quiz is already generating, the system does not start a duplicate generation request.
-4. Students can still generate normal quizzes independently even when adaptive review quizzes exist.
-5. The adaptive quiz task shown in the Learning Path matches the current quiz lifecycle state.
-6. Adaptive quiz-task updates do not force-close an in-progress flashcard or review session.
+4. During first-upload bootstrap planning, adaptive review quizzes can still be generated from scheduled baseline priorities (not mislabeled as weak-performance evidence).
+5. Students can still generate normal quizzes independently even when adaptive review quizzes exist.
+6. The adaptive quiz task shown in the Learning Path matches the current quiz lifecycle state.
+7. Adaptive quiz-task updates do not force-close an in-progress flashcard or review session.
 
 ## Open Questions
 

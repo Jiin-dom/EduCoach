@@ -14,6 +14,7 @@ It focuses on:
 
 The flow begins when:
 
+- a student uploads/processes a document (bootstrap planning)
 - a student's concept mastery changes after quiz processing
 - a student's flashcard state changes in a way that affects due review work
 - a review quiz is created, updated, completed, or becomes stale
@@ -37,10 +38,25 @@ The system should then resolve into one of the following branches.
 
 ## Branches
 
-### A. Actionable weak or due concepts exist
+### A. Bootstrap planning after first upload (no student attempts yet)
 
 Condition:
-- the document has concepts that are due today, need review, or are still developing
+- a document has extracted concepts and scheduling data, but those concepts have no real student attempts yet
+
+Expected system behavior:
+- the system should still create or update persistent adaptive task rows for `quiz`, `flashcards`, and `review`
+- tasks should be scheduled within the student's available study days/time window and document goal window
+- task reason should default to a neutral planning state (`developing`) rather than weak-performance states
+- the system should not treat bootstrap placeholders as evidence of weak performance
+
+Expected user-facing result:
+- the student should see an initial study plan immediately after upload
+- task labels and notifications should reflect planning/baseline study, not "weak areas"
+
+### B. Actionable weak or due concepts exist after attempts
+
+Condition:
+- the document has concepts with real student attempts that are due today, need review, or are still developing
 
 Expected system behavior:
 - the system should identify the highest-priority actionable concepts for that document
@@ -53,7 +69,7 @@ Expected user-facing result:
 - the student should see those tasks plotted on the Learning Path calendar using their scheduled date
 - the student should be able to open the right surface directly from the task
 
-### B. No actionable concepts remain
+### C. No actionable concepts remain
 
 Condition:
 - the document no longer has concepts that are due today, need review, or are developing enough to require targeted follow-up
@@ -124,12 +140,14 @@ Important:
 
 This spec is satisfied if:
 
-1. When quiz or flashcard performance changes concept mastery for a document, the system updates persisted adaptive tasks for that document.
-2. When a document has weak or due concepts, the system exposes persistent adaptive `quiz`, `flashcards`, and `review` tasks for that document.
-3. When a document no longer has actionable weak or due concepts, the previously active adaptive tasks are archived and stop appearing in the Learning Path.
-4. The student is not left with stale adaptive tasks that no longer match current mastery state.
-5. The final Learning Path and calendar views reflect the currently persisted adaptive task state after session checkpoint application.
-6. While an assessment session is active, the student is not force-exited due to adaptive task recomputation.
+1. When a document is first uploaded and processed, the system creates a scheduled bootstrap adaptive plan (`quiz`, `flashcards`, `review`) even before attempts exist.
+2. Bootstrap planning does not classify tasks as weak-performance work until real attempts exist.
+3. When quiz or flashcard performance changes concept mastery for a document, the system updates persisted adaptive tasks for that document.
+4. When a document has weak or due concepts backed by attempts, the system exposes adaptive tasks with the correct reason and priority.
+5. When a document no longer has actionable concepts, previously active adaptive tasks are archived and stop appearing in the Learning Path.
+6. The student is not left with stale adaptive tasks that no longer match current mastery state.
+7. The final Learning Path and calendar views reflect the currently persisted adaptive task state after session checkpoint application.
+8. While an assessment session is active, the student is not force-exited due to adaptive task recomputation.
 
 ## Open Questions
 
