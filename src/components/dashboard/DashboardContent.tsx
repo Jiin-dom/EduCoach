@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Upload, FileText, Brain, Clock, TrendingUp, Eye, Trash2, Sparkles, Loader2, RefreshCw } from "lucide-react"
 import { FileUploadDialog } from "@/components/files/FileUploadDialog"
+import { GenerateQuizDialog } from "@/components/files/GenerateQuizDialog"
 import { QuizCard } from "@/components/dashboard/QuizCard"
 import { ReadinessScoreCard } from "@/components/dashboard/ReadinessScoreCard"
 import { TodaysStudyPlan } from "@/components/dashboard/TodaysStudyPlan"
@@ -15,9 +16,10 @@ import { useAuth } from "@/contexts/AuthContext"
 import { useDocuments, useDeleteDocument, useProcessDocument, type Document } from "@/hooks/useDocuments"
 import { formatFileSize } from "@/lib/storage"
 import { Badge } from "@/components/ui/badge"
-import { useQuizzes, useUserAttempts, useGenerateQuiz } from "@/hooks/useQuizzes"
+import { useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
 import { useLearningStats } from "@/hooks/useLearning"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useMarkTrialWelcomeSeen } from "@/hooks/useStudentSubscription"
 
 export function DashboardContent() {
@@ -25,6 +27,8 @@ export function DashboardContent() {
     const navigate = useNavigate()
     const [showUploadDialog, setShowUploadDialog] = useState(false)
     const [showTrialModal, setShowTrialModal] = useState(false)
+    const [quizDialogOpen, setQuizDialogOpen] = useState(false)
+    const [selectedDocForQuiz, setSelectedDocForQuiz] = useState<Document | null>(null)
     const markTrialWelcomeSeen = useMarkTrialWelcomeSeen()
 
     // Use real document data
@@ -35,7 +39,6 @@ export function DashboardContent() {
     // Use real quiz data
     const { data: quizzes } = useQuizzes()
     const { data: attempts } = useUserAttempts()
-    const generateQuiz = useGenerateQuiz()
     const { data: learningStats } = useLearningStats()
 
     const recentQuizzes = useMemo(() => {
@@ -71,18 +74,8 @@ export function DashboardContent() {
     }
 
     const handleGenerateQuiz = (doc: Document) => {
-        generateQuiz.mutate(
-            { documentId: doc.id, questionCount: 10, enhanceWithLlm: true },
-            {
-                onSuccess: (data) => {
-                    if (data?.quizId) {
-                        navigate(`/quizzes/${data.quizId}`)
-                    } else {
-                        navigate('/quizzes')
-                    }
-                },
-            }
-        )
+        setSelectedDocForQuiz(doc)
+        setQuizDialogOpen(true)
     }
 
     const getStatusColor = (status: string) => {
@@ -329,8 +322,6 @@ export function DashboardContent() {
 
             <TodaysStudyPlan />
 
-            <ProgressInsightsSection hasPremiumEntitlement={hasPremiumEntitlement} />
-
             {/* Main Content Grid with Weak Topics Panel */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Uploaded Files Section */}
@@ -344,7 +335,10 @@ export function DashboardContent() {
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => refetch()}
+                                onClick={(event) => {
+                                    event.stopPropagation()
+                                    refetch()
+                                }}
                                 disabled={isLoading}
                             >
                                 <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -365,7 +359,10 @@ export function DashboardContent() {
                                 <p className="text-sm text-muted-foreground mb-4">
                                     Upload your study materials to generate personalized quizzes
                                 </p>
-                                <Button onClick={() => setShowUploadDialog(true)}>
+                                <Button onClick={(event) => {
+                                    event.stopPropagation()
+                                    setShowUploadDialog(true)
+                                }}>
                                     <Upload className="w-4 h-4 mr-2" />
                                     Upload File
                                 </Button>
@@ -376,7 +373,16 @@ export function DashboardContent() {
                                     {recentFiles.map((file) => (
                                         <div
                                             key={file.id}
-                                            className="flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/5"
+                                            className="flex items-center gap-3 rounded-lg border bg-card p-3 transition-colors hover:bg-accent/5"
+                                            role="link"
+                                            tabIndex={0}
+                                            onClick={() => navigate(`/files/${file.id}`)}
+                                            onKeyDown={(event) => {
+                                                if (event.key === "Enter" || event.key === " ") {
+                                                    event.preventDefault()
+                                                    navigate(`/files/${file.id}`)
+                                                }
+                                            }}
                                         >
                                             <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
                                                 <FileText className="w-5 h-5 text-primary" />
@@ -396,7 +402,10 @@ export function DashboardContent() {
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-1">
-                                                <Link to={`/files/${file.id}`}>
+                                                <Link
+                                                    to={`/files/${file.id}`}
+                                                    onClick={(event) => event.stopPropagation()}
+                                                >
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
@@ -410,7 +419,10 @@ export function DashboardContent() {
                                                         variant="ghost"
                                                         size="icon"
                                                         className="h-8 w-8 text-orange-600 hover:text-orange-700"
-                                                        onClick={() => handleRetryProcessing(file)}
+                                                        onClick={(event) => {
+                                                            event.stopPropagation()
+                                                            handleRetryProcessing(file)
+                                                        }}
                                                         disabled={processDocument.isPending}
                                                         title="Retry processing (wait a few minutes if rate limited)"
                                                     >
@@ -418,25 +430,35 @@ export function DashboardContent() {
                                                     </Button>
                                                 )}
                                                 {file.status === 'ready' && (
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="h-8 w-8 text-primary hover:text-primary"
-                                                        onClick={() => handleGenerateQuiz(file)}
-                                                        disabled={generateQuiz.isPending}
-                                                    >
-                                                        {generateQuiz.isPending ? (
-                                                            <Loader2 className="w-4 h-4 animate-spin" />
-                                                        ) : (
-                                                            <Sparkles className="w-4 h-4" />
-                                                        )}
-                                                    </Button>
+                                                    <TooltipProvider>
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-8 w-8 text-primary hover:text-primary"
+                                                                    onClick={(event) => {
+                                                                        event.stopPropagation()
+                                                                        handleGenerateQuiz(file)
+                                                                    }}
+                                                                >
+                                                                    <Sparkles className="w-4 h-4" />
+                                                                </Button>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent>
+                                                                <p>Generate quiz from this file</p>
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    </TooltipProvider>
                                                 )}
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
                                                     className="h-8 w-8 text-destructive hover:text-destructive"
-                                                    onClick={() => handleDeleteFile(file)}
+                                                    onClick={(event) => {
+                                                        event.stopPropagation()
+                                                        handleDeleteFile(file)
+                                                    }}
                                                     disabled={deleteDocument.isPending}
                                                 >
                                                     <Trash2 className="w-4 h-4" />
@@ -446,11 +468,14 @@ export function DashboardContent() {
                                     ))}
                                 </div>
                                 <div className="flex gap-2">
-                                    <Button onClick={() => setShowUploadDialog(true)} variant="outline" className="flex-1">
+                                    <Button onClick={(event) => {
+                                        event.stopPropagation()
+                                        setShowUploadDialog(true)
+                                    }} variant="outline" className="flex-1">
                                         <Upload className="w-4 h-4 mr-2" />
                                         Upload More
                                     </Button>
-                                    <Link to="/files" className="flex-1">
+                                    <Link to="/files" className="flex-1" onClick={(event) => event.stopPropagation()}>
                                         <Button variant="ghost" className="w-full">
                                             View All
                                         </Button>
@@ -499,6 +524,8 @@ export function DashboardContent() {
                 <WeakTopicsPanel />
             </div>
 
+            <ProgressInsightsSection hasPremiumEntitlement={hasPremiumEntitlement} />
+
             <MotivationalCard />
 
             <FileUploadDialog
@@ -506,6 +533,19 @@ export function DashboardContent() {
                 onOpenChange={setShowUploadDialog}
                 onUploadComplete={handleUploadComplete}
             />
+
+            {selectedDocForQuiz && (
+                <GenerateQuizDialog
+                    open={quizDialogOpen}
+                    onOpenChange={(open) => {
+                        setQuizDialogOpen(open)
+                        if (!open) {
+                            setSelectedDocForQuiz(null)
+                        }
+                    }}
+                    documentId={selectedDocForQuiz.id}
+                />
+            )}
 
             <AiTutorChat />
         </div>

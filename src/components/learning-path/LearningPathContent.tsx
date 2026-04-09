@@ -553,7 +553,7 @@ export function LearningPathContent() {
         }
 
         if (task.type === 'flashcards') {
-            navigate(`/quizzes?tab=flashcards&documentId=${task.documentId}`)
+            navigate(`/files/${task.documentId}?tab=flashcards`)
             return
         }
 

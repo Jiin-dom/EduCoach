@@ -243,7 +243,7 @@ export function LearningPathCalendar() {
             }
 
             if (task.type === 'flashcards') {
-                navigate(`/quizzes?tab=flashcards&documentId=${task.documentId}`)
+                navigate(`/files/${task.documentId}?tab=flashcards`)
                 return
             }
 
@@ -592,8 +592,8 @@ export function LearningPathCalendar() {
                             <Button variant="outline" className="w-full justify-start text-sm" onClick={() => navigate("/quizzes")}>
                                 <BookOpen className="w-4 h-4 mr-2" /> View All Quizzes
                             </Button>
-                            <Button variant="outline" className="w-full justify-start text-sm" onClick={() => navigate("/quizzes?tab=flashcards")}>
-                                <Clock className="w-4 h-4 mr-2" /> Practice Flashcards
+                            <Button variant="outline" className="w-full justify-start text-sm" onClick={() => navigate("/files")}>
+                                <Clock className="w-4 h-4 mr-2" /> Open Study Materials
                             </Button>
                         </CardContent>
                     </Card>
