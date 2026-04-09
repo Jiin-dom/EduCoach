@@ -18,12 +18,14 @@ This document describes the user-facing workflow of EduCoach: from registration 
 
 1. The user navigates to the `Files` page.
 2. The user uploads one or more study files/materials.
-3. The user can view the content of uploaded files.
-4. The user can interact with uploaded materials through studying features, such as:
+3. Uploaded files first appear in the library as pending study materials.
+4. The user can process individual files later or use a batch `Process All Pending` action.
+5. The user can view the content of processed uploaded files.
+6. The user can interact with uploaded materials through studying features, such as:
    - Annotating
    - Taking notes
    - Highlighting
-5. The user can delete uploaded files.
+7. The user can delete uploaded files.
 
 ## 3. Generate Flashcards and Quizzes (From Uploaded Files)
 

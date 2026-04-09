@@ -21,10 +21,11 @@ pages/ProfilingPage.tsx
 pages/FilesPage.tsx
   -> components/files/FilesContent.tsx
       -> FileUploadDialog.tsx
-          -> hooks/useDocuments.ts
-          -> hooks/useGoalWindowScheduling.ts
+          -> lib/documentBatchProcessing.ts
           -> lib/storage.ts
           -> lib/supabase.ts
+      -> Process All Pending batch runner
+          -> hooks/useDocuments.ts
       -> GenerateQuizDialog.tsx
 
 components/dashboard/DashboardContent.tsx
@@ -40,11 +41,11 @@ components/dashboard/DashboardContent.tsx
 |---|---|---|
 | `src/components/forms/ProfilingForm.tsx` | Captures display name, learning style, goals, study time, and available study days | `useAuth.updateProfile` |
 | `src/hooks/useDocuments.ts` | Document list/detail CRUD, polling, updates, processing trigger | `supabase`, `ensureFreshSession`, `deleteFile` |
-| `src/components/files/FileUploadDialog.tsx` | Upload UX, storage validation, processing kickoff, goal-window scheduling | `useAuth`, `uploadFile`, `useProcessDocument`, `useScheduleDocumentGoalWindow` |
-| `src/components/files/FilesContent.tsx` | Main document-library list page | `useDocuments`, `useDeleteDocument`, `useProcessDocument`, `GenerateQuizDialog` |
+| `src/components/files/FileUploadDialog.tsx` | Bulk upload UX, storage validation, and pending-document creation | `useAuth`, `uploadFile`, `deleteFile`, `lib/documentBatchProcessing.ts` |
+| `src/components/files/FilesContent.tsx` | Main document-library list page plus deferred processing queue | `useDocuments`, `useDeleteDocument`, `useProcessDocument`, `processDocumentRequest`, `GenerateQuizDialog` |
 | `src/components/dashboard/DashboardContent.tsx` | Reuses document, quiz, and upload flows on the dashboard | `useDocuments`, `useQuizzes`, `useLearningStats`, `useStudentSubscription` |
 | `src/lib/storage.ts` | File validation, upload, delete, URL retrieval, file metadata helpers | `lib/supabase.ts` |
-| `src/hooks/useGoalWindowScheduling.ts` | Mutations that schedule/deactivate study windows when exam dates exist | `services/goalWindowScheduling.ts`, `learningKeys` |
+| `src/hooks/useGoalWindowScheduling.ts` | Mutations that schedule/deactivate study windows when exam dates exist outside bulk upload | `services/goalWindowScheduling.ts`, `learningKeys` |
 | `src/services/goalWindowScheduling.ts` | Allocates placeholder `due_date` values from exam windows and study availability | `supabase`, `learningAlgorithms.ts` |
 
 ## Supabase / Backend Touchpoints
@@ -58,4 +59,4 @@ components/dashboard/DashboardContent.tsx
 ## Notes
 
 - The old “assign deadline” feature is no longer isolated; its current wiring is split between `useUpdateDocument()` in `useDocuments.ts` and goal-window scheduling hooks/services.
-- Phase 2 now spills into dashboard behavior because upload/reprocess/delete entry points are shared between `/files` and `/dashboard`.
+- Bulk upload is intentionally scoped to `/files` in the current web implementation; the dashboard links into the library instead of reusing the full batch uploader.

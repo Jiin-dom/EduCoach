@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Upload, FileText, Brain, Clock, TrendingUp, Eye, Trash2, Sparkles, Loader2, RefreshCw } from "lucide-react"
-import { FileUploadDialog } from "@/components/files/FileUploadDialog"
 import { QuizCard } from "@/components/dashboard/QuizCard"
 import { ReadinessScoreCard } from "@/components/dashboard/ReadinessScoreCard"
 import { TodaysStudyPlan } from "@/components/dashboard/TodaysStudyPlan"
@@ -23,7 +22,6 @@ import { useMarkTrialWelcomeSeen } from "@/hooks/useStudentSubscription"
 export function DashboardContent() {
     const { profile, user } = useAuth()
     const navigate = useNavigate()
-    const [showUploadDialog, setShowUploadDialog] = useState(false)
     const [showTrialModal, setShowTrialModal] = useState(false)
     const markTrialWelcomeSeen = useMarkTrialWelcomeSeen()
 
@@ -55,10 +53,6 @@ export function DashboardContent() {
 
     // Get recent files (last 5)
     const recentFiles = documents?.slice(0, 5) || []
-
-    const handleUploadComplete = () => {
-        refetch()
-    }
 
     const handleDeleteFile = (doc: Document) => {
         if (window.confirm(`Delete "${doc.title}"?`)) {
@@ -365,9 +359,9 @@ export function DashboardContent() {
                                 <p className="text-sm text-muted-foreground mb-4">
                                     Upload your study materials to generate personalized quizzes
                                 </p>
-                                <Button onClick={() => setShowUploadDialog(true)}>
+                                <Button onClick={() => navigate("/files")}>
                                     <Upload className="w-4 h-4 mr-2" />
-                                    Upload File
+                                    Open Files Library
                                 </Button>
                             </div>
                         ) : (
@@ -446,9 +440,9 @@ export function DashboardContent() {
                                     ))}
                                 </div>
                                 <div className="flex gap-2">
-                                    <Button onClick={() => setShowUploadDialog(true)} variant="outline" className="flex-1">
+                                    <Button onClick={() => navigate("/files")} variant="outline" className="flex-1">
                                         <Upload className="w-4 h-4 mr-2" />
-                                        Upload More
+                                        Manage Files
                                     </Button>
                                     <Link to="/files" className="flex-1">
                                         <Button variant="ghost" className="w-full">
@@ -500,13 +494,6 @@ export function DashboardContent() {
             </div>
 
             <MotivationalCard />
-
-            <FileUploadDialog
-                open={showUploadDialog}
-                onOpenChange={setShowUploadDialog}
-                onUploadComplete={handleUploadComplete}
-            />
-
             <AiTutorChat />
         </div>
     )
