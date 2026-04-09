@@ -59,6 +59,13 @@ Once enough student performance data exists, EduCoach should also generate study
   - review-focused study sessions
 - These generated activities should be attached to the student's learning path and scheduled using the student's availability and deadlines.
 
+### 3.4 Baseline Quiz After Upload (Current Behavior)
+
+- Immediately after successful document processing, EduCoach auto-starts baseline quiz generation.
+- The UI shows kickoff feedback: baseline quiz generation has started.
+- The first generated quiz uses a balanced diagnostic mix and keeps fill-in-the-blank usage lower than other types.
+- Manual quiz generation remains available and independent.
+
 ## 4. Study and Take Quizzes (Quizzes Page)
 
 The `Quizzes` page displays the student’s quizzes and studying items, typically grouped as:
@@ -130,6 +137,7 @@ Because the learning path is built on a scheduled timeframe derived from profili
   - Calendar view
 - Scheduled activities appear as time-based items (e.g., assessments and practice sessions) that align with the student’s profiling and updated schedule.
 - As adaptive study items are regenerated, the calendar and month views should also refresh to reflect the latest priorities.
+- In schedule/calendar view, quiz task clicks provide status feedback/routing; they do not silently fail.
 
 ## 7. Analytics
 
@@ -158,6 +166,7 @@ flowchart LR
 - View and edit availability later in Profile (days, study window, daily minutes).
 - Upload materials and study them directly with annotations.
 - Generate flashcards and quizzes from uploaded content.
+- Get a baseline diagnostic quiz automatically after upload processing.
 - Take quizzes and practice with flashcards.
 - EduCoach processes results, identifies weak or developing concepts, and should automatically generate targeted quizzes, flashcards, and review work around them.
 - Those generated study items are placed on the learning path and re-planned as the student produces more results.

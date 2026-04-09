@@ -52,6 +52,7 @@ Expected system behavior:
 Expected user-facing result:
 - the student should see an initial study plan immediately after upload
 - task labels and notifications should reflect planning/baseline study, not "weak areas"
+- baseline quiz generation should start immediately after upload processing and surface kickoff feedback
 
 ### B. Actionable weak or due concepts exist after attempts
 
@@ -148,6 +149,7 @@ This spec is satisfied if:
 6. The student is not left with stale adaptive tasks that no longer match current mastery state.
 7. The final Learning Path and calendar views reflect the currently persisted adaptive task state after session checkpoint application.
 8. While an assessment session is active, the student is not force-exited due to adaptive task recomputation.
+9. Deleting a file removes related adaptive/quiz artifacts from active views without requiring a full page refresh.
 
 ## Open Questions
 

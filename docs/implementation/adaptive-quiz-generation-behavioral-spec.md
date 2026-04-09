@@ -16,7 +16,7 @@ The flow begins when:
 
 - a document is first uploaded/processed and bootstrap adaptive planning creates a quiz task
 - the system detects weak, due, or developing concepts for a document after performance updates
-- the Learning Path encounters a quiz task that still needs a focused review quiz
+- the Learning Path encounters a quiz task that still needs a focused review quiz (status/feedback only in calendar view)
 - the student explicitly starts an adaptive quiz from the Learning Path
 
 ## Expected Behavior
@@ -69,13 +69,27 @@ Condition:
 - there is no existing generating quiz and no ready quiz that is still fresh for the current adaptive state
 
 Expected system behavior:
-- the system should generate a focused review quiz for the document
+- the system should generate a focused review quiz for the document during upload/bootstrap or explicit generation flows
 - the quiz should target current high-priority due/developing concepts and later weak concepts once attempt data exists
 - the resulting adaptive task should move from `pending_generation` to `generating`, then to `ready` when the quiz is available
 
 Expected user-facing result:
 - the student should receive a newly generated quiz aimed at the concepts they most need to work on
 - the student should experience adaptive quiz creation as part of the Learning Path, not as a replacement for manual quiz creation
+
+### E. Baseline quiz mix for first upload
+
+Condition:
+- this is the first auto-generated quiz right after document processing, before student performance data exists
+
+Expected system behavior:
+- generate a baseline diagnostic quiz automatically after upload processing succeeds
+- keep type distribution fair across topics and reduce fill-in-the-blank share
+- use explicit type targets so allocation is deterministic
+
+Expected user-facing result:
+- the student should see clear feedback that baseline quiz generation has started
+- the first quiz should not be dominated by fill-in-the-blank items
 
 ### D. No adaptive quiz is needed
 
@@ -137,6 +151,7 @@ Important:
 - adaptive review quizzes should be identifiable without blocking standard quizzes for the same document
 - freshness checks should key off recent mastery-driving activity, not only quiz existence
 - adaptive quiz projection should respect session checkpoints so active assessment UX stays stable
+- schedule-view calendar clicks should not silently do nothing; they should route and/or show status feedback
 
 ## Acceptance Criteria
 
@@ -149,6 +164,7 @@ This spec is satisfied if:
 5. Students can still generate normal quizzes independently even when adaptive review quizzes exist.
 6. The adaptive quiz task shown in the Learning Path matches the current quiz lifecycle state.
 7. Adaptive quiz-task updates do not force-close an in-progress flashcard or review session.
+8. The first upload auto-generates a baseline diagnostic quiz with reduced fill-in-the-blank share via deterministic targets.
 
 ## Open Questions
 

@@ -9,11 +9,20 @@ import { Badge } from "@/components/ui/badge"
 import { useDocuments, useDeleteDocument, useProcessDocument, type Document } from "@/hooks/useDocuments"
 import { formatFileSize } from "@/lib/storage"
 import { GenerateQuizDialog } from "@/components/files/GenerateQuizDialog"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
 
 export function FilesContent() {
     const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
     const [quizDialogOpen, setQuizDialogOpen] = useState(false)
     const [selectedDocForQuiz, setSelectedDocForQuiz] = useState<Document | null>(null)
+    const [docPendingDelete, setDocPendingDelete] = useState<Document | null>(null)
 
     // React Query hooks
     const { data: documents, isLoading, error, refetch } = useDocuments()
@@ -26,9 +35,14 @@ export function FilesContent() {
     }
 
     const handleDelete = async (doc: Document) => {
-        if (window.confirm(`Are you sure you want to delete "${doc.title}"?`)) {
-            deleteDocument.mutate(doc)
-        }
+        setDocPendingDelete(doc)
+    }
+
+    const handleConfirmDelete = () => {
+        if (!docPendingDelete) return
+        deleteDocument.mutate(docPendingDelete, {
+            onSettled: () => setDocPendingDelete(null),
+        })
     }
 
     const handleProcess = (doc: Document) => {
@@ -369,6 +383,51 @@ export function FilesContent() {
                     documentId={selectedDocForQuiz.id}
                 />
             )}
+
+            <Dialog
+                open={!!docPendingDelete}
+                onOpenChange={(open) => {
+                    if (!open && !deleteDocument.isPending) setDocPendingDelete(null)
+                }}
+            >
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Delete study material?</DialogTitle>
+                        <DialogDescription>
+                            This will permanently delete
+                            {docPendingDelete ? ` "${docPendingDelete.title}"` : " this file"} and all related data.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
+                        Related data that will also be deleted includes quizzes, quiz attempts, flashcards, extracted concepts/chunks, adaptive learning-path tasks, and linked progress records for this file.
+                    </div>
+
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => setDocPendingDelete(null)}
+                            disabled={deleteDocument.isPending}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={handleConfirmDelete}
+                            disabled={deleteDocument.isPending}
+                        >
+                            {deleteDocument.isPending ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    Deleting...
+                                </>
+                            ) : (
+                                "Delete File and Related Data"
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

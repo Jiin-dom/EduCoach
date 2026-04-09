@@ -231,7 +231,13 @@ export function LearningPathCalendar() {
                         state: task.quizId ? { highlightQuizId: task.quizId } : undefined,
                     })
                 } else {
-                    navigate('/learning-path')
+                    if (task.status === 'generating') {
+                        toast.info('Your adaptive quiz is still being prepared. Check the Quizzes page in a moment.')
+                        navigate('/quizzes')
+                    } else {
+                        toast.info('This adaptive quiz is not ready yet. It should auto-generate after upload.')
+                        navigate('/quizzes')
+                    }
                 }
                 return
             }

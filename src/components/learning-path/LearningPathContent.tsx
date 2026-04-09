@@ -134,7 +134,6 @@ function AdaptiveTaskCard({
                 <Button
                     onClick={() => onAction(task)}
                     variant={task.type === 'quiz' ? 'default' : 'outline'}
-                    disabled={task.type === 'quiz' && task.status === 'generating' && !task.quizId}
                     className="w-full sm:w-auto"
                 >
                     {task.type === 'quiz' && task.status === 'generating' ? (
@@ -522,6 +521,11 @@ export function LearningPathContent() {
             }
             if (task.status === 'generating' && task.quizId) {
                 navigate('/quizzes', { state: { highlightQuizId: task.quizId } })
+                return
+            }
+            if (task.status === 'generating' && !task.quizId) {
+                toast.info('Your adaptive quiz is still being prepared. Check the Quizzes page in a moment.')
+                navigate('/quizzes')
                 return
             }
 

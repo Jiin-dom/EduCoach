@@ -9,6 +9,8 @@ import { uploadFile, validateFile, formatFileSize, getFileTypeFromMime, ALLOWED_
 import { supabase, ensureFreshSession } from "@/lib/supabase"
 import { useProcessDocument } from "@/hooks/useDocuments"
 import { useScheduleDocumentGoalWindow } from '@/hooks/useGoalWindowScheduling'
+import { useGenerateQuiz } from "@/hooks/useQuizzes"
+import { toast } from "sonner"
 
 interface FileUploadDialogProps {
     open: boolean
@@ -77,6 +79,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
     const { user } = useAuth()
     const processDocument = useProcessDocument()
     const scheduleGoalWindow = useScheduleDocumentGoalWindow()
+    const generateQuiz = useGenerateQuiz()
 
     const [selectedFile, setSelectedFile] = useState<File | null>(null)
     const [title, setTitle] = useState("")
@@ -210,8 +213,10 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
             // Phase 3: Trigger NLP processing
             setPhase('processing')
 
+            let processingCompleted = false
             try {
                 await processDocument.mutateAsync(insertedDoc.id)
+                processingCompleted = true
                 if (goalDate) {
                     // After processing, concepts exist; now bootstrap and plan within the goal window.
                     try {
@@ -225,6 +230,44 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                 }
             } catch (processingError) {
                 console.warn('[FileUpload] Processing continues in background:', processingError)
+            }
+
+            // Auto-generate a baseline diagnostic quiz right after processing.
+            // Keep the type mix mostly objective (MCQ/TF/ID) with fewer fill-in-the-blank items.
+            if (processingCompleted) {
+                try {
+                    toast.info('Baseline quiz generation started after upload.', {
+                        description: 'We are preparing your first diagnostic quiz now.',
+                    })
+
+                    const { count: conceptCount } = await supabase
+                        .from('concepts')
+                        .select('id', { count: 'exact', head: true })
+                        .eq('document_id', insertedDoc.id)
+
+                    const targetQuestionCount = Math.max(10, Math.min(20, (conceptCount ?? 0) * 2 || 10))
+                    const fillInBlankCount = Math.max(1, Math.floor(targetQuestionCount * 0.1))
+                    const remaining = targetQuestionCount - fillInBlankCount
+                    const mcqCount = Math.ceil(remaining * 0.4)
+                    const trueFalseCount = Math.ceil(remaining * 0.3)
+                    const identificationCount = remaining - mcqCount - trueFalseCount
+
+                    await generateQuiz.mutateAsync({
+                        documentId: insertedDoc.id,
+                        questionCount: targetQuestionCount,
+                        difficulty: 'mixed',
+                        questionTypes: ['multiple_choice', 'true_false', 'identification', 'fill_in_blank'],
+                        questionTypeTargets: {
+                            multiple_choice: mcqCount,
+                            true_false: trueFalseCount,
+                            identification: identificationCount,
+                            fill_in_blank: fillInBlankCount,
+                        },
+                        enhanceWithLlm: true,
+                    })
+                } catch (autoQuizError) {
+                    console.warn('[FileUpload] Baseline quiz auto-generation failed (non-fatal):', autoQuizError)
+                }
             }
 
             // Done
