@@ -9,6 +9,7 @@ import { quizKeys } from '@/hooks/useQuizzes'
 import {
     scheduleDocumentGoalWindow,
     deactivateDocumentGoalWindowPlaceholders,
+    alignFutureDueDatesToAvailability,
 } from '@/services/goalWindowScheduling'
 
 export function useScheduleDocumentGoalWindow() {
@@ -75,10 +76,6 @@ export function useReplanLearningPath() {
             const total = docsWithExamDate.length
             setProgress({ done: 0, total })
 
-            if (total === 0) {
-                return { total: 0, success: 0, failed: 0 }
-            }
-
             let success = 0
             let failed = 0
 
@@ -101,6 +98,11 @@ export function useReplanLearningPath() {
                     }))
                 }
             }
+
+            await alignFutureDueDatesToAvailability({
+                userId: user.id,
+                availableStudyDays: input.availableStudyDays,
+            })
 
             return { total, success, failed }
         },

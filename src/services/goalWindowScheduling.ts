@@ -282,3 +282,87 @@ export async function deactivateDocumentGoalWindowPlaceholders(params: {
     return { updated: conceptIds.length }
 }
 
+function getNextAllowedDateOnOrAfter(params: {
+    startDate: string
+    availableStudyDays: string[] | null | undefined
+}): string | null {
+    const { startDate, availableStudyDays } = params
+    const allowed = Array.isArray(availableStudyDays) && availableStudyDays.length > 0
+        ? new Set(availableStudyDays)
+        : null
+
+    if (!allowed) return startDate
+
+    const start = new Date(startDate + 'T00:00:00Z')
+    // At most one full week is needed to hit an allowed day.
+    for (let offset = 0; offset < 7; offset++) {
+        const d = new Date(start)
+        d.setUTCDate(start.getUTCDate() + offset)
+        const studyDayId = mapUtcDayToStudyDayId(d.getUTCDay())
+        if (allowed.has(studyDayId)) {
+            return d.toISOString().split('T')[0]
+        }
+    }
+
+    return null
+}
+
+export async function alignFutureDueDatesToAvailability(params: {
+    userId: string
+    availableStudyDays: string[] | null | undefined
+    learningConfig?: LearningConfig
+}) {
+    const { userId, availableStudyDays, learningConfig } = params
+    const effectiveCfg = learningConfig ?? DEFAULT_LEARNING_CONFIG
+    const today = todayUTC()
+
+    const { data: masteryRows, error: masteryErr } = await supabase
+        .from('user_concept_mastery')
+        .select('concept_id, mastery_score, confidence, due_date')
+        .eq('user_id', userId)
+        .gt('due_date', today)
+
+    if (masteryErr) throw new Error(masteryErr.message)
+    if (!masteryRows || masteryRows.length === 0) return { checked: 0, updated: 0 }
+
+    const weights = {
+        weakness: Number(effectiveCfg.priority_w_weakness),
+        deadline: Number(effectiveCfg.priority_w_deadline),
+        practice: Number(effectiveCfg.priority_w_practice),
+    }
+
+    const updates = masteryRows
+        .map((row) => {
+            const currentDue = (row.due_date as string | null) ?? null
+            if (!row.concept_id || !currentDue) return null
+
+            const shifted = getNextAllowedDateOnOrAfter({
+                startDate: currentDue,
+                availableStudyDays,
+            })
+            if (!shifted || shifted === currentDue) return null
+
+            const mastery = Number(row.mastery_score ?? 50)
+            const confidence = Number(row.confidence ?? 0)
+            const priority = calculatePriorityScore(mastery, shifted, confidence, weights).priorityScore
+
+            return {
+                user_id: userId,
+                concept_id: row.concept_id,
+                due_date: shifted,
+                priority_score: priority,
+            }
+        })
+        .filter((row): row is { user_id: string; concept_id: string; due_date: string; priority_score: number } => !!row)
+
+    if (updates.length === 0) return { checked: masteryRows.length, updated: 0 }
+
+    const { error: upsertErr } = await supabase
+        .from('user_concept_mastery')
+        .upsert(updates, { onConflict: 'user_id,concept_id' })
+
+    if (upsertErr) throw new Error(upsertErr.message)
+
+    return { checked: masteryRows.length, updated: updates.length }
+}
+

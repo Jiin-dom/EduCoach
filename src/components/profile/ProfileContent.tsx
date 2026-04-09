@@ -93,6 +93,7 @@ export function ProfileContent() {
     const [deleteLoading, setDeleteLoading] = useState(false)
     const [displayNameInput, setDisplayNameInput] = useState(profile?.display_name ?? "")
     const [isSavingProfile, setIsSavingProfile] = useState(false)
+    const [confirmReplanOpen, setConfirmReplanOpen] = useState(false)
     const [studyTimeStartInput, setStudyTimeStartInput] = useState(profile?.preferred_study_time_start ?? "18:00")
     const [studyTimeEndInput, setStudyTimeEndInput] = useState(profile?.preferred_study_time_end ?? "23:59")
     const [availableStudyDaysInput, setAvailableStudyDaysInput] = useState<string[]>(toSortedDays(profile?.available_study_days))
@@ -278,6 +279,55 @@ export function ProfileContent() {
         { label: "Readiness Score", value: `${stats?.averageMastery ?? 0}%`, icon: Award },
     ]
 
+    const saveProfileChanges = async (shouldReplanSchedule: boolean) => {
+        if (!hasProfileChanges) return
+
+        setIsSavingProfile(true)
+        try {
+            const { error } = await updateProfile({
+                display_name: normalizedInputDisplayName,
+                preferred_study_time_start: studyTimeStartInput,
+                preferred_study_time_end: studyTimeEndInput,
+                available_study_days: normalizedInputDays,
+                daily_study_minutes: dailyStudyMinutesInput,
+            })
+            if (error) {
+                toast.error(error.message || "Failed to update profile.")
+                return
+            }
+
+            setDisplayNameInput(normalizedInputDisplayName)
+            if (hasScheduleChanged && shouldReplanSchedule) {
+                const replan = await replanLearningPath.mutateAsync({
+                    availableStudyDays: normalizedInputDays,
+                    dailyStudyMinutes: dailyStudyMinutesInput,
+                })
+                if (replan.failed > 0) {
+                    toast.warning(
+                        `Profile updated. Replanned ${replan.success}/${replan.total} goal-based document schedules.`,
+                    )
+                    return
+                }
+            }
+
+            if (!hasScheduleChanged) {
+                toast.success("Profile updated successfully.")
+                return
+            }
+
+            if (shouldReplanSchedule) {
+                toast.success("Profile and study schedule updated. Learning path replanned.")
+                return
+            }
+
+            toast.success("Profile updated. Learning path was not adjusted.")
+        } catch {
+            toast.error("An unexpected error occurred while updating your profile.")
+        } finally {
+            setIsSavingProfile(false)
+        }
+    }
+
     const handleSaveProfile = async () => {
         if (!normalizedInputDisplayName) {
             toast.error("Display name cannot be empty.")
@@ -301,44 +351,12 @@ export function ProfileContent() {
 
         if (!hasProfileChanges) return
 
-        setIsSavingProfile(true)
-        try {
-            const { error } = await updateProfile({
-                display_name: normalizedInputDisplayName,
-                preferred_study_time_start: studyTimeStartInput,
-                preferred_study_time_end: studyTimeEndInput,
-                available_study_days: normalizedInputDays,
-                daily_study_minutes: dailyStudyMinutesInput,
-            })
-            if (error) {
-                toast.error(error.message || "Failed to update profile.")
-                return
-            }
-
-            setDisplayNameInput(normalizedInputDisplayName)
-            if (hasScheduleChanged) {
-                const replan = await replanLearningPath.mutateAsync({
-                    availableStudyDays: normalizedInputDays,
-                    dailyStudyMinutes: dailyStudyMinutesInput,
-                })
-                if (replan.failed > 0) {
-                    toast.warning(
-                        `Profile updated. Replanned ${replan.success}/${replan.total} goal-based document schedules.`,
-                    )
-                    return
-                }
-            }
-
-            toast.success(
-                hasScheduleChanged
-                    ? "Profile and study schedule updated. Learning path replanned."
-                    : "Profile updated successfully.",
-            )
-        } catch {
-            toast.error("An unexpected error occurred while updating your profile.")
-        } finally {
-            setIsSavingProfile(false)
+        if (hasScheduleChanged) {
+            setConfirmReplanOpen(true)
+            return
         }
+
+        await saveProfileChanges(false)
     }
 
     const handleManualReplan = async () => {
@@ -859,6 +877,54 @@ export function ProfileContent() {
                             </>
                         ) : (
                             "OK / Confirm"
+                        )}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
+        {/* Confirm Replan Dialog */}
+        <Dialog
+            open={confirmReplanOpen}
+            onOpenChange={(open) => {
+                if (isSavingProfile || replanLearningPath.isPending) return
+                setConfirmReplanOpen(open)
+            }}
+        >
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Adjust learning path for new availability?</DialogTitle>
+                    <DialogDescription>
+                        You changed your study availability. Do you want EduCoach to replan goal-based schedules now?
+                    </DialogDescription>
+                </DialogHeader>
+                <DialogFooter className="gap-2 sm:gap-0 mt-4">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        disabled={isSavingProfile || replanLearningPath.isPending}
+                        onClick={async () => {
+                            setConfirmReplanOpen(false)
+                            await saveProfileChanges(false)
+                        }}
+                    >
+                        Keep current path
+                    </Button>
+                    <Button
+                        type="button"
+                        disabled={isSavingProfile || replanLearningPath.isPending}
+                        onClick={async () => {
+                            setConfirmReplanOpen(false)
+                            await saveProfileChanges(true)
+                        }}
+                    >
+                        {isSavingProfile || replanLearningPath.isPending ? (
+                            <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Saving...
+                            </>
+                        ) : (
+                            "Adjust learning path"
                         )}
                     </Button>
                 </DialogFooter>
