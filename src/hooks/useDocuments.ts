@@ -212,8 +212,11 @@ export function useDeleteDocument() {
                 old?.filter((doc) => doc.id !== deletedId)
             )
 
-            // Invalidate to ensure fresh data
+            // Invalidate dependent views so related records disappear immediately
             queryClient.invalidateQueries({ queryKey: documentKeys.all })
+            queryClient.invalidateQueries({ queryKey: ['quizzes'] })
+            queryClient.invalidateQueries({ queryKey: ['adaptive-study'] })
+            queryClient.invalidateQueries({ queryKey: ['learning'] })
         },
     })
 }

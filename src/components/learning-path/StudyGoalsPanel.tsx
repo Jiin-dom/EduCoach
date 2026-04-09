@@ -9,7 +9,6 @@ import {
     Trophy,
     Loader2,
     CheckCircle2,
-    AlertCircle,
     Sparkles,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -32,12 +31,12 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { useDocuments, useUpdateDocument, type Document } from "@/hooks/useDocuments"
-import { useQuizzes, useUserAttempts, type Quiz, type Attempt } from "@/hooks/useQuizzes"
+import { useQuizzes, type Quiz } from "@/hooks/useQuizzes"
 import { toast } from "sonner"
 import { ExamManager } from "./ExamManager"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useScheduleDocumentGoalWindow, useDeactivateDocumentGoalWindowPlaceholders } from '@/hooks/useGoalWindowScheduling'
-import { useConceptMasteryList, type ConceptMasteryWithDetails } from "@/hooks/useLearning"
+import { useConceptMasteryList } from "@/hooks/useLearning"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -69,14 +68,6 @@ function daysRemaining(deadline: string | null): string | null {
     if (diff === 0) return "Due today"
     if (diff === 1) return "Due tomorrow"
     return `${diff}d left`
-}
-
-function getLatestScore(quizId: string, attempts: Attempt[] | undefined): number | null {
-    if (!attempts) return null
-    const quizAttempts = attempts
-        .filter(a => a.quiz_id === quizId && a.completed_at)
-        .sort((a, b) => new Date(b.completed_at!).getTime() - new Date(a.completed_at!).getTime())
-    return quizAttempts.length > 0 ? quizAttempts[0].score : null
 }
 
 // ─── Document Goal Card ───────────────────────────────────────────────────────

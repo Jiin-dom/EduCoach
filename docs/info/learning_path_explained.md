@@ -300,6 +300,11 @@ Once EduCoach has concept and scheduling data, it turns those findings into visi
    - Students can manually create quizzes at any time.
    - Adaptive quizzes should complement manual quizzes, not replace or block them.
 
+6. **Baseline quiz kickoff on upload**
+   - After document processing succeeds, EduCoach auto-starts a baseline diagnostic quiz.
+   - The upload flow shows a kickoff toast so students know generation has started.
+   - Baseline type targets reduce fill-in-the-blank share to keep the first quiz broadly diagnostic.
+
 This creates the current shipped loop:
 
 `performance data -> weakness detection -> generated study work -> scheduled learning path -> new performance data`
@@ -313,6 +318,7 @@ The schedule is also availability-driven, not only performance-driven:
 - Profile also exposes a manual **Replan Learning Path** action.
 - The Learning Path calendar also exposes a manual **Reschedule Automatically** action that uses the same replanning flow.
 - Replanning runs per document, may complete partially, and shows progress/feedback in the UI.
+- Schedule/calendar quiz-task clicks now provide explicit status feedback/routing when a linked quiz is still missing.
 
 ---
 
