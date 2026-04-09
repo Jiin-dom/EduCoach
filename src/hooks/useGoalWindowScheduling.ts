@@ -1,7 +1,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import type { Document } from '@/hooks/useDocuments'
+import { useDocuments, documentKeys } from '@/hooks/useDocuments'
 import { learningKeys } from '@/hooks/useLearning'
+import { adaptiveStudyKeys } from '@/hooks/useAdaptiveStudy'
+import { quizKeys } from '@/hooks/useQuizzes'
 import {
     scheduleDocumentGoalWindow,
     deactivateDocumentGoalWindowPlaceholders,
@@ -29,6 +33,9 @@ export function useScheduleDocumentGoalWindow() {
         onSuccess: () => {
             // Learning-path calendar and topic lists depend on mastery due_date + priority_score.
             queryClient.invalidateQueries({ queryKey: learningKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
+            queryClient.invalidateQueries({ queryKey: documentKeys.all })
+            queryClient.invalidateQueries({ queryKey: quizKeys.all })
         },
     })
 }
@@ -47,7 +54,67 @@ export function useDeactivateDocumentGoalWindowPlaceholders() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: learningKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
+            queryClient.invalidateQueries({ queryKey: documentKeys.all })
+            queryClient.invalidateQueries({ queryKey: quizKeys.all })
         },
     })
+}
+
+export function useReplanLearningPath() {
+    const queryClient = useQueryClient()
+    const { user } = useAuth()
+    const { data: documents = [] } = useDocuments()
+    const [progress, setProgress] = useState({ done: 0, total: 0 })
+
+    const mutation = useMutation({
+        mutationFn: async (input: { availableStudyDays: string[]; dailyStudyMinutes: number }) => {
+            if (!user) throw new Error('Not authenticated')
+
+            const docsWithExamDate = documents.filter((document) => !!document.exam_date)
+            const total = docsWithExamDate.length
+            setProgress({ done: 0, total })
+
+            if (total === 0) {
+                return { total: 0, success: 0, failed: 0 }
+            }
+
+            let success = 0
+            let failed = 0
+
+            for (const document of docsWithExamDate) {
+                try {
+                    await scheduleDocumentGoalWindow({
+                        userId: user.id,
+                        documentId: document.id,
+                        examDate: document.exam_date!,
+                        availableStudyDays: input.availableStudyDays,
+                        dailyStudyMinutes: input.dailyStudyMinutes,
+                    })
+                    success++
+                } catch {
+                    failed++
+                } finally {
+                    setProgress((current) => ({
+                        total,
+                        done: Math.min(current.done + 1, total),
+                    }))
+                }
+            }
+
+            return { total, success, failed }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: learningKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
+            queryClient.invalidateQueries({ queryKey: documentKeys.all })
+            queryClient.invalidateQueries({ queryKey: quizKeys.all })
+        },
+    })
+
+    return {
+        ...mutation,
+        progress,
+    }
 }
 

@@ -9,6 +9,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { deleteFile } from '@/lib/storage'
 import { useAuth } from '@/contexts/AuthContext'
+import { learningKeys } from '@/hooks/useLearning'
+import { adaptiveStudyKeys } from '@/hooks/useAdaptiveStudy'
+import { quizKeys } from '@/hooks/useQuizzes'
 
 export interface SummarySection {
     title: string
@@ -248,6 +251,10 @@ export function useUpdateDocument() {
 
             // Update detail cache
             queryClient.setQueryData(documentKeys.detail(updatedDoc.id), updatedDoc)
+            queryClient.invalidateQueries({ queryKey: documentKeys.all })
+            queryClient.invalidateQueries({ queryKey: learningKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
+            queryClient.invalidateQueries({ queryKey: quizKeys.all })
         },
     })
 }

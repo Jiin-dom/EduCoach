@@ -39,7 +39,7 @@ import { useLearningStats, useConceptMasteryList } from "@/hooks/useLearning"
 import { useDocuments } from "@/hooks/useDocuments"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { scheduleDocumentGoalWindow } from "@/services/goalWindowScheduling"
+import { useReplanLearningPath } from "@/hooks/useGoalWindowScheduling"
 
 const DAY_LABELS: Record<string, string> = {
     mon: "Mon",
@@ -93,12 +93,11 @@ export function ProfileContent() {
     const [deleteLoading, setDeleteLoading] = useState(false)
     const [displayNameInput, setDisplayNameInput] = useState(profile?.display_name ?? "")
     const [isSavingProfile, setIsSavingProfile] = useState(false)
-    const [isReplanningSchedule, setIsReplanningSchedule] = useState(false)
-    const [replanProgress, setReplanProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 })
     const [studyTimeStartInput, setStudyTimeStartInput] = useState(profile?.preferred_study_time_start ?? "18:00")
     const [studyTimeEndInput, setStudyTimeEndInput] = useState(profile?.preferred_study_time_end ?? "23:59")
     const [availableStudyDaysInput, setAvailableStudyDaysInput] = useState<string[]>(toSortedDays(profile?.available_study_days))
     const [dailyStudyMinutesInput, setDailyStudyMinutesInput] = useState<number>(profile?.daily_study_minutes ?? 30)
+    const replanLearningPath = useReplanLearningPath()
 
     const handleOpenChangePassword = () => {
         setCurrentPassword("")
@@ -279,44 +278,6 @@ export function ProfileContent() {
         { label: "Readiness Score", value: `${stats?.averageMastery ?? 0}%`, icon: Award },
     ]
 
-    const runGoalWindowReplan = async (params: {
-        availableStudyDays: string[]
-        dailyStudyMinutes: number
-    }) => {
-        if (!user?.id) return { total: 0, success: 0, failed: 0 }
-        const docsWithExamDate = (documents || []).filter((d) => !!d.exam_date)
-        const total = docsWithExamDate.length
-        if (total === 0) return { total: 0, success: 0, failed: 0 }
-
-        setIsReplanningSchedule(true)
-        setReplanProgress({ done: 0, total })
-
-        let success = 0
-        let failed = 0
-        try {
-            for (const doc of docsWithExamDate) {
-                try {
-                    await scheduleDocumentGoalWindow({
-                        userId: user.id,
-                        documentId: doc.id,
-                        examDate: doc.exam_date!,
-                        availableStudyDays: params.availableStudyDays,
-                        dailyStudyMinutes: params.dailyStudyMinutes,
-                    })
-                    success++
-                } catch {
-                    failed++
-                } finally {
-                    setReplanProgress((prev) => ({ ...prev, done: prev.done + 1 }))
-                }
-            }
-        } finally {
-            setIsReplanningSchedule(false)
-        }
-
-        return { total, success, failed }
-    }
-
     const handleSaveProfile = async () => {
         if (!normalizedInputDisplayName) {
             toast.error("Display name cannot be empty.")
@@ -356,7 +317,7 @@ export function ProfileContent() {
 
             setDisplayNameInput(normalizedInputDisplayName)
             if (hasScheduleChanged) {
-                const replan = await runGoalWindowReplan({
+                const replan = await replanLearningPath.mutateAsync({
                     availableStudyDays: normalizedInputDays,
                     dailyStudyMinutes: dailyStudyMinutesInput,
                 })
@@ -381,20 +342,24 @@ export function ProfileContent() {
     }
 
     const handleManualReplan = async () => {
-        if (isSavingProfile || isReplanningSchedule) return
-        const result = await runGoalWindowReplan({
-            availableStudyDays: normalizedInputDays,
-            dailyStudyMinutes: dailyStudyMinutesInput,
-        })
-        if (result.total === 0) {
-            toast.info("No goal-dated documents found to replan.")
-            return
+        if (isSavingProfile || replanLearningPath.isPending) return
+        try {
+            const result = await replanLearningPath.mutateAsync({
+                availableStudyDays: normalizedInputDays,
+                dailyStudyMinutes: dailyStudyMinutesInput,
+            })
+            if (result.total === 0) {
+                toast.info("No goal-dated documents found to replan.")
+                return
+            }
+            if (result.failed > 0) {
+                toast.warning(`Replanned ${result.success}/${result.total} goal-based document schedules.`)
+                return
+            }
+            toast.success(`Replanned ${result.total} goal-based document schedule${result.total !== 1 ? "s" : ""}.`)
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to replan your learning path.")
         }
-        if (result.failed > 0) {
-            toast.warning(`Replanned ${result.success}/${result.total} goal-based document schedules.`)
-            return
-        }
-        toast.success(`Replanned ${result.total} goal-based document schedule${result.total !== 1 ? "s" : ""}.`)
     }
 
     return (
@@ -609,7 +574,7 @@ export function ProfileContent() {
                             <Button
                                 className="mt-4"
                                 onClick={handleSaveProfile}
-                                disabled={isSavingProfile || isReplanningSchedule || !hasProfileChanges}
+                                disabled={isSavingProfile || replanLearningPath.isPending || !hasProfileChanges}
                             >
                                 {isSavingProfile ? (
                                     <>
@@ -625,20 +590,20 @@ export function ProfileContent() {
                                 variant="outline"
                                 className="mt-2"
                                 onClick={handleManualReplan}
-                                disabled={isSavingProfile || isReplanningSchedule}
+                                disabled={isSavingProfile || replanLearningPath.isPending}
                             >
-                                {isReplanningSchedule ? (
+                                {replanLearningPath.isPending ? (
                                     <>
                                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                        Replanning... ({replanProgress.done}/{replanProgress.total})
+                                        Replanning... ({replanLearningPath.progress.done}/{replanLearningPath.progress.total})
                                     </>
                                 ) : (
                                     "Replan Learning Path"
                                 )}
                             </Button>
-                            {isReplanningSchedule && (
+                            {replanLearningPath.isPending && (
                                 <p className="text-xs text-muted-foreground">
-                                    Applying your availability to goal-based documents ({replanProgress.done}/{replanProgress.total}).
+                                    Applying your availability to goal-based documents ({replanLearningPath.progress.done}/{replanLearningPath.progress.total}).
                                 </p>
                             )}
                         </CardContent>

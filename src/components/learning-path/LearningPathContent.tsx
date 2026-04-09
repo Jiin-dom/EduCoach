@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from "react"
+import { useState, useMemo, useCallback, useEffect, useRef, type ReactNode } from "react"
 import {
     Brain,
     Clock,
@@ -28,11 +28,16 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import { useConceptMasteryList, useLearningStats } from "@/hooks/useLearning"
+import { useLearningStats } from "@/hooks/useLearning"
 import type { ConceptMasteryWithDetails } from "@/hooks/useLearning"
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
 import { useGenerateReviewQuiz } from "@/hooks/useQuizzes"
-import { useAdaptiveStudyTasks, type AdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
+import type { AdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
+import { useLearningPathPlan } from "@/hooks/useLearningPathPlan"
+import type {
+    GoalMarkerPlanItem,
+    PlannedReviewPlanItem,
+} from "@/lib/learningPathPlan"
 import { Link, useNavigate } from "react-router-dom"
 import { toast } from 'sonner'
 
@@ -142,6 +147,82 @@ function AdaptiveTaskCard({
     )
 }
 
+function GeneratedPlanCard({ item }: { item: PlannedReviewPlanItem }) {
+    const goalDate = item.mastery.document_exam_date?.split("T")[0] ?? null
+
+    return (
+        <Card className="border-dashed border-primary/30 bg-primary/5">
+            <CardContent className="p-4 flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <p className="font-medium">{item.conceptName}</p>
+                        <Badge variant="outline" className="text-xs">
+                            Planned Baseline
+                        </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                        Scheduled for {dueLabel(item.date).toLowerCase()} from your current goal window.
+                        {goalDate ? ` Goal date: ${goalDate}.` : ""}
+                    </p>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2 flex-wrap">
+                        {item.documentTitle ? <span>{item.documentTitle}</span> : null}
+                        {item.documentTitle ? <span>·</span> : null}
+                        <span>{Math.round(item.priorityScore * 100)}% priority</span>
+                    </div>
+                </div>
+                {item.documentId ? (
+                    <Link to={`/files/${item.documentId}`}>
+                        <Button variant="outline" size="sm">
+                            <ArrowUpRight className="w-3 h-3 mr-1" />
+                            Open
+                        </Button>
+                    </Link>
+                ) : null}
+            </CardContent>
+        </Card>
+    )
+}
+
+function GoalMarkerCard({ marker }: { marker: GoalMarkerPlanItem }) {
+    return (
+        <Card>
+            <CardContent className="p-4 flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <p className="font-medium">{marker.title}</p>
+                        <Badge variant="outline" className="text-xs">
+                            {marker.markerType === "file_goal" ? "File Goal" : "Quiz Deadline"}
+                        </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                        {marker.markerType === "file_goal"
+                            ? `Target date for ${marker.documentTitle}.`
+                            : `Assessment deadline tied to ${marker.documentTitle}.`}
+                    </p>
+                    <div className="text-xs text-muted-foreground mt-2">
+                        Scheduled for {new Date(marker.date + "T00:00:00").toLocaleDateString()}
+                    </div>
+                </div>
+                {marker.quizId ? (
+                    <Link to={`/quizzes/${marker.quizId}`}>
+                        <Button variant="outline" size="sm">
+                            <ArrowUpRight className="w-3 h-3 mr-1" />
+                            Open
+                        </Button>
+                    </Link>
+                ) : marker.documentId ? (
+                    <Link to={`/files/${marker.documentId}`}>
+                        <Button variant="outline" size="sm">
+                            <ArrowUpRight className="w-3 h-3 mr-1" />
+                            Open
+                        </Button>
+                    </Link>
+                ) : null}
+            </CardContent>
+        </Card>
+    )
+}
+
 function TopicCard({ topic, onSelect }: { topic: ConceptMasteryWithDetails; onSelect: (t: ConceptMasteryWithDetails) => void }) {
     const days = daysUntilDue(topic.due_date)
     return (
@@ -204,7 +285,7 @@ function SectionBlock({
     onSelect,
 }: {
     title: string
-    icon: React.ReactNode
+    icon: ReactNode
     items: ConceptMasteryWithDetails[]
     emptyMessage: string
     onSelect: (t: ConceptMasteryWithDetails) => void
@@ -342,19 +423,26 @@ function ConceptDetailDialog({
 }
 
 export function LearningPathContent() {
-    const { data: masteryList, isLoading: masteryLoading, isError: masteryError } = useConceptMasteryList()
+    const plan = useLearningPathPlan()
     const { data: stats, isLoading: statsLoading, isError: statsError } = useLearningStats()
     const { data: weeklyProgress } = useWeeklyProgress()
-    const { data: adaptiveTasks, isLoading: adaptiveLoading, isError: adaptiveError } = useAdaptiveStudyTasks()
     const generateReview = useGenerateReviewQuiz()
     const navigate = useNavigate()
 
     const [selectedConcept, setSelectedConcept] = useState<ConceptMasteryWithDetails | null>(null)
     const autoGeneratedTaskIds = useRef<Set<string>>(new Set())
 
+    const performanceMasteryList = useMemo(
+        () => plan.performancePlannedReviews.map((item) => item.mastery as ConceptMasteryWithDetails),
+        [plan.performancePlannedReviews],
+    )
+    const baselineReviews = plan.baselinePlannedReviews
+    const adaptiveTasks = useMemo(() => plan.adaptiveTasks.map((item) => item.task), [plan.adaptiveTasks])
+    const upcomingGoals = useMemo(() => plan.goalMarkers.slice(0, 4), [plan.goalMarkers])
+
     const sections: TopicSections = useMemo(() => {
         // Only include concepts with real student attempts in performance-derived sections.
-        const all = (masteryList || []).filter((m) => m.total_attempts > 0)
+        const all = performanceMasteryList
         const today = new Date().toISOString().split('T')[0]
 
         const dueToday = all.filter((m) => m.due_date <= today)
@@ -375,7 +463,7 @@ export function LearningPathContent() {
         ).sort((a, b) => b.display_mastery_score - a.display_mastery_score)
 
         return { dueToday, needsReview, developing, mastered }
-    }, [masteryList])
+    }, [performanceMasteryList])
 
     // Gather reviewable concepts (due + needs_review) grouped by document
     const handleStartReview = useCallback(() => {
@@ -469,7 +557,7 @@ export function LearningPathContent() {
     }, [generateReview, navigate])
 
     useEffect(() => {
-        const nextQuizTask = (adaptiveTasks || []).find((task) =>
+        const nextQuizTask = adaptiveTasks.find((task) =>
             task.type === 'quiz' && task.status === 'needs_generation',
         )
 
@@ -496,7 +584,7 @@ export function LearningPathContent() {
         )
     }, [adaptiveTasks, generateReview])
 
-    const isLoading = masteryLoading || statsLoading || adaptiveLoading
+    const isLoading = plan.isLoading || statsLoading
 
     return (
         <main className="container mx-auto px-4 py-8">
@@ -508,10 +596,10 @@ export function LearningPathContent() {
                         </div>
                         <div>
                             <h1 className="text-2xl sm:text-3xl font-bold">Learning Path</h1>
-                            <p className="text-sm sm:text-base text-muted-foreground">Your personalized study priorities</p>
+                            <p className="text-sm sm:text-base text-muted-foreground">Your generated study plan, adaptive tasks, and live mastery priorities</p>
                         </div>
                     </div>
-                    {!isLoading && (masteryList || []).length > 0 && (
+                    {!isLoading && performanceMasteryList.length > 0 && (
                         <Button
                             onClick={handleStartReview}
                             disabled={generateReview.isPending || (sections.dueToday.length + sections.needsReview.length) === 0}
@@ -531,7 +619,7 @@ export function LearningPathContent() {
                     <div className="flex items-center justify-center py-16">
                         <Loader2 className="w-8 h-8 animate-spin text-primary" />
                     </div>
-                ) : (masteryError || statsError || adaptiveError) ? (
+                ) : (plan.isError || statsError) ? (
                     <Card>
                         <CardContent className="text-center py-16">
                             <AlertTriangle className="w-16 h-16 mx-auto text-amber-500 mb-4" />
@@ -544,7 +632,7 @@ export function LearningPathContent() {
                             </Button>
                         </CardContent>
                     </Card>
-                ) : (masteryList || []).length === 0 ? (
+                ) : plan.items.length === 0 ? (
                     <Card>
                         <CardContent className="text-center py-16">
                             <Brain className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
@@ -596,7 +684,7 @@ export function LearningPathContent() {
                             </Card>
                         )}
 
-                        {adaptiveTasks && adaptiveTasks.length > 0 && (
+                        {adaptiveTasks.length > 0 && (
                             <div className="space-y-3">
                                 <div>
                                     <h2 className="text-lg font-semibold">Adaptive Study Queue</h2>
@@ -613,6 +701,33 @@ export function LearningPathContent() {
                                         />
                                     ))}
                                 </div>
+                            </div>
+                        )}
+
+                        {(baselineReviews.length > 0 || upcomingGoals.length > 0) && (
+                            <div className="space-y-4">
+                                <div>
+                                    <h2 className="text-lg font-semibold">Generated Plan</h2>
+                                    <p className="text-sm text-muted-foreground">
+                                        Baseline scheduled work appears here before quiz history exists, and stays visible alongside your goal dates.
+                                    </p>
+                                </div>
+
+                                {baselineReviews.length > 0 && (
+                                    <div className="space-y-3">
+                                        {baselineReviews.map((item) => (
+                                            <GeneratedPlanCard key={item.id} item={item} />
+                                        ))}
+                                    </div>
+                                )}
+
+                                {upcomingGoals.length > 0 && (
+                                    <div className="space-y-3">
+                                        {upcomingGoals.map((marker) => (
+                                            <GoalMarkerCard key={marker.id} marker={marker} />
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         )}
 
