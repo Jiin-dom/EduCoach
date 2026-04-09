@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Brain, Loader2, AlertCircle, RefreshCw, FileText } from "lucide-react"
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom"
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom"
 import { QuizCard } from "@/components/dashboard/QuizCard"
 import { useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
 import { SelectDocumentDialog } from "./SelectDocumentDialog"
