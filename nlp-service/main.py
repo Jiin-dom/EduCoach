@@ -1534,17 +1534,22 @@ _IDENTIFICATION_TEMPLATES_BEGINNER = [
     "What does {kp} refer to?",
 ]
 _IDENTIFICATION_TEMPLATES_INTERMEDIATE = [
-    "Explain {kp} in detail.",
-    "What is the purpose of {kp}?",
-    "How does {kp} work?",
-    "Describe the role of {kp}.",
+    "What term is being described?",
+    "Which concept matches this description?",
+    "Identify the concept related to {kp}.",
+    "What is the name of the concept discussed here?",
 ]
 _IDENTIFICATION_TEMPLATES_ADVANCED = [
-    "What are the key characteristics of {kp}?",
-    "Compare and contrast {kp} with related concepts.",
-    "What are the implications of {kp}?",
-    "Analyze how {kp} relates to the broader topic.",
+    "Which topic best matches this description?",
+    "What concept is being referenced here?",
+    "Name the concept described in this statement.",
+    "Identify the key term discussed here.",
 ]
+
+IDENTIFICATION_MAX_WORDS = 8
+IDENTIFICATION_MAX_CHARS = 80
+_IDENTIFICATION_LONG_FORM_PROMPT_RE = re.compile(r"^(explain|describe|compare|analyze|why|how)\b", re.IGNORECASE)
+_IDENTIFICATION_SENTENCE_MARKER_RE = re.compile(r"[.!?]|[,;:]")
 
 _DIFFICULTY_TYPE_WEIGHTS = {
     "beginner":     {"identification": 3, "true_false": 4, "multiple_choice": 2, "fill_in_blank": 1},
@@ -1639,8 +1644,8 @@ def _select_difficulty_label(target_difficulty: str, question_type: str) -> str:
 def _generate_identification(sentence_text: str, keyphrase: str,
                              chunk_id: str, difficulty: str = "mixed") -> Optional[GeneratedQuestion]:
     """Template-based identification question with difficulty-varied templates."""
-    answer = sentence_text.strip()
-    if len(answer) < 20:
+    answer = keyphrase.strip()
+    if len(answer) < 2:
         return None
 
     diff_label = _select_difficulty_label(difficulty, "identification")
@@ -1658,7 +1663,7 @@ def _generate_identification(sentence_text: str, keyphrase: str,
         question_text=q_text,
         correct_answer=answer,
         difficulty_label=diff_label,
-        explanation=_build_explanation(answer, keyphrase),
+        explanation=_build_explanation(sentence_text, keyphrase),
     )
 
 
@@ -1825,6 +1830,16 @@ def _validate_question(q: GeneratedQuestion) -> bool:
         return False
     if len(q.correct_answer) < 2:
         return False
+    if q.question_type == "identification":
+        answer_words = [word for word in q.correct_answer.strip().split() if word]
+        if len(q.correct_answer.strip()) > IDENTIFICATION_MAX_CHARS:
+            return False
+        if len(answer_words) > IDENTIFICATION_MAX_WORDS:
+            return False
+        if _IDENTIFICATION_SENTENCE_MARKER_RE.search(q.correct_answer):
+            return False
+        if _IDENTIFICATION_LONG_FORM_PROMPT_RE.match(q.question_text.strip()):
+            return False
     if q.question_type == "true_false":
         text = q.question_text.strip()
         if text.endswith("?"):
@@ -1860,9 +1875,9 @@ def _generate_slide_questions(
     type_set = set(question_types)
 
     _SLIDE_IDENT_TEMPLATES = [
-        "What is covered in the section on {name}?",
-        "Summarize the key points about {name}.",
-        "What are the main ideas related to {name}?",
+        "Which concept matches this slide description: {desc}?",
+        "What topic is described here: {desc}?",
+        "Identify the concept referred to in this slide summary: {desc}",
     ]
     _SLIDE_MCQ_TEMPLATES = [
         "Which of the following best describes {name}?",
@@ -1885,11 +1900,12 @@ def _generate_slide_questions(
         # Identification from slide topic
         if "identification" in type_set and len(questions) < max_questions:
             template = random.choice(_SLIDE_IDENT_TEMPLATES)
+            desc_short = desc[:180].rstrip()
             q = GeneratedQuestion(
                 chunk_id="",
                 question_type="identification",
-                question_text=template.format(name=name),
-                correct_answer=desc[:300],
+                question_text=template.format(desc=desc_short),
+                correct_answer=name,
                 difficulty_label=diff_label,
                 explanation=f"This is covered in the slide on '{name}': {desc[:150]}",
             )

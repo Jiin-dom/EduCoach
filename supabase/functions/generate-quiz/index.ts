@@ -13,6 +13,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0"
 import { computeBalancedQuizTypeTargets, countQuestionsByType } from "./quizAllocation.ts"
+import { filterInvalidIdentificationQuestions } from "./identificationContract.ts"
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -91,6 +92,12 @@ const DIFFICULTY_MAP: Record<string, string> = {
     hard: 'advanced',
     mixed: 'mixed',
 }
+
+const IDENTIFICATION_PROMPT_RULES = [
+    "Identification questions are short-answer concept or topic lookups only.",
+    "For identification, correct_answer must be a concise term or phrase, never a sentence or paragraph.",
+    "Identification question_text must ask the user to identify a concept, topic, or term, not explain or define it in detail.",
+].join("\n")
 
 function parseTimeoutMs(value: string | null, fallbackMs: number): number {
     if (!value) return fallbackMs
@@ -581,6 +588,12 @@ serve(async (req) => {
             questions = await enhanceWithGeminiLlm(questions, chunks, geminiApiKey!)
         }
 
+        const preIdentificationFilterCount = questions.length
+        questions = filterInvalidIdentificationQuestions(questions)
+        if (preIdentificationFilterCount > questions.length) {
+            console.log(`🧹 Post-enhancement filter removed ${preIdentificationFilterCount - questions.length} invalid identification questions`)
+        }
+
         // Post-enhancement quality gate: reject T/F questions that are interrogative
         const preFilterCount = questions.length
         questions = questions.filter(q => {
@@ -800,7 +813,7 @@ async function generateWithGemini(
     const typeDescriptions = questionTypes.map((t) => {
         switch (t) {
             case 'multiple_choice': return 'Multiple Choice (4 options, 1 correct)'
-            case 'identification': return 'Identification (open-ended, short answer)'
+            case 'identification': return 'Identification (short answer, concept/topic name only)'
             case 'true_false': return 'True or False'
             case 'fill_in_blank': return 'Fill in the Blank (sentence with a blank)'
             default: return t
@@ -851,7 +864,8 @@ Rules:
 - MCQ distractors must be plausible but clearly wrong
 - Fill-in-the-blank: use __________ for the blank
 - True/False: correct_answer must be "true" or "false"
-- True/False: question_text MUST be a declarative statement, NEVER a question ending with "?" or starting with "How", "What", etc.`
+- True/False: question_text MUST be a declarative statement, NEVER a question ending with "?" or starting with "How", "What", etc.
+${IDENTIFICATION_PROMPT_RULES}`
 
     const content = await callGemini(prompt, apiKey, 4096)
     try {
@@ -903,9 +917,11 @@ IMPORTANT RULES:
 - Do NOT invent new questions
 - ONLY improve phrasing, distractors, and add explanations
 - Return the same number of questions
+- If question_type is "identification", keep it as a short-answer concept/topic lookup with a concise term or phrase answer
 - True/False questions MUST be declarative statements, NEVER questions ending with "?"
 - If a true_false question is actually a question (interrogative), either rephrase it into a declarative statement or change question_type to "identification"
 - If you change a true_false to identification, set correct_answer to the answer of the question and options to null
+${IDENTIFICATION_PROMPT_RULES}
 
 QUESTIONS TO ENHANCE:
 ${JSON.stringify(questionsWithContext, null, 2)}

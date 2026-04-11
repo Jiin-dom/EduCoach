@@ -92,10 +92,11 @@ The Python NLP microservice in `nlp-service/main.py` was extended with a new end
 The endpoint uses the Phase 3 NLP outputs plus spaCy, TextRank, and KeyBERT (as described in `Logs/Obj3.md`) to generate questions:
 
 - **Identification Questions**
-  - Use named entities, keyphrases, and noun chunks.
+  - Use named entities, keyphrases, and noun chunks to ask for a short concept/topic name.
+  - Store a short canonical term/phrase as the correct answer, not a sentence or paragraph definition.
   - Template examples:
     - “What is **X**?”
-    - “Define **X** in the context of the lesson.”
+    - “What term is being described?”
 
 - **True/False Questions**
   - Derived from important sentences.

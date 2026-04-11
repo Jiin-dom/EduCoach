@@ -97,8 +97,8 @@ Upload document → Process (Ready) → Quiz Prep (or list/dashboard)
 
 **Identification templates** — expanded from 3 to 10+ templates across difficulty levels:
 - Beginner: "What is X?", "Define X.", "What does X refer to?"
-- Intermediate: "Explain X in detail.", "What is the purpose of X?", "How does X work?", "Describe the role of X."
-- Advanced: "What are the key characteristics of X?", "Compare and contrast X with related concepts.", "Analyze how X relates to the broader topic."
+- Intermediate: "What term is being described?", "Which concept matches this description?", "Identify the concept related to X.", "What is the name of the concept discussed here?"
+- Advanced: "Which topic best matches this description?", "What concept is being referenced here?", "Name the concept described in this statement.", "Identify the key term discussed here."
 
 **True/False generation** — two-strategy approach:
 1. Entity/keyphrase swapping (primary): finds a named entity or keyphrase in the sentence and swaps it with a different one from the same type/pool, creating a more natural false statement
@@ -152,7 +152,7 @@ Upload document → Process (Ready) → Quiz Prep (or list/dashboard)
 
 **nlp-service/main.py:**
 - New `_generate_slide_questions()` function that creates questions directly from concept metadata (name + description) rather than chunk text
-- Slide identification templates: "What is covered in the section on {name}?", "Summarize the key points about {name}."
+- Slide identification templates ask which concept/topic the slide description refers to, and store the concept name as the answer.
 - Slide MCQ: uses concept names as distractors — "Which of the following best describes {name}?" with other concept names as wrong options
 - Slide fill-in-blank: blanks the concept name in its own description
 - Supplements chunk-based questions when `document_type === 'slides'`
