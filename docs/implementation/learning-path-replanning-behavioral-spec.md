@@ -83,12 +83,16 @@ Condition:
 
 Expected system behavior:
 - the system should persist the updated availability settings
+- when schedule-affecting availability fields changed, the system should ask whether to adjust the learning path now
 - goal-window scheduling should be recomputed for goal-dated documents using the new availability
+- after replanning, all future due dates should be aligned to allowed study days by shifting any disallowed-day item to the next available day
+- availability alignment should apply to both baseline and performance-derived future items
 - replanning should be document-scoped and continue even if one document fails to replan
 - the UI should show replanning progress and completion/partial-success feedback
 
 Expected user-facing result:
 - the student should see schedule changes reflected without re-uploading files
+- if Friday is removed from availability, future Friday learning-path items should no longer remain on Friday after alignment
 - the student can manually trigger replanning if needed
 
 ## State Handling Requirements
@@ -149,8 +153,10 @@ This spec is satisfied if:
 3. When mastery improves enough that targeted work is no longer needed, stale adaptive tasks are removed from active views.
 4. The student can open the updated adaptive tasks directly from the Learning Path and calendar.
 5. Editing profile availability triggers schedule replanning for goal-dated documents.
-6. A manual "Replan Learning Path" action is available in Profile and provides progress feedback.
-7. The visible plan reflects current adaptive/scheduling state without requiring a new login.
+6. Editing schedule-affecting availability fields asks whether to adjust the learning path now.
+7. Confirmed replanning aligns all future due dates to the student's allowed study days.
+8. A manual "Replan Learning Path" action is available in Profile and provides progress feedback.
+9. The visible plan reflects current adaptive/scheduling state without requiring a new login.
 
 ## Open Questions
 

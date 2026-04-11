@@ -37,7 +37,12 @@ This plan is based on:
 - Save.
 - Expected:
   - profile update succeeds
-  - if goal-dated documents exist, learning path replanning is triggered
+  - confirmation modal appears asking whether to adjust the learning path now
+  - if user confirms adjustment:
+    - goal-dated document windows are replanned
+    - future due dates on disallowed days are shifted to the next allowed day
+  - if user keeps current path:
+    - profile settings save without immediate learning-path adjustment
 
 ### 4. Manual replan
 
@@ -45,6 +50,16 @@ This plan is based on:
 - Expected:
   - progress state is shown
   - result message reflects success, partial success, or no goal-dated documents
+  - future due dates that fall on disallowed days are aligned to allowed days
+
+### 6. Availability day-removal regression check
+
+- Precondition: have at least one future learning-path item on a day that will be removed (example: Friday).
+- Remove that day from profile availability.
+- Save and confirm `Adjust learning path`.
+- Expected:
+  - previously scheduled future item is no longer on the removed day
+  - item appears on the next allowed study day
 
 ### 5. Change password
 
@@ -67,6 +82,7 @@ This plan is based on:
 
 - persisted settings are display name, password, and study-availability fields
 - local UI toggles do not falsely imply backend persistence
+- learning-path availability alignment only changes future due dates, not historical records
 
 ## Pass criteria
 
