@@ -15,8 +15,14 @@ export interface ClientDocumentStatus {
   label: "Pending" | "Queued" | "Processing" | "Ready" | "Error"
 }
 
+export type UploadProcessingMode = "process_immediately" | "defer_processing"
+
 export function getDefaultDocumentTitle(fileName: string): string {
   return fileName.replace(/\.[^/.]+$/, "") || fileName
+}
+
+export function getUploadProcessingMode(uploadableCount: number): UploadProcessingMode {
+  return uploadableCount === 1 ? "process_immediately" : "defer_processing"
 }
 
 export function selectNextPendingDocuments<T extends ProcessableDocumentLike>(

@@ -1,10 +1,14 @@
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { useAuth } from "@/contexts/AuthContext"
 import { deleteFile, uploadFile, validateFile, formatFileSize, getFileTypeFromMime, ALLOWED_FILE_TYPES } from "@/lib/storage"
 import { supabase, ensureFreshSession } from "@/lib/supabase"
-import { getDefaultDocumentTitle } from "@/lib/documentBatchProcessing"
+import { useProcessDocument } from "@/hooks/useDocuments"
+import { useScheduleDocumentGoalWindow } from "@/hooks/useGoalWindowScheduling"
+import { getDefaultDocumentTitle, getUploadProcessingMode } from "@/lib/documentBatchProcessing"
 import { AlertCircle, CheckCircle2, FileText, Loader2, Upload, X } from "lucide-react"
 
 interface FileUploadDialogProps {
@@ -43,12 +47,19 @@ function makeUploadBatchItems(files: File[]): UploadBatchItem[] {
 
 export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplete }: FileUploadDialogProps) {
     const { user } = useAuth()
+    const processDocument = useProcessDocument()
+    const scheduleGoalWindow = useScheduleDocumentGoalWindow()
 
     const [items, setItems] = useState<UploadBatchItem[]>([])
     const [dragActive, setDragActive] = useState(false)
     const [phase, setPhase] = useState<UploadPhase>("idle")
+    const [singleTitle, setSingleTitle] = useState("")
+    const [goalLabel, setGoalLabel] = useState("")
+    const [goalDate, setGoalDate] = useState("")
+    const previousSingleItemIdRef = useRef<string | null>(null)
 
     const isBusy = phase === "uploading"
+    const isSingleSelection = items.length === 1
     const uploadableItems = useMemo(
         () => items.filter((item) => item.status === "ready"),
         [items],
@@ -61,11 +72,35 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
         () => items.filter((item) => item.status === "error").length,
         [items],
     )
+    const singleSelectionProcessesImmediately = isSingleSelection && uploadableItems.length === 1
+    const uploadMode = useMemo(
+        () => getUploadProcessingMode(items.length),
+        [items.length],
+    )
+
+    useEffect(() => {
+        if (!isSingleSelection) {
+            previousSingleItemIdRef.current = null
+            return
+        }
+
+        const [item] = items
+        if (previousSingleItemIdRef.current !== item.id) {
+            setSingleTitle(item.title)
+            setGoalLabel("")
+            setGoalDate("")
+            previousSingleItemIdRef.current = item.id
+        }
+    }, [isSingleSelection, items])
 
     const resetState = () => {
         setItems([])
         setDragActive(false)
         setPhase("idle")
+        setSingleTitle("")
+        setGoalLabel("")
+        setGoalDate("")
+        previousSingleItemIdRef.current = null
     }
 
     const handleOpenChange = (newOpen: boolean) => {
@@ -114,12 +149,26 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
         setItems((current) => current.filter((item) => item.id !== itemId))
     }
 
+    const handleSingleTitleChange = (value: string) => {
+        setSingleTitle(value)
+        setItems((current) =>
+            current.length === 1
+                ? current.map((item) => ({
+                    ...item,
+                    title: value,
+                }))
+                : current,
+        )
+    }
+
     const handleUpload = async () => {
         if (!user || uploadableItems.length === 0) return
 
         setPhase("uploading")
 
         let anyUploaded = false
+        const shouldProcessImmediately =
+            getUploadProcessingMode(items.length) === "process_immediately" && uploadableItems.length === 1
 
         for (const item of uploadableItems) {
             setItems((current) =>
@@ -146,12 +195,14 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
 
                 const documentData = {
                     user_id: user.id,
-                    title: item.title.trim() || item.file.name,
+                    title: shouldProcessImmediately ? singleTitle.trim() || item.file.name : item.title.trim() || item.file.name,
+                    goal_label: shouldProcessImmediately ? goalLabel.trim() || null : null,
                     file_name: item.file.name,
                     file_path: uploadData.path,
                     file_type: getFileTypeFromMime(item.file.type),
                     file_size: item.file.size,
                     status: "pending" as const,
+                    exam_date: shouldProcessImmediately && goalDate ? goalDate : null,
                 }
 
                 const { data: insertedDoc, error: dbError } = await supabase
@@ -163,6 +214,34 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                 if (dbError || !insertedDoc) {
                     await deleteFile(uploadData.path)
                     throw new Error(dbError?.message || "Database insert failed")
+                }
+
+                if (shouldProcessImmediately) {
+                    try {
+                        await processDocument.mutateAsync(insertedDoc.id)
+
+                        if (goalDate) {
+                            try {
+                                await scheduleGoalWindow.mutateAsync({
+                                    document: {
+                                        id: insertedDoc.id,
+                                        exam_date: insertedDoc.exam_date ?? goalDate,
+                                    },
+                                    examDate: insertedDoc.exam_date ?? goalDate,
+                                })
+                            } catch (scheduleError) {
+                                console.warn("[FileUploadDialog] Goal-window scheduling failed after single upload", {
+                                    documentId: insertedDoc.id,
+                                    error: scheduleError instanceof Error ? scheduleError.message : scheduleError,
+                                })
+                            }
+                        }
+                    } catch (processingError) {
+                        console.warn("[FileUploadDialog] Single-file auto-processing did not finish cleanly", {
+                            documentId: insertedDoc.id,
+                            error: processingError instanceof Error ? processingError.message : processingError,
+                        })
+                    }
                 }
 
                 anyUploaded = true
@@ -226,12 +305,22 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
 
                     <DialogHeader className="min-w-0">
                         <DialogTitle className="pr-6 break-words text-left">
-                            {phase === "uploading" ? "Uploading Study Materials" : "Bulk Upload Study Materials"}
+                            {phase === "uploading"
+                                ? uploadMode === "process_immediately"
+                                    ? "Uploading And Processing Study Material"
+                                    : "Uploading Study Materials"
+                                : isSingleSelection
+                                    ? "Upload Study Material"
+                                    : "Upload Study Materials"}
                         </DialogTitle>
                         <DialogDescription className="break-words text-left">
                             {phase === "uploading"
-                                ? "Uploading files and creating pending documents in your library."
-                                : "Upload multiple files now, then process the pending documents later when you are ready."}
+                                ? uploadMode === "process_immediately"
+                                    ? "Uploading your file and starting processing automatically."
+                                    : "Uploading files and creating pending documents in your library."
+                                : isSingleSelection
+                                    ? "Upload your document to generate AI-powered quizzes and study guides."
+                                    : "Upload one file to start processing automatically, or upload several files to add them as pending and process them later."}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -278,7 +367,9 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                                             {items.length} file{items.length === 1 ? "" : "s"} selected
                                         </p>
                                         <p className="text-xs text-muted-foreground">
-                                            Titles will default from filenames. You can rename files later from the library.
+                                            {isSingleSelection
+                                                ? "Add details now so this study material is easier to find and plan around later."
+                                                : "Titles will default from filenames. You can rename files later from the library."}
                                         </p>
                                     </div>
                                     {!isBusy && (
@@ -299,6 +390,48 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                                         onChange={handleInputChange}
                                     />
                                 </div>
+
+                                {isSingleSelection && (
+                                    <div className="space-y-4 rounded-lg border bg-card p-4">
+                                        <div className="space-y-2">
+                                            <Label htmlFor="single-file-title">Document Title</Label>
+                                            <Input
+                                                id="single-file-title"
+                                                value={singleTitle}
+                                                onChange={(event) => handleSingleTitleChange(event.target.value)}
+                                                placeholder="Enter a document title"
+                                                maxLength={120}
+                                            />
+                                            <p className="text-xs text-muted-foreground">
+                                                This will help you identify the document later
+                                            </p>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label htmlFor="single-file-goal-label">Study Goal Name (optional)</Label>
+                                            <Input
+                                                id="single-file-goal-label"
+                                                value={goalLabel}
+                                                onChange={(event) => setGoalLabel(event.target.value)}
+                                                placeholder="e.g., Midterm review, Finish Chapter 4"
+                                                maxLength={80}
+                                            />
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label htmlFor="single-file-goal-date">Study Goal (Completion Date)</Label>
+                                            <Input
+                                                id="single-file-goal-date"
+                                                type="date"
+                                                value={goalDate}
+                                                onChange={(event) => setGoalDate(event.target.value)}
+                                            />
+                                            <p className="text-xs text-muted-foreground">
+                                                Target date for completing this document.
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
 
                                 <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
                                     {items.map((item) => {
@@ -338,7 +471,9 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                                                                 : item.status === "uploading"
                                                                     ? "Uploading..."
                                                                     : item.status === "uploaded"
-                                                                        ? "Uploaded as pending"
+                                                                        ? singleSelectionProcessesImmediately
+                                                                            ? "Uploaded and processing started"
+                                                                            : "Uploaded as pending"
                                                                         : "Needs attention"}
                                                         </span>
                                                     </div>
@@ -373,14 +508,20 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                                 <div className="flex items-start gap-3">
                                     <CheckCircle2 className="mt-0.5 h-5 w-5 text-primary" />
                                     <div className="space-y-1">
-                                        <p className="text-sm font-semibold">Upload batch finished</p>
+                                        <p className="text-sm font-semibold">
+                                            {uploadMode === "process_immediately" ? "Upload finished" : "Upload batch finished"}
+                                        </p>
                                         <p className="text-sm text-muted-foreground">
-                                            {uploadedCount} file{uploadedCount === 1 ? "" : "s"} uploaded into your library as pending documents.
+                                            {uploadMode === "process_immediately"
+                                                ? `${uploadedCount} file uploaded. Processing started automatically and you can follow its status from the Files page.`
+                                                : `${uploadedCount} file${uploadedCount === 1 ? "" : "s"} uploaded into your library as pending documents.`}
                                             {failedCount > 0 && ` ${failedCount} file${failedCount === 1 ? "" : "s"} still need attention.`}
                                         </p>
-                                        <p className="text-xs text-muted-foreground">
-                                            Processing does not start automatically. Use the Files page to process pending documents when you are ready.
-                                        </p>
+                                        {uploadMode === "defer_processing" && (
+                                            <p className="text-xs text-muted-foreground">
+                                                Processing does not start automatically. Use the Files page to process pending documents when you are ready.
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
                             </div>

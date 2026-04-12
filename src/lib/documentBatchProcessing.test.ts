@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   getClientDocumentStatus,
   getDefaultDocumentTitle,
+  getUploadProcessingMode,
   selectNextPendingDocuments,
 } from "@/lib/documentBatchProcessing"
 
@@ -29,6 +30,14 @@ describe("selectNextPendingDocuments", () => {
     )
 
     expect(result.map((doc) => doc.id)).toEqual(["doc-1", "doc-5"])
+  })
+})
+
+describe("getUploadProcessingMode", () => {
+  it("processes a single upload immediately and defers multi-file uploads", () => {
+    expect(getUploadProcessingMode(1)).toBe("process_immediately")
+    expect(getUploadProcessingMode(2)).toBe("defer_processing")
+    expect(getUploadProcessingMode(5)).toBe("defer_processing")
   })
 })
 
