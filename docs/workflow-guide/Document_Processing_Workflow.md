@@ -94,7 +94,12 @@ This document describes the complete workflow from file upload to AI-powered con
    └─► Columns: id, user_id, title, file_name, file_path, file_type, status
          │
          ▼
-5. Frontend calls useProcessDocument() hook
+5. Document appears in the Files library as "pending"
+   └─► User can process it later from the Files page
+   └─► Or trigger "Process All Pending" for a capped batch run
+         │
+         ▼
+6. Frontend calls useProcessDocument() hook on demand
    └─► Triggers: supabase.functions.invoke('process-document')
 ```
 
@@ -107,18 +112,18 @@ This document describes the complete workflow from file upload to AI-powered con
 **Steps:**
 
 ```
-6. Edge Function receives request with documentId
+7. Edge Function receives request with documentId
          │
          ▼
-7. Update document status to "processing"
+8. Update document status to "processing"
          │
          ▼
-8. Download file from Supabase Storage
+9. Download file from Supabase Storage
    └─► supabase.storage.from('documents').download(file_path)
          │
          ▼
-9. Check if NLP_SERVICE_URL is configured
-   ├─► YES → Send to NLP Microservice (Step 10)
+10. Check if NLP_SERVICE_URL is configured
+   ├─► YES → Send to NLP Microservice (Step 11)
    └─► NO  → Use fallback text extraction (limited)
 ```
 
