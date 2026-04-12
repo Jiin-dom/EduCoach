@@ -113,7 +113,7 @@ export function DashboardContent() {
         : "your trial end date"
     const trialFeatures = [
         {
-            title: "Unlimited AI Tutor",
+            title: "Unlimited EduBuddy",
             description: "Instant, nuanced explanations for complex topics 24/7.",
             icon: Brain,
         },
@@ -271,7 +271,7 @@ export function DashboardContent() {
                             <div>
                                 <p className="font-semibold text-amber-800">Your Premium Trial Has Ended</p>
                                 <p className="text-sm text-amber-700">
-                                    You’re now on Free limits. Upgrade to continue with unlimited AI Tutor and full analytics.
+                                    You’re now on Free limits. Upgrade to continue with unlimited EduBuddy and full analytics.
                                 </p>
                             </div>
                         </div>

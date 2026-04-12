@@ -80,7 +80,7 @@ export function SubscriptionCheckoutContent() {
             Premium already active
           </CardTitle>
           <CardDescription>
-            Your account already has premium-level access. Continue learning with unlimited AI Tutor and full analytics.
+            Your account already has premium-level access. Continue learning with unlimited EduBuddy and full analytics.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -116,7 +116,7 @@ export function SubscriptionCheckoutContent() {
                 <div>
                   <Badge className="mb-3">Premium</Badge>
                   <p className="text-lg font-bold">EduCoach Premium</p>
-                  <p className="text-sm text-muted-foreground">Unlimited AI Tutor, full analytics, and priority quiz generation</p>
+                  <p className="text-sm text-muted-foreground">Unlimited EduBuddy, full analytics, and priority quiz generation</p>
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-3xl font-extrabold text-primary">{totalDue}</p>

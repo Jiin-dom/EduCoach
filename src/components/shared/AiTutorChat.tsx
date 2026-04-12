@@ -303,7 +303,7 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
                             </div>
                             <CardTitle className="text-[28px] leading-none">
                                 <span className="text-base font-semibold tracking-tight">
-                                    {showHistory ? "Chat History" : "EDUCOACH AI Tutor"}
+                                    {showHistory ? "Chat History" : "EduBuddy"}
                                 </span>
                             </CardTitle>
                         </div>
@@ -351,7 +351,7 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
                                     <History className="w-10 h-10 mb-3 opacity-40" />
                                     <p className="text-sm font-medium mb-1">No conversations yet</p>
                                     <p className="text-xs opacity-75">
-                                        Start chatting with the AI Tutor and your conversations will appear here.
+                                        Start chatting with EduBuddy and your conversations will appear here.
                                     </p>
                                 </div>
                             ) : (
@@ -507,7 +507,7 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
 
                                                         {message.timestamp && (
                                                             <p className="text-xs text-[#8f76bd] mt-2 px-1">
-                                                                {message.role === "assistant" ? "AI Tutor" : "You"} • {message.timestamp}
+                                                                {message.role === "assistant" ? "EduBuddy" : "You"} • {message.timestamp}
                                                             </p>
                                                         )}
                                                     </>

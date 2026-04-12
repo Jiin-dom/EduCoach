@@ -28,14 +28,14 @@ const DATE_FORMATTER = new Intl.DateTimeFormat("en-PH", {
 })
 
 const FREE_FEATURES: Array<{ label: string; included: boolean }> = [
-  { label: `${AI_TUTOR_FREE_DAILY_LIMIT} AI Tutor messages per day`, included: true },
+  { label: `${AI_TUTOR_FREE_DAILY_LIMIT} EduBuddy messages per day`, included: true },
   { label: "Basic dashboard summary", included: true },
   { label: "Standard quiz generation queue", included: true },
   { label: "Advanced analytics dashboard", included: false },
 ]
 
 const PREMIUM_FEATURES: string[] = [
-  "Unlimited AI Tutor messages",
+  "Unlimited EduBuddy messages",
   "Full analytics and trends dashboard",
   "Priority quiz generation queue",
   "Customizable study path recommendations",
@@ -122,7 +122,7 @@ export function SubscriptionContent() {
                   Trial Ended
                 </div>
                 <p className="text-sm text-amber-700/90">
-                  You are now on Free. Upgrade anytime to unlock unlimited AI Tutor and full analytics.
+                  You are now on Free. Upgrade anytime to unlock unlimited EduBuddy and full analytics.
                 </p>
               </>
             )}
@@ -159,7 +159,7 @@ export function SubscriptionContent() {
                 <p className="text-sm text-foreground/90">
                   {isPremium
                     ? "You already have premium-level access. Keep building momentum with full AI assistance and analytics."
-                    : "You are currently using core study tools. Upgrade to unlock unlimited AI Tutor and faster quiz generation."}
+                    : "You are currently using core study tools. Upgrade to unlock unlimited EduBuddy and faster quiz generation."}
                 </p>
               </div>
             </CardContent>
