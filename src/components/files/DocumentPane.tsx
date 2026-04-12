@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 import 'react-pdf/dist/Page/TextLayer.css'
@@ -20,6 +20,7 @@ import {
 import type { Document as DocType } from '@/hooks/useDocuments'
 import type { Annotation } from '@/types/annotations'
 import { getFileUrl, formatFileSize } from '@/lib/storage'
+import { buildOfficePreviewUrl, getDocumentPreviewMode } from '@/lib/documentPreview'
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
 
@@ -30,7 +31,7 @@ interface DocumentPaneProps {
 }
 
 export function DocumentPane({ document: doc, currentPage, onPageChange }: DocumentPaneProps) {
-    const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+    const [signedUrl, setSignedUrl] = useState<string | null>(null)
     const [numPages, setNumPages] = useState(0)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -55,7 +56,12 @@ export function DocumentPane({ document: doc, currentPage, onPageChange }: Docum
     // distinguish "parent changed page externally" from "observer updated it".
     const lastObserverPage = useRef(currentPage)
 
-    const isPdf = doc.file_type === 'pdf'
+    const previewMode = getDocumentPreviewMode(doc.file_type)
+    const isPdf = previewMode === 'pdf'
+    const officePreviewUrl = useMemo(() => {
+        if (previewMode !== 'office' || !signedUrl) return null
+        return buildOfficePreviewUrl(signedUrl)
+    }, [previewMode, signedUrl])
 
     // Auto-fit: measure container width with ResizeObserver
     useEffect(() => {
@@ -74,25 +80,34 @@ export function DocumentPane({ document: doc, currentPage, onPageChange }: Docum
 
     // Fetch signed URL
     useEffect(() => {
-        if (!isPdf) return
+        if (previewMode === 'download') {
+            setSignedUrl(null)
+            setLoading(false)
+            setError(null)
+            return
+        }
         let cancelled = false
 
         const fetchUrl = async () => {
             setLoading(true)
             setError(null)
+            setSignedUrl(null)
             const { data, error: err } = await getFileUrl(doc.file_path)
             if (cancelled) return
             if (err || !data) {
-                setError('Could not load PDF')
+                setError(isPdf ? 'Could not load PDF' : 'Could not load document preview')
                 setLoading(false)
                 return
             }
-            setPdfUrl(data.signedUrl)
+            setSignedUrl(data.signedUrl)
+            if (!isPdf) {
+                setLoading(false)
+            }
         }
 
         fetchUrl()
         return () => { cancelled = true }
-    }, [doc.file_path, isPdf])
+    }, [doc.file_path, isPdf, previewMode])
 
     useEffect(() => { setPageInput(String(currentPage)) }, [currentPage])
 
@@ -266,7 +281,7 @@ export function DocumentPane({ document: doc, currentPage, onPageChange }: Docum
     // then apply zoom offset as a percentage adjustment.
     const pageWidth = containerWidth > 0 ? Math.round(containerWidth * (1 + zoomOffset * 0.15)) : undefined
 
-    if (!isPdf) {
+    if (previewMode === 'download') {
         return (
             <Card className="sticky top-32">
                 <CardHeader>
@@ -299,6 +314,51 @@ export function DocumentPane({ document: doc, currentPage, onPageChange }: Docum
                     </Button>
                 </CardContent>
             </Card>
+        )
+    }
+
+    if (previewMode === 'office') {
+        return (
+            <div
+                className="sticky top-32 flex flex-col border rounded-lg bg-muted/30 overflow-hidden"
+                style={{ height: 'calc(100vh - 160px)', maxHeight: 'calc(100vh - 160px)' }}
+            >
+                <div className="flex items-center justify-between gap-3 p-3 border-b bg-background">
+                    <div className="min-w-0">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">DOCX Preview</p>
+                        <p className="text-sm font-medium truncate">{doc.file_name}</p>
+                    </div>
+                    <Button variant="outline" className="gap-2 shrink-0" onClick={handleDownload}>
+                        <Download className="w-4 h-4" />
+                        Open Original
+                    </Button>
+                </div>
+
+                <div className="flex-1 min-h-0 bg-background">
+                    {loading && !officePreviewUrl && (
+                        <div className="flex items-center justify-center h-full">
+                            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                        </div>
+                    )}
+                    {error && (
+                        <div className="flex flex-col items-center justify-center h-full px-6 text-destructive">
+                            <AlertCircle className="w-8 h-8 mb-2" />
+                            <p className="text-sm text-center">{error}</p>
+                        </div>
+                    )}
+                    {officePreviewUrl && (
+                        <iframe
+                            src={officePreviewUrl}
+                            title={`${doc.title} preview`}
+                            className="block w-full h-full border-0 bg-background"
+                        />
+                    )}
+                </div>
+
+                <div className="border-t bg-background px-3 py-2 text-xs text-muted-foreground">
+                    DOCX preview uses Microsoft Office Web Viewer. If it does not load, open the original file instead.
+                </div>
+            </div>
         )
     }
 
@@ -391,7 +451,7 @@ export function DocumentPane({ document: doc, currentPage, onPageChange }: Docum
                     </div>
                 )}
 
-                {loading && !pdfUrl && (
+                {loading && !signedUrl && (
                     <div className="flex items-center justify-center py-20">
                         <Loader2 className="w-8 h-8 animate-spin text-primary" />
                     </div>
@@ -402,9 +462,9 @@ export function DocumentPane({ document: doc, currentPage, onPageChange }: Docum
                         <p className="text-sm">{error}</p>
                     </div>
                 )}
-                {pdfUrl && (
+                {signedUrl && (
                     <Document
-                        file={pdfUrl}
+                        file={signedUrl}
                         onLoadSuccess={onDocumentLoadSuccess}
                         onLoadError={() => { setError('Failed to load PDF'); setLoading(false) }}
                         loading={<Loader2 className="w-8 h-8 animate-spin text-primary" />}
