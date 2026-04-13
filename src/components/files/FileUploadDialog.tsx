@@ -8,7 +8,7 @@ import { deleteFile, uploadFile, validateFile, formatFileSize, getFileTypeFromMi
 import { supabase, ensureFreshSession } from "@/lib/supabase"
 import { useProcessDocument } from "@/hooks/useDocuments"
 import { useScheduleDocumentGoalWindow } from "@/hooks/useGoalWindowScheduling"
-import { getDefaultDocumentTitle, getUploadProcessingMode } from "@/lib/documentBatchProcessing"
+import { getDefaultDocumentTitle, getUploadItemStatusLabel, getUploadProcessingMode, type UploadItemStatus } from "@/lib/documentBatchProcessing"
 import { AlertCircle, CheckCircle2, FileText, Loader2, Upload, X } from "lucide-react"
 
 interface FileUploadDialogProps {
@@ -19,8 +19,6 @@ interface FileUploadDialogProps {
 }
 
 type UploadPhase = "idle" | "uploading" | "complete"
-type UploadItemStatus = "ready" | "uploading" | "uploaded" | "error"
-
 interface UploadBatchItem {
     id: string
     file: File
@@ -72,7 +70,6 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
         () => items.filter((item) => item.status === "error").length,
         [items],
     )
-    const singleSelectionProcessesImmediately = isSingleSelection && uploadableItems.length === 1
     const uploadMode = useMemo(
         () => getUploadProcessingMode(items.length),
         [items.length],
@@ -466,15 +463,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                                                             {item.file.name}
                                                         </p>
                                                         <span className={`text-xs font-medium ${statusTone}`}>
-                                                            {item.status === "ready"
-                                                                ? "Ready to upload"
-                                                                : item.status === "uploading"
-                                                                    ? "Uploading..."
-                                                                    : item.status === "uploaded"
-                                                                        ? singleSelectionProcessesImmediately
-                                                                            ? "Uploaded and processing started"
-                                                                            : "Uploaded as pending"
-                                                                        : "Needs attention"}
+                                                            {getUploadItemStatusLabel(item.status, uploadMode)}
                                                         </span>
                                                     </div>
                                                     <p className="mt-1 text-xs text-muted-foreground">

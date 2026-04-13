@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   getClientDocumentStatus,
   getDefaultDocumentTitle,
+  getUploadItemStatusLabel,
   getUploadProcessingMode,
   selectNextPendingDocuments,
 } from "@/lib/documentBatchProcessing"
@@ -38,6 +39,16 @@ describe("getUploadProcessingMode", () => {
     expect(getUploadProcessingMode(1)).toBe("process_immediately")
     expect(getUploadProcessingMode(2)).toBe("defer_processing")
     expect(getUploadProcessingMode(5)).toBe("defer_processing")
+  })
+})
+
+
+describe("getUploadItemStatusLabel", () => {
+  it("keeps the single-file uploaded label aligned with automatic processing after upload completes", () => {
+    expect(getUploadItemStatusLabel("uploaded", "process_immediately")).toBe(
+      "Uploaded and processing started",
+    )
+    expect(getUploadItemStatusLabel("uploaded", "defer_processing")).toBe("Uploaded as pending")
   })
 })
 

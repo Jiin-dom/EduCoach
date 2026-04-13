@@ -17,12 +17,33 @@ export interface ClientDocumentStatus {
 
 export type UploadProcessingMode = "process_immediately" | "defer_processing"
 
+export type UploadItemStatus = "ready" | "uploading" | "uploaded" | "error"
+
 export function getDefaultDocumentTitle(fileName: string): string {
   return fileName.replace(/\.[^/.]+$/, "") || fileName
 }
 
 export function getUploadProcessingMode(uploadableCount: number): UploadProcessingMode {
   return uploadableCount === 1 ? "process_immediately" : "defer_processing"
+}
+
+export function getUploadItemStatusLabel(
+  status: UploadItemStatus,
+  uploadMode: UploadProcessingMode,
+): "Ready to upload" | "Uploading..." | "Uploaded and processing started" | "Uploaded as pending" | "Needs attention" {
+  switch (status) {
+    case "ready":
+      return "Ready to upload"
+    case "uploading":
+      return "Uploading..."
+    case "uploaded":
+      return uploadMode === "process_immediately"
+        ? "Uploaded and processing started"
+        : "Uploaded as pending"
+    case "error":
+    default:
+      return "Needs attention"
+  }
 }
 
 export function selectNextPendingDocuments<T extends ProcessableDocumentLike>(
