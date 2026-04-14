@@ -1,29 +1,32 @@
 ## Feature: Assign Deadline (Completed)
 
-This document summarizes what was implemented for the Assign Deadline feature, allowing users to attach an optional target deadline date to their uploaded study materials, which helps them track when they need to finish studying a specific document.
+This document summarizes the current scheduling/date implementation for uploaded study materials.
 
 ---
 
 ## 1. High-Level Overview
 
-- **Goal**: Enhance the document management system by allowing users to set, view, and manage study deadlines for their uploaded materials.
+- **Goal**: Allow users to attach an optional target date to uploaded study materials and display schedule metadata in the file list.
 - **Architecture**:
-  - **Database**: Added a `deadline` column to the `documents` table via a Supabase migration.
-  - **Types/Hooks**: Updated the frontend `Document` interface and Supabase insert/update hooks to support the new field.
-  - **Frontend UI**: Added a date picker to the file upload dialog and displayed the deadline on the document list view.
+  - **Database**: `documents` supports both `deadline` and `exam_date`.
+  - **Types/Hooks**: Frontend `Document` type and update hook support both fields.
+  - **Frontend UI**: Upload flow currently captures a "Study Goal (Completion Date)" and writes it to `exam_date`. List UI displays both `deadline` and `exam_date` badges when present.
 
 ---
 
-## 2. Database Schema (Migration `012_add_deadline_to_documents.sql`)
+## 2. Database Schema
 
-A new migration was created to alter the existing `documents` table.
+Relevant migrations:
+- `012_add_deadline_to_documents.sql`
+- `016_add_exam_date_to_documents.sql`
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `deadline` | `TIMESTAMPTZ` (nullable) | Optional target date for studying the document. Default is NULL. |
+| `deadline` | `TIMESTAMPTZ` (nullable) | Due date used by learning path/deadline-aware flows. |
+| `exam_date` | `TIMESTAMPTZ` (nullable) | Upload "Study Goal" date and exam milestone date. |
 
-- Existing documents automatically have a `NULL` deadline.
-- RLS policies remain unchanged as they naturally inherited access control from the parent `documents` table design.
+- Existing documents remain nullable for both fields.
+- RLS policies remain unchanged.
 
 ---
 
@@ -35,26 +38,26 @@ The TypeScript interface for the document was updated to match the new schema:
 export interface Document {
     // ... existing fields ...
     deadline?: string | null;
+    exam_date?: string | null;
 }
 ```
 
 ### 3.2. Mutation Updates
-- **File Upload logic**: When inserting a new document into the database after storage upload, the `deadline` is now passed in the payload if the user selected one.
-- **Update Logic**: The `useUpdateDocument` hook inherently supports updating the deadline since it takes a `Partial<Document>`.
+- **File Upload logic**: Upload currently inserts `exam_date` from the selected "Study Goal (Completion Date)".
+- **Update logic**: `useUpdateDocument` supports updates to `title`, `status`, `deadline`, and `exam_date`.
 
 ---
 
 ## 4. Frontend UI
 
 ### 4.1. File Upload Dialog (`src/components/files/FileUploadDialog.tsx`)
-- Integrated a **Date Picker** component (using `react-day-picker` via Shadcn UI Calendar/Popover components).
-- Made the field optional—users can clear the date or skip it entirely.
-- Added visual feedback for the selected date.
+- Includes an optional native date input (`<input type="date">`) labeled **Study Goal (Completion Date)**.
+- The selected value is saved as `exam_date` during upload.
 
 ### 4.2. File List View (`src/components/files/FilesContent.tsx`)
-- Updated the document card to display the assigned deadline alongside existing metadata (file size, upload date).
-- The deadline is formatted to a human-readable date string (e.g., `Due MM/DD/YYYY`).
-- Added conditional rendering: the "Due date" text only appears if a deadline was actually set.
+- Displays conditional badges for:
+  - `deadline` -> `Due {date}`
+  - `exam_date` -> `Exam {date}`
 
 ---
 
@@ -63,25 +66,26 @@ export interface Document {
 | File | Purpose |
 |------|---------|
 | `supabase/migrations/012_add_deadline_to_documents.sql` | Adds the nullable `deadline` column to the `documents` table. |
+| `supabase/migrations/016_add_exam_date_to_documents.sql` | Adds the nullable `exam_date` column to the `documents` table. |
 
 ## 6. Files Modified
 
 | File | Change |
 |------|--------|
-| `src/hooks/useDocuments.ts` | Added `deadline` to the `Document` type definition. |
-| `src/components/files/FileUploadDialog.tsx` | Added state and UI for selecting an optional deadline during upload. |
-| `src/components/files/FilesContent.tsx` | Added UI to display the deadline on the document cards in the list view. |
+| `src/hooks/useDocuments.ts` | Added `deadline` and `exam_date` to the `Document` type and update mutation support. |
+| `src/components/files/FileUploadDialog.tsx` | Upload form now collects optional `goalDate` and saves it to `exam_date`. |
+| `src/components/files/FilesContent.tsx` | Displays both `Due` (`deadline`) and `Exam` (`exam_date`) badges when available. |
 
 ---
 
 ## 7. Verification Checklist
 
-- [ ] Open the Supabase dashboard and verify the `deadline` column exists on the `documents` table.
+- [ ] Open the Supabase dashboard and verify both `deadline` and `exam_date` columns exist on `documents`.
 - [ ] Navigate to the Files page and click "Upload File".
-- [ ] Verify the new Date Picker is visible and interactable.
-- [ ] Upload a file *without* selecting a deadline → Verify upload succeeds and no deadline is shown in the list.
-- [ ] Upload another file *with* a selected deadline → Verify upload succeeds.
-- [ ] Check the document list view → Verify the new file displays the correct "Due [Date]" badge.
-- [ ] Check the Supabase dashboard → Verify the row was created with the correct timestamp in the `deadline` column.
+- [ ] Verify the "Study Goal (Completion Date)" date input is visible and optional.
+- [ ] Upload a file *without* selecting a goal date -> verify upload succeeds.
+- [ ] Upload a file *with* a goal date -> verify row stores `exam_date`.
+- [ ] Check the document list view -> verify `Exam [Date]` appears for that file.
+- [ ] Set a `deadline` through deadline-aware flows -> verify `Due [Date]` appears.
 
-With these pieces in place, the **Assign Deadline** feature is fully implemented, allowing users to prioritize their study schedule.
+With these pieces in place, document scheduling metadata is implemented and visible across upload/list workflows.

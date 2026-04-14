@@ -8,6 +8,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { adaptiveStudyKeys } from '@/hooks/useAdaptiveStudy'
 import { ALL_QUIZ_TYPES, type QuizTypeId } from '@/types/quiz'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -67,7 +68,9 @@ export interface GenerateQuizInput {
     questionCount?: number
     difficulty?: string
     questionTypes?: QuizTypeId[]
+    questionTypeTargets?: Partial<Record<QuizTypeId, number>>
     enhanceWithLlm?: boolean
+    deadline?: string
 }
 
 export interface GenerateReviewQuizInput {
@@ -282,6 +285,7 @@ export function useGenerateQuiz() {
                         questionTypes: input.questionTypes && input.questionTypes.length > 0
                             ? input.questionTypes
                             : ALL_QUIZ_TYPES,
+                        questionTypeTargets: input.questionTypeTargets ?? undefined,
                         enhanceWithLlm: input.enhanceWithLlm ?? true,
                         userId: session.user.id,
                     },
@@ -293,7 +297,17 @@ export function useGenerateQuiz() {
                 }
 
                 console.log('[Quiz] Generation successful:', data)
-                return data as { success: boolean; quizId: string; questionCount: number }
+                const result = data as { success: boolean; quizId: string; questionCount: number }
+
+                // If a deadline was provided, update the parent document's deadline field
+                if (input.deadline && result.quizId) {
+                    await supabase
+                        .from('documents')
+                        .update({ deadline: input.deadline })
+                        .eq('id', input.documentId)
+                }
+
+                return result
             } catch (err) {
                 // Recovery: if the fetch failed (timeout, network), the edge function
                 // may have already created the quiz record before the client gave up.
@@ -364,6 +378,7 @@ export function useGenerateReviewQuiz() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: quizKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
         },
         onError: (error) => {
             console.error('[Quiz] Review quiz generation error:', error)
@@ -411,6 +426,29 @@ export function useSubmitAttempt() {
     })
 }
 
+export function useUpdateQuiz() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: async ({ quizId, updates }: { quizId: string; updates: Partial<Quiz> }) => {
+            const { data, error } = await supabase
+                .from('quizzes')
+                .update(updates)
+                .eq('id', quizId)
+                .select()
+                .single()
+
+            if (error) throw new Error(error.message)
+            return data as Quiz
+        },
+        onSuccess: (data) => {
+            queryClient.invalidateQueries({ queryKey: quizKeys.all })
+            queryClient.invalidateQueries({ queryKey: quizKeys.detail(data.id) })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
+        },
+    })
+}
+
 export function useDeleteQuiz() {
     const queryClient = useQueryClient()
 
@@ -426,6 +464,7 @@ export function useDeleteQuiz() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: quizKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
         },
     })
 }

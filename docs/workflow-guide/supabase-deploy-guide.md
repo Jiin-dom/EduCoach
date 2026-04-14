@@ -85,7 +85,7 @@ These are set in Supabase Dashboard > Edge Functions > Secrets:
 
 ```powershell
 # 1. Navigate to project directory
-cd D:\UC Subjects\4th Year 2nd Sem\CAPSTONE2\code\Dev-EduCoachv1\educoach> 
+cd  D:\12.school-code\Dev-EduCoachv1\educoach> 
 
 # 2. Login (first time only - will open browser)
 npx supabase login
@@ -94,7 +94,8 @@ npx supabase login
 npx supabase functions deploy process-document --project-ref gibufmvycrefsthfzhgy --no-verify-jwt
 npx supabase functions deploy generate-quiz --project-ref gibufmvycrefsthfzhgy --no-verify-jwt
 npx supabase functions deploy ai-tutor --project-ref gibufmvycrefsthfzhgy --no-verify-jwt
-
+npx supabase functions deploy admin-user-management --project-ref gibufmvycrefsthfzhgy --no-verify-jwt
+npx supabase functions deploy student-subscription --project-ref gibufmvycrefsthfzhgy --no-verify-jwt
 
 # 4. (Optional) Check logs
 npx supabase functions logs process-document --project-ref gibufmvycrefsthfzhgy --tail

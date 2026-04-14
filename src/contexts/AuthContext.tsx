@@ -1,7 +1,18 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useState, useRef, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase, clearStaleSession, getSupabaseStorageKey } from '@/lib/supabase'
 import { saveOAuthReturnPath } from '@/lib/oauthRedirect'
+import type { AppUserRole } from '@/lib/authRouting'
+import {
+    getTrialDaysLeft,
+    hasPremiumEntitlement,
+    isTrialActive,
+    normalizeSubscriptionPlan,
+    normalizeSubscriptionStatus,
+    type SubscriptionPlan,
+    type SubscriptionStatus,
+} from '@/lib/subscription'
 import type { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 
 export type OAuthProvider = 'google' | 'facebook' | 'apple'
@@ -19,6 +30,15 @@ interface UserProfile {
     preferred_study_time_end: string | null
     available_study_days: string[] | null
     has_completed_profiling: boolean
+    role: AppUserRole
+    subscription_plan: SubscriptionPlan
+    subscription_status: SubscriptionStatus
+    subscription_trial_started_at: string | null
+    subscription_trial_ends_at: string | null
+    subscription_trial_welcome_seen_at: string | null
+    subscription_is_trial_active: boolean
+    subscription_trial_days_left: number
+    has_premium_entitlement: boolean
 }
 
 interface AuthContextType {
@@ -31,6 +51,7 @@ interface AuthContextType {
     signInWithOAuth: (provider: OAuthProvider, returnTo?: string) => Promise<{ error: Error | null }>
     signOut: () => Promise<void>
     updateProfile: (updates: Partial<UserProfile>) => Promise<{ error: Error | null }>
+    refreshProfile: () => Promise<UserProfile | null>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -43,7 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Fetch user profile from database
     const fetchProfile = async (userId: string) => {
-        const { data, error } = await supabase
+        const { data: profileRow, error } = await supabase
             .from('user_profiles')
             .select('*')
             .eq('id', userId)
@@ -53,7 +74,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             console.error('Error fetching profile:', error)
             return null
         }
-        return data as UserProfile
+
+        const { data: subscriptionRow, error: subscriptionError } = await supabase
+            .from('subscriptions')
+            .select('plan, status, trial_started_at, trial_ends_at, trial_welcome_seen_at')
+            .eq('user_id', userId)
+            .maybeSingle()
+
+        if (subscriptionError) {
+            console.warn('Error fetching subscription:', subscriptionError)
+        }
+
+        const trialEndsAt = subscriptionRow?.trial_ends_at ?? null
+        const trialActive = isTrialActive(trialEndsAt)
+
+        return {
+            ...profileRow,
+            subscription_plan: normalizeSubscriptionPlan(subscriptionRow?.plan),
+            subscription_status: normalizeSubscriptionStatus(subscriptionRow?.status),
+            subscription_trial_started_at: subscriptionRow?.trial_started_at ?? null,
+            subscription_trial_ends_at: trialEndsAt,
+            subscription_trial_welcome_seen_at: subscriptionRow?.trial_welcome_seen_at ?? null,
+            subscription_is_trial_active: trialActive,
+            subscription_trial_days_left: getTrialDaysLeft(trialEndsAt),
+            has_premium_entitlement: hasPremiumEntitlement(subscriptionRow?.plan, subscriptionRow?.status, trialEndsAt),
+        } as UserProfile
     }
 
     const queryClient = useQueryClient()
@@ -279,6 +324,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: error as Error | null }
     }
 
+    const refreshProfile = async () => {
+        if (!user) {
+            setProfile(null)
+            return null
+        }
+        const updatedProfile = await fetchProfile(user.id)
+        setProfile(updatedProfile)
+        return updatedProfile
+    }
+
     const value = {
         user,
         profile,
@@ -289,6 +344,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signInWithOAuth,
         signOut,
         updateProfile,
+        refreshProfile,
     }
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -29,4 +29,6 @@ dist-ssr
 
 .specstory
 docs/educoach-outstanding-work.md
+
+test/
 educoach-mobile/

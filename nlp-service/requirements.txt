@@ -5,9 +5,13 @@ requests==2.31.0
 keybert==0.8.3
 pytextrank==3.2.5
 spacy==3.7.2
-scikit-learn>=1.3.0
-sentence-transformers>=2.2.0
-numpy>=1.24.0
+# Pin the embedding stack to a known text-only compatibility band.
+# The unbounded sentence-transformers / transformers upgrades pulled in
+# newer multimodal behavior during rebuild and broke /process at runtime.
+scikit-learn==1.5.2
+sentence-transformers==2.7.0
+transformers==4.41.2
+numpy==1.26.4
 ftfy>=6.1.0
 beautifulsoup4>=4.12.0
 lxml>=4.9.0

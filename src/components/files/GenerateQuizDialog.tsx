@@ -5,7 +5,11 @@ import { Sparkles, Loader2, CheckCircle2, AlertCircle, Brain } from 'lucide-reac
 import { useNavigate } from 'react-router-dom'
 import { useGenerateQuiz } from '@/hooks/useQuizzes'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import { CalendarDays } from 'lucide-react'
 import { ALL_QUIZ_TYPES, type QuizTypeId } from '@/types/quiz'
+import { computeBalancedQuizTypeTargets, formatQuizTypeTargetsForHumans } from '@/lib/quizAllocation'
 
 interface GenerateQuizDialogProps {
     open: boolean
@@ -32,6 +36,7 @@ export function GenerateQuizDialog({ open, onOpenChange, documentId }: GenerateQ
     const [difficulty, setDifficulty] = useState<'mixed' | 'easy' | 'medium' | 'hard'>('mixed')
     const [questionCount, setQuestionCount] = useState<number>(10)
     const [selectedTypes, setSelectedTypes] = useState<QuizTypeId[]>(ALL_QUIZ_TYPES)
+    const [deadline, setDeadline] = useState<string>('')
     const [typeError, setTypeError] = useState<string | null>(null)
     const [phase, setPhase] = useState<Phase>('idle')
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -39,6 +44,12 @@ export function GenerateQuizDialog({ open, onOpenChange, documentId }: GenerateQ
     const rotatingIndex = useRef(0)
 
     const isBusy = phase === 'generating'
+
+    const { stableSelectedTypes, targetsByType } = computeBalancedQuizTypeTargets({
+        totalCount: questionCount,
+        selectedTypes,
+    })
+    const breakdownText = formatQuizTypeTargetsForHumans({ stableSelectedTypes, targetsByType })
 
     useEffect(() => {
         if (!isBusy) return
@@ -58,6 +69,7 @@ export function GenerateQuizDialog({ open, onOpenChange, documentId }: GenerateQ
                 setDifficulty('mixed')
                 setQuestionCount(10)
                 setSelectedTypes(ALL_QUIZ_TYPES)
+                setDeadline('')
                 setTypeError(null)
             }, 200)
         }
@@ -76,7 +88,15 @@ export function GenerateQuizDialog({ open, onOpenChange, documentId }: GenerateQ
         rotatingIndex.current = 0
         setRotatingMsg(GENERATING_MESSAGES[0])
         generateQuiz.mutate(
-            { documentId, questionCount, difficulty, questionTypes: selectedTypes, enhanceWithLlm: true },
+            {
+                documentId,
+                questionCount,
+                difficulty,
+                questionTypes: selectedTypes,
+                questionTypeTargets: targetsByType,
+                enhanceWithLlm: true,
+                deadline: deadline || undefined,
+            },
             {
                 onSuccess: (data) => {
                     setPhase('success')
@@ -213,11 +233,34 @@ export function GenerateQuizDialog({ open, onOpenChange, documentId }: GenerateQ
                                             )
                                         })}
                                     </div>
+                                    {selectedTypes.length > 0 && breakdownText && (
+                                        <p className="mt-2 text-[11px] text-muted-foreground">
+                                            Breakdown: {breakdownText}
+                                        </p>
+                                    )}
                                     {typeError && (
                                         <p className="mt-1 text-[11px] text-destructive">
                                             {typeError}
                                         </p>
                                     )}
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="quiz-deadline" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                                        <CalendarDays className="w-3.5 h-3.5" />
+                                        Quiz Deadline (Optional)
+                                    </Label>
+                                    <Input
+                                        id="quiz-deadline"
+                                        type="date"
+                                        value={deadline}
+                                        onChange={(e) => setDeadline(e.target.value)}
+                                        min={new Date().toISOString().split("T")[0]}
+                                        className="h-9"
+                                    />
+                                    <p className="text-[10px] text-muted-foreground">
+                                        Setting a deadline helps prioritize this quiz in your study schedule.
+                                    </p>
                                 </div>
                             </>
                         )}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Behavioral Spec Writing"
+  short_description: "Write clear outcome-first behavior specs"
+  default_prompt: "Use $behavioral-spec-writing to turn these notes into a clean behavioral spec."

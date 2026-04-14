@@ -8,14 +8,14 @@ This document summarizes what was implemented for the Change Password feature, a
 
 - **Goal**: Allow users to securely change their password while logged in, without needing to go through a full "forgot password" email reset flow.
 - **Architecture**:
-  - **Supabase Auth**: Uses `supabase.auth.updateUser({ password })` to securely update the password for the current active session.
-  - **React Frontend**: Added a new UI section in the `ProfilePage` for updating the password with proper validation and user feedback.
+  - **Supabase Auth**: Re-authenticates using `supabase.auth.signInWithPassword(...)`, then updates via `supabase.auth.updateUser({ password })`.
+  - **React Frontend**: Password change UI and logic are implemented in `ProfileContent` and rendered by `ProfilePage`.
 
 ---
 
-## 2. Frontend UI (`src/pages/ProfilePage.tsx`)
+## 2. Frontend UI (`src/components/profile/ProfileContent.tsx`)
 
-A new form component/section was added to the Profile page to handle password changes.
+A dedicated password change section is implemented in `ProfileContent`.
 
 ### 2.1. Security & Validation
 - **Minimum Length**: Enforces a minimum password length of 6 characters (Supabase default requirement).
@@ -30,11 +30,12 @@ A new form component/section was added to the Profile page to handle password ch
 
 ---
 
-## 3. Supabase Integration (`src/pages/ProfilePage.tsx`)
+## 3. Supabase Integration (`src/components/profile/ProfileContent.tsx`)
 
 The feature relies completely on the existing Supabase Auth session.
 
-- **API Call**: Calls `supabase.auth.updateUser({ password: newPassword })`.
+- **Identity Verification**: First verifies `currentPassword` by calling `supabase.auth.signInWithPassword({ email, password: currentPassword })`.
+- **Password Update**: Calls `supabase.auth.updateUser({ password: newPassword })`.
 - **Session Requirement**: This method only works when a user is actively authenticated (has a valid session token).
 - **No Backend Changes**: No new database tables, RPCs, or edge functions were required because this utilizes the built-in Supabase Auth API.
 
@@ -44,7 +45,8 @@ The feature relies completely on the existing Supabase Auth session.
 
 | File | Change |
 |------|--------|
-| `src/pages/ProfilePage.tsx` | Added the "Change Password" form, state management for inputs, validation logic, and Supabase integration. |
+| `src/components/profile/ProfileContent.tsx` | Added the "Change Password" form, validation, current-password verification, and Supabase update flow. |
+| `src/pages/ProfilePage.tsx` | Renders `ProfileContent` within the page layout. |
 
 ---
 

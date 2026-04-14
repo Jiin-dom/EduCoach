@@ -1,10 +1,8 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { Button } from "@/components/ui/button"
-import { MessageCircle, X, Send, Sparkles, Loader2, FileText, RotateCcw, ExternalLink, History, Trash2, ChevronLeft } from "lucide-react"
+import { MessageCircle, X, Send, Sparkles, Loader2, FileText, Plus, ExternalLink, History, Trash2, ChevronLeft, Bot, User2, BookOpen } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Label } from "@/components/ui/label"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useDocuments } from "@/hooks/useDocuments"
 import {
@@ -36,6 +34,31 @@ interface AiTutorChatProps {
     onPromptConsumed?: () => void
 }
 
+function normalizeSourceCitations(input: unknown): SourceCitation[] {
+    if (!Array.isArray(input)) return []
+    return input
+        .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+        .map((item) => ({
+            documentId: String(item.documentId ?? ""),
+            documentTitle: String(item.documentTitle ?? "Unknown Document"),
+            chunkId: String(item.chunkId ?? ""),
+            chunkPreview: String(item.chunkPreview ?? ""),
+            similarity: Number(item.similarity ?? 0),
+        }))
+        .filter((item) => item.documentId.length > 0 && item.chunkId.length > 0)
+}
+
+function cleanAssistantText(content: string): string {
+    return content
+        .replace(/```/g, "")
+        .replace(/`/g, "")
+        .replace(/\*\*/g, "")
+        .replace(/__/g, "")
+        .replace(/^#{1,6}\s*/gm, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim()
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -43,15 +66,16 @@ interface AiTutorChatProps {
 export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromptConsumed }: AiTutorChatProps) {
     const [isOpen, setIsOpen] = useState(false)
     const [inputMessage, setInputMessage] = useState("")
-    const [bloomLevel, setBloomLevel] = useState("understand")
     const [conversationId, setConversationId] = useState<string | undefined>(undefined)
     const [selectedDocumentId, setSelectedDocumentId] = useState<string>("all")
     const [pendingMessages, setPendingMessages] = useState<DisplayMessage[]>([])
     const [error, setError] = useState<string | null>(null)
+    const [errorCode, setErrorCode] = useState<string | null>(null)
     const [showHistory, setShowHistory] = useState(false)
     const [hasAutoLoaded, setHasAutoLoaded] = useState(false)
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const composerRef = useRef<HTMLTextAreaElement>(null)
 
     const sendMessage = useSendMessage()
     const deleteConversation = useDeleteConversation()
@@ -89,7 +113,6 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
     useEffect(() => {
         if (pendingPrompt && !sendMessage.isPending) {
             setIsOpen(true)
-            setBloomLevel("understand")
             setInputMessage(pendingPrompt)
             onPromptConsumed?.()
         }
@@ -102,8 +125,9 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
         return dbMessages.map(m => ({
             id: m.id,
             role: m.role,
-            content: m.content,
+            content: m.role === "assistant" ? cleanAssistantText(m.content) : m.content,
             timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            sources: m.role === "assistant" ? normalizeSourceCitations(m.source_citations) : undefined,
         }))
     }, [dbMessages])
 
@@ -117,15 +141,40 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
         scrollToBottom()
     }, [localMessages, scrollToBottom])
 
+    const resizeComposer = useCallback(() => {
+        const el = composerRef.current
+        if (!el) return
+
+        el.style.height = "0px"
+        const minHeight = 44
+        const maxHeight = 132
+        const nextHeight = Math.min(Math.max(el.scrollHeight, minHeight), maxHeight)
+        el.style.height = `${nextHeight}px`
+        el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden"
+    }, [])
+
+    useEffect(() => {
+        resizeComposer()
+    }, [inputMessage, isOpen, resizeComposer])
+
     const effectiveDocumentId = propDocumentId
         ? propDocumentId
         : (selectedDocumentId === "all" ? undefined : selectedDocumentId)
+
+    const currentScopeLabel = useMemo(() => {
+        if (propDocumentId) {
+            return documents?.find((d) => d.id === propDocumentId)?.title ?? "Current Document"
+        }
+        if (selectedDocumentId === "all") return "All Documents"
+        return readyDocuments.find((d) => d.id === selectedDocumentId)?.title ?? "Selected Document"
+    }, [propDocumentId, documents, selectedDocumentId, readyDocuments])
 
     const handleSendMessage = async () => {
         const text = inputMessage.trim()
         if (!text || sendMessage.isPending) return
 
         setError(null)
+        setErrorCode(null)
         setInputMessage("")
 
         const userMsg: DisplayMessage = {
@@ -148,7 +197,6 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
         try {
             const response = await sendMessage.mutateAsync({
                 message: text,
-                bloomLevel,
                 conversationId,
                 documentId: effectiveDocumentId,
             })
@@ -160,7 +208,7 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
             const aiMsg: DisplayMessage = {
                 id: `ai-${Date.now()}`,
                 role: "assistant",
-                content: response.answer,
+                content: cleanAssistantText(response.answer),
                 timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
                 sources: response.sources,
             }
@@ -168,8 +216,15 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
             setPendingMessages(prev => prev.filter(m => !m.isLoading).concat(aiMsg))
         } catch (err) {
             setPendingMessages(prev => prev.filter(m => !m.isLoading))
-            const message = err instanceof Error ? err.message : "Something went wrong"
-            setError(message)
+            const message = err instanceof Error ? err.message : "UNKNOWN_ERROR:Something went wrong"
+            const [code, ...rest] = message.split(":")
+            if (rest.length > 0) {
+                setErrorCode(code)
+                setError(rest.join(":"))
+            } else {
+                setErrorCode(null)
+                setError(message)
+            }
         }
     }
 
@@ -184,6 +239,7 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
         setConversationId(undefined)
         setPendingMessages([])
         setError(null)
+        setErrorCode(null)
         setShowHistory(false)
     }
 
@@ -191,6 +247,7 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
         setConversationId(conv.id)
         setPendingMessages([])
         setError(null)
+        setErrorCode(null)
         setShowHistory(false)
     }
 
@@ -237,21 +294,25 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
             )}
 
             {isOpen && (
-                <Card className="fixed bottom-6 right-6 w-[calc(100vw-2rem)] sm:w-[420px] h-[500px] sm:h-[600px] shadow-2xl z-50 flex flex-col">
+                <Card className="fixed bottom-6 right-6 w-[calc(100vw-2rem)] sm:w-[430px] h-[610px] shadow-2xl z-50 flex flex-col overflow-hidden rounded-[26px] border border-[#eadbff] bg-[#fbf9ff] py-0 gap-0">
                     {/* Header */}
-                    <CardHeader className="flex flex-row items-center justify-between bg-primary text-primary-foreground rounded-t-lg flex-shrink-0">
+                    <CardHeader className="flex flex-row items-center justify-between bg-gradient-to-r from-[#7a3ee8] to-[#6a2fda] text-white rounded-none px-4 py-4 flex-shrink-0 border-b border-[#8e5ce6]/40">
                         <div className="flex items-center gap-2">
-                            <img src="/images/educoach-logo.png" alt="EDUCOACH AI" className="w-6 h-6" />
-                            <CardTitle className="text-lg">
-                                {showHistory ? "Chat History" : "EDUCOACH AI Tutor"}
+                            <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center">
+                                <BookOpen className="w-4 h-4" />
+                            </div>
+                            <CardTitle className="text-[28px] leading-none">
+                                <span className="text-base font-semibold tracking-tight">
+                                    {showHistory ? "Chat History" : "EduBuddy"}
+                                </span>
                             </CardTitle>
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1.5">
                             <Button
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => setShowHistory(!showHistory)}
-                                className="h-8 w-8 text-primary-foreground hover:bg-primary-foreground/20"
+                                className="h-8 w-8 text-white/95 hover:bg-white/15 rounded-full"
                                 title={showHistory ? "Back to chat" : "Chat history"}
                             >
                                 {showHistory ? (
@@ -264,16 +325,16 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
                                 variant="ghost"
                                 size="icon"
                                 onClick={handleNewConversation}
-                                className="h-8 w-8 text-primary-foreground hover:bg-primary-foreground/20"
+                                className="h-8 w-8 text-white/95 hover:bg-white/15 rounded-full"
                                 title="New conversation"
                             >
-                                <RotateCcw className="w-4 h-4" />
+                                <Plus className="w-4 h-4" />
                             </Button>
                             <Button
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => setIsOpen(false)}
-                                className="h-8 w-8 text-primary-foreground hover:bg-primary-foreground/20"
+                                className="h-8 w-8 text-white/95 hover:bg-white/15 rounded-full"
                             >
                                 <X className="w-4 h-4" />
                             </Button>
@@ -284,13 +345,13 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
                     {/* HISTORY PANEL                                                 */}
                     {/* ============================================================ */}
                     {showHistory ? (
-                        <CardContent className="flex-1 overflow-y-auto p-0">
+                        <CardContent className="flex-1 overflow-y-auto p-0 bg-[#fcfaff]">
                             {filteredConversations.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground px-6">
                                     <History className="w-10 h-10 mb-3 opacity-40" />
                                     <p className="text-sm font-medium mb-1">No conversations yet</p>
                                     <p className="text-xs opacity-75">
-                                        Start chatting with the AI Tutor and your conversations will appear here.
+                                        Start chatting with EduBuddy and your conversations will appear here.
                                     </p>
                                 </div>
                             ) : (
@@ -325,51 +386,46 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
                         </CardContent>
                     ) : (
                         <>
-                            {/* Controls: Bloom level + Document scope */}
-                            <div className="px-4 py-3 border-b bg-muted/30 flex-shrink-0 space-y-2">
-                                <div>
-                                    <Label htmlFor="bloom-level" className="text-xs font-medium mb-1 block">
-                                        Learning Level
-                                    </Label>
-                                    <Select value={bloomLevel} onValueChange={setBloomLevel}>
-                                        <SelectTrigger id="bloom-level" className="h-8 text-sm">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="remember">Remember - Recall facts</SelectItem>
-                                            <SelectItem value="understand">Understand - Explain concepts</SelectItem>
-                                            <SelectItem value="apply">Apply - Use in new situations</SelectItem>
-                                            <SelectItem value="analyze">Analyze - Break down information</SelectItem>
-                                            <SelectItem value="evaluate">Evaluate - Make judgments</SelectItem>
-                                            <SelectItem value="create">Create - Produce new work</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
-                                {!propDocumentId && readyDocuments.length > 0 && (
-                                    <div>
-                                        <Label htmlFor="doc-scope" className="text-xs font-medium mb-1 block">
-                                            Search In
-                                        </Label>
-                                        <Select value={selectedDocumentId} onValueChange={setSelectedDocumentId}>
-                                            <SelectTrigger id="doc-scope" className="h-8 text-sm">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="all">All Documents</SelectItem>
-                                                {readyDocuments.map(doc => (
-                                                    <SelectItem key={doc.id} value={doc.id}>
-                                                        {doc.title}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
+                            {/* Controls: Document scope */}
+                            <div className="px-4 py-3 border-b border-[#eadbff] bg-white/70 flex-shrink-0">
+                                <div className="flex items-center justify-between gap-4">
+                                    <div className="min-w-0">
+                                        <p className="text-[11px] tracking-[0.14em] uppercase font-semibold text-[#9c83c9] mb-1">
+                                            Study Context
+                                        </p>
+                                        {!propDocumentId && readyDocuments.length > 0 ? (
+                                            <Select value={selectedDocumentId} onValueChange={setSelectedDocumentId}>
+                                                <SelectTrigger
+                                                    id="doc-scope"
+                                                    className="h-7 border-0 shadow-none p-0 focus:ring-0 text-sm font-semibold text-[#2f2052] max-w-[230px]"
+                                                >
+                                                    <span className="mr-1">Search In:</span>
+                                                    <SelectValue placeholder={currentScopeLabel} />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="all">All Documents</SelectItem>
+                                                    {readyDocuments.map(doc => (
+                                                        <SelectItem key={doc.id} value={doc.id}>
+                                                            {doc.title}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        ) : (
+                                            <p className="text-sm font-semibold text-[#2f2052] truncate">
+                                                {`Search In: ${currentScopeLabel}`}
+                                            </p>
+                                        )}
                                     </div>
-                                )}
+                                    <div className="flex items-center gap-1">
+                                        <div className="w-5 h-5 rounded-full bg-[#a855f7]" />
+                                        <div className="w-5 h-5 rounded-full bg-[#d8b4fe]" />
+                                    </div>
+                                </div>
                             </div>
 
                             {/* Messages */}
-                            <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
+                            <CardContent className="flex-1 overflow-y-auto px-4 py-5 space-y-4 bg-[#fcfaff]">
                                 {localMessages.length === 0 && (
                                     <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground px-4">
                                         <Sparkles className="w-10 h-10 mb-3 opacity-50" />
@@ -394,22 +450,24 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
                                 )}
 
                                 {localMessages.map((message) => (
-                                    <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                                    <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"} mb-4`}>
                                         <div
-                                            className={`flex gap-2 max-w-[85%] ${message.role === "user" ? "flex-row-reverse" : "flex-row"}`}
+                                            className={`flex gap-2.5 max-w-[90%] ${message.role === "user" ? "flex-row-reverse" : "flex-row"}`}
                                         >
-                                            <Avatar className="w-8 h-8 flex-shrink-0">
+                                            <Avatar className="w-8 h-8 flex-shrink-0 mt-1">
                                                 {message.role === "assistant" ? (
-                                                    <AvatarFallback className="bg-primary text-primary-foreground">
-                                                        <Sparkles className="w-4 h-4" />
+                                                    <AvatarFallback className="bg-[#7b40e9] text-white">
+                                                        <Bot className="w-4 h-4" />
                                                     </AvatarFallback>
                                                 ) : (
-                                                    <AvatarFallback className="bg-muted">You</AvatarFallback>
+                                                    <AvatarFallback className="bg-[#f0e8ff] text-[#6f39da]">
+                                                        <User2 className="w-4 h-4" />
+                                                    </AvatarFallback>
                                                 )}
                                             </Avatar>
                                             <div className="min-w-0">
                                                 {message.isLoading ? (
-                                                    <div className="rounded-lg p-3 bg-muted text-foreground">
+                                                    <div className="rounded-2xl px-4 py-3 bg-white border border-[#e8d9ff] text-foreground">
                                                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                                             <Loader2 className="w-4 h-4 animate-spin" />
                                                             Thinking...
@@ -418,37 +476,39 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
                                                 ) : (
                                                     <>
                                                         <div
-                                                            className={`rounded-lg p-3 ${message.role === "user"
-                                                                ? "bg-primary text-primary-foreground"
-                                                                : "bg-muted text-foreground"
+                                                            className={`rounded-2xl px-4 py-3.5 ${message.role === "user"
+                                                                ? "bg-gradient-to-r from-[#7d3ce9] to-[#6a2fd9] text-white shadow-md"
+                                                                : "bg-white border border-[#e8d9ff] text-[#2f2052]"
                                                                 }`}
                                                         >
-                                                            <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                                                            <p className="text-sm leading-6 whitespace-pre-wrap break-words">{message.content}</p>
                                                         </div>
 
                                                         {/* Source citations */}
                                                         {message.sources && message.sources.length > 0 && (
-                                                            <div className="mt-1.5 space-y-1">
-                                                                <p className="text-xs text-muted-foreground px-1 font-medium">Sources:</p>
+                                                            <div className="mt-2 space-y-1.5">
+                                                                <p className="text-xs text-[#8f76bd] px-1 font-medium">Sources:</p>
                                                                 {message.sources.map((source, idx) => (
                                                                     <Link
                                                                         key={`${source.chunkId}-${idx}`}
                                                                         to={`/files/${source.documentId}`}
-                                                                        className="flex items-center gap-1.5 px-2 py-1 rounded text-xs bg-background border hover:bg-accent/50 transition-colors"
+                                                                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-white border border-[#e6d7ff] hover:bg-[#f8f4ff] transition-colors"
                                                                     >
-                                                                        <FileText className="w-3 h-3 flex-shrink-0 text-muted-foreground" />
+                                                                        <FileText className="w-3 h-3 flex-shrink-0 text-[#8f76bd]" />
                                                                         <span className="truncate">{source.documentTitle}</span>
-                                                                        <span className="text-muted-foreground ml-auto flex-shrink-0">
-                                                                            {Math.round(source.similarity * 100)}%
+                                                                        <span className="text-[#7e66af] ml-auto flex-shrink-0">
+                                                                            Relevance: {Math.round(source.similarity * 100)}%
                                                                         </span>
-                                                                        <ExternalLink className="w-3 h-3 flex-shrink-0 text-muted-foreground" />
+                                                                        <ExternalLink className="w-3 h-3 flex-shrink-0 text-[#8f76bd]" />
                                                                     </Link>
                                                                 ))}
                                                             </div>
                                                         )}
 
                                                         {message.timestamp && (
-                                                            <p className="text-xs text-muted-foreground mt-1 px-1">{message.timestamp}</p>
+                                                            <p className="text-xs text-[#8f76bd] mt-2 px-1">
+                                                                {message.role === "assistant" ? "EduBuddy" : "You"} • {message.timestamp}
+                                                            </p>
                                                         )}
                                                     </>
                                                 )}
@@ -461,26 +521,36 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
 
                             {/* Error display */}
                             {error && (
-                                <div className="px-4 py-2 border-t bg-destructive/10 text-destructive text-xs flex-shrink-0">
-                                    {error}
+                                <div className="px-4 py-2 border-t border-[#f0d4e2] bg-destructive/10 text-destructive text-xs flex-shrink-0 space-y-2">
+                                    <p>{error}</p>
+                                    {errorCode === "SUBSCRIPTION_LIMIT" && (
+                                        <Link to="/subscription">
+                                            <Button size="sm" variant="outline" className="h-7 text-xs">
+                                                Upgrade to Premium
+                                            </Button>
+                                        </Link>
+                                    )}
                                 </div>
                             )}
 
                             {/* Input */}
-                            <div className="p-4 border-t bg-card flex-shrink-0">
-                                <div className="flex gap-2">
-                                    <Input
+                            <div className="pt-3 pb-4 border-t border-[#eadbff] bg-[#fcfaff] flex-shrink-0">
+                                <div className="mx-4 rounded-2xl border border-[#e7d8ff] bg-white flex items-end gap-2 p-1.5 pl-4">
+                                    <textarea
+                                        ref={composerRef}
                                         value={inputMessage}
                                         onChange={(e) => setInputMessage(e.target.value)}
                                         onKeyDown={handleKeyPress}
                                         placeholder="Ask about your study materials..."
-                                        className="flex-1"
+                                        rows={1}
+                                        className="flex-1 bg-transparent border-0 shadow-none focus:outline-none text-[15px] leading-6 placeholder:text-[#b09acf] resize-none py-2"
                                         disabled={sendMessage.isPending}
                                     />
                                     <Button
                                         onClick={handleSendMessage}
                                         size="icon"
                                         disabled={inputMessage.trim() === "" || sendMessage.isPending}
+                                        className="rounded-xl h-10 w-10 bg-gradient-to-r from-[#7d3ce9] to-[#6a2fd9] hover:opacity-95"
                                     >
                                         {sendMessage.isPending ? (
                                             <Loader2 className="w-4 h-4 animate-spin" />
@@ -489,6 +559,9 @@ export function AiTutorChat({ documentId: propDocumentId, pendingPrompt, onPromp
                                         )}
                                     </Button>
                                 </div>
+                                <p className="text-[11px] text-[#b2a3cc] text-center mt-3">
+                                    EDUCOACH can make mistakes. Verify important information.
+                                </p>
                             </div>
                         </>
                     )}

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -38,9 +38,39 @@ import { useAuth } from "@/contexts/AuthContext"
 import { useLearningStats, useConceptMasteryList } from "@/hooks/useLearning"
 import { useDocuments } from "@/hooks/useDocuments"
 import { supabase } from "@/lib/supabase"
+import { toast } from "sonner"
+import { useReplanLearningPath } from "@/hooks/useGoalWindowScheduling"
+
+const DAY_LABELS: Record<string, string> = {
+    mon: "Mon",
+    tue: "Tue",
+    wed: "Wed",
+    thu: "Thu",
+    fri: "Fri",
+    sat: "Sat",
+    sun: "Sun",
+}
+
+const DAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+function toSortedDays(days: string[] | null | undefined) {
+    const set = new Set(days || [])
+    return DAY_ORDER.filter((d) => set.has(d))
+}
+
+function formatDayList(days: string[] | null | undefined) {
+    const normalized = toSortedDays(days)
+    if (normalized.length === 0) return "Not set"
+    return normalized.map((d) => DAY_LABELS[d] ?? d).join(", ")
+}
+
+function formatTimeRange(start: string | null | undefined, end: string | null | undefined) {
+    if (!start || !end) return "Not set"
+    return `${start} - ${end}`
+}
 
 export function ProfileContent() {
-    const { profile, user, signOut } = useAuth()
+    const { profile, user, signOut, updateProfile } = useAuth()
     const { data: stats, isLoading: statsLoading } = useLearningStats()
     const { data: masteryList } = useConceptMasteryList()
     const { data: documents } = useDocuments()
@@ -61,6 +91,14 @@ export function ProfileContent() {
     // Delete Account modal state
     const [deleteAccountOpen, setDeleteAccountOpen] = useState(false)
     const [deleteLoading, setDeleteLoading] = useState(false)
+    const [displayNameInput, setDisplayNameInput] = useState(profile?.display_name ?? "")
+    const [isSavingProfile, setIsSavingProfile] = useState(false)
+    const [confirmReplanOpen, setConfirmReplanOpen] = useState(false)
+    const [studyTimeStartInput, setStudyTimeStartInput] = useState(profile?.preferred_study_time_start ?? "18:00")
+    const [studyTimeEndInput, setStudyTimeEndInput] = useState(profile?.preferred_study_time_end ?? "23:59")
+    const [availableStudyDaysInput, setAvailableStudyDaysInput] = useState<string[]>(toSortedDays(profile?.available_study_days))
+    const [dailyStudyMinutesInput, setDailyStudyMinutesInput] = useState<number>(profile?.daily_study_minutes ?? 30)
+    const replanLearningPath = useReplanLearningPath()
 
     const handleOpenChangePassword = () => {
         setCurrentPassword("")
@@ -159,8 +197,33 @@ export function ProfileContent() {
         }
     }
 
+    useEffect(() => {
+        setDisplayNameInput(profile?.display_name ?? "")
+        setStudyTimeStartInput(profile?.preferred_study_time_start ?? "18:00")
+        setStudyTimeEndInput(profile?.preferred_study_time_end ?? "23:59")
+        setAvailableStudyDaysInput(toSortedDays(profile?.available_study_days))
+        setDailyStudyMinutesInput(profile?.daily_study_minutes ?? 30)
+    }, [profile])
+
     const displayName = profile?.display_name || "Student"
     const email = user?.email || profile?.email || ""
+    const normalizedCurrentDisplayName = (profile?.display_name ?? "").trim()
+    const normalizedInputDisplayName = displayNameInput.trim()
+    const hasDisplayNameChanged = normalizedInputDisplayName !== normalizedCurrentDisplayName
+    const currentStart = profile?.preferred_study_time_start ?? "18:00"
+    const currentEnd = profile?.preferred_study_time_end ?? "23:59"
+    const currentMinutes = profile?.daily_study_minutes ?? 30
+    const currentDays = toSortedDays(profile?.available_study_days)
+    const hasStudyWindowChanged =
+        studyTimeStartInput !== currentStart ||
+        studyTimeEndInput !== currentEnd
+    const hasDailyMinutesChanged = dailyStudyMinutesInput !== currentMinutes
+    const normalizedInputDays = toSortedDays(availableStudyDaysInput)
+    const hasAvailableDaysChanged =
+        normalizedInputDays.length !== currentDays.length ||
+        normalizedInputDays.some((d, i) => d !== currentDays[i])
+    const hasScheduleChanged = hasStudyWindowChanged || hasDailyMinutesChanged || hasAvailableDaysChanged
+    const hasProfileChanges = hasDisplayNameChanged || hasScheduleChanged
     const initials = displayName
         .split(' ')
         .map((w) => w[0])
@@ -216,6 +279,107 @@ export function ProfileContent() {
         { label: "Readiness Score", value: `${stats?.averageMastery ?? 0}%`, icon: Award },
     ]
 
+    const saveProfileChanges = async (shouldReplanSchedule: boolean) => {
+        if (!hasProfileChanges) return
+
+        setIsSavingProfile(true)
+        try {
+            const { error } = await updateProfile({
+                display_name: normalizedInputDisplayName,
+                preferred_study_time_start: studyTimeStartInput,
+                preferred_study_time_end: studyTimeEndInput,
+                available_study_days: normalizedInputDays,
+                daily_study_minutes: dailyStudyMinutesInput,
+            })
+            if (error) {
+                toast.error(error.message || "Failed to update profile.")
+                return
+            }
+
+            setDisplayNameInput(normalizedInputDisplayName)
+            if (hasScheduleChanged && shouldReplanSchedule) {
+                const replan = await replanLearningPath.mutateAsync({
+                    availableStudyDays: normalizedInputDays,
+                    dailyStudyMinutes: dailyStudyMinutesInput,
+                })
+                if (replan.failed > 0) {
+                    toast.warning(
+                        `Profile updated. Replanned ${replan.success}/${replan.total} goal-based document schedules.`,
+                    )
+                    return
+                }
+            }
+
+            if (!hasScheduleChanged) {
+                toast.success("Profile updated successfully.")
+                return
+            }
+
+            if (shouldReplanSchedule) {
+                toast.success("Profile and study schedule updated. Learning path replanned.")
+                return
+            }
+
+            toast.success("Profile updated. Learning path was not adjusted.")
+        } catch {
+            toast.error("An unexpected error occurred while updating your profile.")
+        } finally {
+            setIsSavingProfile(false)
+        }
+    }
+
+    const handleSaveProfile = async () => {
+        if (!normalizedInputDisplayName) {
+            toast.error("Display name cannot be empty.")
+            return
+        }
+
+        if (availableStudyDaysInput.length === 0) {
+            toast.error("Select at least one available study day.")
+            return
+        }
+
+        if (!studyTimeStartInput || !studyTimeEndInput || studyTimeStartInput >= studyTimeEndInput) {
+            toast.error("Please set a valid study time window.")
+            return
+        }
+
+        if (dailyStudyMinutesInput < 15 || dailyStudyMinutesInput > 120) {
+            toast.error("Daily study minutes must be between 15 and 120.")
+            return
+        }
+
+        if (!hasProfileChanges) return
+
+        if (hasScheduleChanged) {
+            setConfirmReplanOpen(true)
+            return
+        }
+
+        await saveProfileChanges(false)
+    }
+
+    const handleManualReplan = async () => {
+        if (isSavingProfile || replanLearningPath.isPending) return
+        try {
+            const result = await replanLearningPath.mutateAsync({
+                availableStudyDays: normalizedInputDays,
+                dailyStudyMinutes: dailyStudyMinutesInput,
+            })
+            if (result.total === 0) {
+                toast.info("No goal-dated documents found to replan.")
+                return
+            }
+            if (result.failed > 0) {
+                toast.warning(`Replanned ${result.success}/${result.total} goal-based document schedules.`)
+                return
+            }
+            toast.success(`Replanned ${result.total} goal-based document schedule${result.total !== 1 ? "s" : ""}.`)
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to replan your learning path.")
+        }
+    }
+
     return (
         <>
         <div className="space-y-6">
@@ -265,6 +429,22 @@ export function ProfileContent() {
                                 <p className="font-medium">{profile?.daily_study_minutes ?? 30} minutes</p>
                             </div>
                         </div>
+                        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted">
+                            <Calendar className="w-5 h-5 text-primary" />
+                            <div>
+                                <p className="text-sm text-muted-foreground">Available Days</p>
+                                <p className="font-medium">{formatDayList(profile?.available_study_days)}</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted">
+                            <Clock className="w-5 h-5 text-primary" />
+                            <div>
+                                <p className="text-sm text-muted-foreground">Study Time Window</p>
+                                <p className="font-medium">
+                                    {formatTimeRange(profile?.preferred_study_time_start, profile?.preferred_study_time_end)}
+                                </p>
+                            </div>
+                        </div>
 
                         {/* Quick Stats from real data */}
                         {statsLoading ? (
@@ -311,7 +491,13 @@ export function ProfileContent() {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <Label htmlFor="fullName">Display Name</Label>
-                                    <Input id="fullName" defaultValue={displayName} />
+                                    <Input
+                                        id="fullName"
+                                        value={displayNameInput}
+                                        onChange={(e) => setDisplayNameInput(e.target.value)}
+                                        onKeyDown={(e) => e.key === "Enter" && handleSaveProfile()}
+                                        disabled={isSavingProfile}
+                                    />
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="email">Email</Label>
@@ -332,7 +518,112 @@ export function ProfileContent() {
                                 </div>
                             )}
 
-                            <Button className="mt-4">Save Changes</Button>
+                            <div className="space-y-4 border-t pt-4">
+                                <div>
+                                    <Label className="mb-2 block">Study Availability</Label>
+                                    <p className="text-sm text-muted-foreground mb-3">
+                                        Update your available days and study window from profiling.
+                                    </p>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="studyStart">Study Start</Label>
+                                        <Input
+                                            id="studyStart"
+                                            type="time"
+                                            value={studyTimeStartInput}
+                                            onChange={(e) => setStudyTimeStartInput(e.target.value)}
+                                            disabled={isSavingProfile}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="studyEnd">Study End</Label>
+                                        <Input
+                                            id="studyEnd"
+                                            type="time"
+                                            value={studyTimeEndInput}
+                                            onChange={(e) => setStudyTimeEndInput(e.target.value)}
+                                            disabled={isSavingProfile}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="dailyMinutes">Daily Study Minutes</Label>
+                                    <Input
+                                        id="dailyMinutes"
+                                        type="number"
+                                        min={15}
+                                        max={120}
+                                        step={15}
+                                        value={dailyStudyMinutesInput}
+                                        onChange={(e) => setDailyStudyMinutesInput(Number(e.target.value) || 0)}
+                                        disabled={isSavingProfile}
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label>Available Days</Label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {DAY_ORDER.map((day) => {
+                                            const selected = availableStudyDaysInput.includes(day)
+                                            return (
+                                                <Button
+                                                    key={day}
+                                                    type="button"
+                                                    variant={selected ? "default" : "outline"}
+                                                    size="sm"
+                                                    disabled={isSavingProfile}
+                                                    onClick={() =>
+                                                        setAvailableStudyDaysInput((prev) =>
+                                                            selected ? prev.filter((d) => d !== day) : [...prev, day],
+                                                        )
+                                                    }
+                                                >
+                                                    {DAY_LABELS[day]}
+                                                </Button>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <Button
+                                className="mt-4"
+                                onClick={handleSaveProfile}
+                                disabled={isSavingProfile || replanLearningPath.isPending || !hasProfileChanges}
+                            >
+                                {isSavingProfile ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                        Saving...
+                                    </>
+                                ) : (
+                                    "Save Changes"
+                                )}
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="mt-2"
+                                onClick={handleManualReplan}
+                                disabled={isSavingProfile || replanLearningPath.isPending}
+                            >
+                                {replanLearningPath.isPending ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                        Replanning... ({replanLearningPath.progress.done}/{replanLearningPath.progress.total})
+                                    </>
+                                ) : (
+                                    "Replan Learning Path"
+                                )}
+                            </Button>
+                            {replanLearningPath.isPending && (
+                                <p className="text-xs text-muted-foreground">
+                                    Applying your availability to goal-based documents ({replanLearningPath.progress.done}/{replanLearningPath.progress.total}).
+                                </p>
+                            )}
                         </CardContent>
                     </Card>
 
@@ -586,6 +877,54 @@ export function ProfileContent() {
                             </>
                         ) : (
                             "OK / Confirm"
+                        )}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
+        {/* Confirm Replan Dialog */}
+        <Dialog
+            open={confirmReplanOpen}
+            onOpenChange={(open) => {
+                if (isSavingProfile || replanLearningPath.isPending) return
+                setConfirmReplanOpen(open)
+            }}
+        >
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Adjust learning path for new availability?</DialogTitle>
+                    <DialogDescription>
+                        You changed your study availability. Do you want EduCoach to replan goal-based schedules now?
+                    </DialogDescription>
+                </DialogHeader>
+                <DialogFooter className="gap-2 sm:gap-0 mt-4">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        disabled={isSavingProfile || replanLearningPath.isPending}
+                        onClick={async () => {
+                            setConfirmReplanOpen(false)
+                            await saveProfileChanges(false)
+                        }}
+                    >
+                        Keep current path
+                    </Button>
+                    <Button
+                        type="button"
+                        disabled={isSavingProfile || replanLearningPath.isPending}
+                        onClick={async () => {
+                            setConfirmReplanOpen(false)
+                            await saveProfileChanges(true)
+                        }}
+                    >
+                        {isSavingProfile || replanLearningPath.isPending ? (
+                            <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Saving...
+                            </>
+                        ) : (
+                            "Adjust learning path"
                         )}
                     </Button>
                 </DialogFooter>

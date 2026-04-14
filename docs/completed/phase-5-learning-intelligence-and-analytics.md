@@ -131,6 +131,14 @@ This ensures every completed quiz automatically updates mastery scores and revie
 
 ### Dashboard (`DashboardContent.tsx`)
 - Stats cards now show real data: study streak, quizzes completed, average score (from `useLearningStats`)
+- `Progress Insights` now gives every student:
+  - a lightweight progress chart on the dashboard
+  - a compact topic-mastery summary grouped by document
+- Dashboard chart behavior:
+  - default: 30-day score trend
+  - fallback: 90-day activity heatmap
+  - empty state when no score/activity data exists
+- Dashboard topic mastery remains attempt-backed and excludes placeholder concepts with zero attempts
 
 ### Readiness Score (`ReadinessScoreCard.tsx`)
 - Shows average mastery across all tracked concepts
@@ -146,10 +154,11 @@ This ensures every completed quiz automatically updates mastery scores and revie
 - Links to source documents for review
 
 ### Analytics (`AnalyticsContent.tsx`)
-- Overview: real stats (concepts tracked, quizzes, avg score, streak)
+- Advanced analytics workspace: real stats (concepts tracked, quizzes, avg score, streak)
 - Performance tab: mastery grouped by document with progress bars + mastery distribution chart
 - Weak Topics tab: detailed weak concept list with confidence info
 - Quiz History tab: real attempt history with scores and dates
+- Trends tab remains the premium deep-dive layer for mastery-over-time, score trend, study efficiency, and concept velocity
 
 ### Learning Path (`LearningPathContent.tsx`)
 - Priority-ranked topic list from the global scheduler
@@ -166,6 +175,8 @@ This ensures every completed quiz automatically updates mastery scores and revie
 | `supabase/migrations/006_learning_intelligence.sql` | 3 new tables |
 | `src/lib/learningAlgorithms.ts` | Pure algorithm functions |
 | `src/hooks/useLearning.ts` | React Query hooks |
+| `src/lib/dashboardInsights.ts` | Dashboard progress/maturity summary helper logic |
+| `src/components/analytics/ActivityHeatmap.tsx` | Shared 90-day activity heatmap |
 
 ## 8. Files Modified
 
@@ -173,10 +184,11 @@ This ensures every completed quiz automatically updates mastery scores and revie
 |------|--------|
 | `src/components/quizzes/QuizView.tsx` | Wire quiz submission to learning engine |
 | `src/components/dashboard/DashboardContent.tsx` | Real stats from useLearningStats |
+| `src/components/dashboard/ProgressInsightsSection.tsx` | Non-premium progress chart + topic mastery summary |
 | `src/components/dashboard/ReadinessScoreCard.tsx` | Real aggregate readiness |
 | `src/components/dashboard/WeakTopicsPanel.tsx` | Real weak concepts |
 | `src/components/dashboard/TodaysStudyPlan.tsx` | SM-2 due topics |
-| `src/components/analytics/AnalyticsContent.tsx` | Full analytics rewrite |
+| `src/components/analytics/AnalyticsContent.tsx` | Advanced analytics workspace |
 | `src/components/learning-path/LearningPathContent.tsx` | Global scheduler output |
 
 ---
@@ -196,9 +208,11 @@ This ensures every completed quiz automatically updates mastery scores and revie
 - Verify `question_attempt_log` rows appear in the database
 - Verify `user_concept_mastery` rows are created/updated
 - Check Dashboard: stats cards show real numbers
+- Check Dashboard: Progress Insights shows either score trend, activity fallback, or an empty state
+- Check Dashboard: Topic Mastery summary groups attempt-backed concepts by document
 - Check ReadinessScoreCard: shows computed average mastery
 - Check WeakTopicsPanel: shows actual weak concepts
 - Check TodaysStudyPlan: shows due topics (all concepts start due today)
-- Check Analytics page: all three tabs show real data
+- Check Analytics page: premium deep-dive tabs show real data
 - Check Learning Path page: shows prioritized topic list grouped by mastery level
 - Take the same quiz again: verify mastery scores update, SM-2 intervals advance

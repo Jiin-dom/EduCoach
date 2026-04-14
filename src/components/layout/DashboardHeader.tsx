@@ -1,7 +1,8 @@
-import { BarChart3, LogOut, User, FileQuestion, Calendar, FolderOpen, Bell, Menu, X } from "lucide-react"
+import { BarChart3, LogOut, User, FileQuestion, Calendar, FolderOpen, Bell, Menu, X, CreditCard } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
 import { useState } from "react"
 import { useAuth } from "@/contexts/AuthContext"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
     DropdownMenu,
@@ -13,6 +14,13 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
+import { hasPremiumEntitlement } from "@/lib/subscription"
+import {
+    useMarkAllNotificationsRead,
+    useMarkNotificationRead,
+    useNotifications,
+} from "@/hooks/useNotifications"
+import type { NotificationRecord } from "@/types/notifications"
 
 export function DashboardHeader() {
     const navigate = useNavigate()
@@ -27,28 +35,54 @@ export function DashboardHeader() {
         .join("")
         .substring(0, 2)
         .toUpperCase()
-    const [notifications, setNotifications] = useState([
-        { id: 1, title: "Quiz Completed", message: "You scored 85% on Physics Quiz", time: "2 hours ago", read: false },
-        {
-            id: 2,
-            title: "New Study Material",
-            message: "Calculus notes uploaded successfully",
-            time: "5 hours ago",
-            read: false,
-        },
-        { id: 3, title: "Deadline Reminder", message: "Biology exam in 3 days", time: "1 day ago", read: true },
-        { id: 4, title: "Achievement Unlocked", message: "5-day study streak!", time: "2 days ago", read: false },
-    ])
-
-    const unreadCount = notifications.filter((n) => !n.read).length
+    const { data: notifications = [] } = useNotifications(25)
+    const markNotificationRead = useMarkNotificationRead()
+    const markAllNotificationsRead = useMarkAllNotificationsRead()
+    const unreadCount = notifications.filter((n) => !n.read_at).length
+    const hasFullAnalytics = profile
+        ? hasPremiumEntitlement(
+            profile.subscription_plan,
+            profile.subscription_status,
+            profile.subscription_trial_ends_at
+        )
+        : false
 
     const handleLogout = () => {
         signOut()
         navigate("/login", { replace: true })
     }
 
+    const formatNotificationTime = (iso: string) => {
+        const created = new Date(iso).getTime()
+        const diffMinutes = Math.max(0, Math.floor((Date.now() - created) / 60000))
+
+        if (diffMinutes < 1) return "Just now"
+        if (diffMinutes < 60) return `${diffMinutes}m ago`
+        const diffHours = Math.floor(diffMinutes / 60)
+        if (diffHours < 24) return `${diffHours}h ago`
+        const diffDays = Math.floor(diffHours / 24)
+        if (diffDays < 7) return `${diffDays}d ago`
+        return new Date(iso).toLocaleDateString()
+    }
+
     const handleMarkAllRead = () => {
-        setNotifications(notifications.map((n) => ({ ...n, read: true })))
+        if (unreadCount === 0 || markAllNotificationsRead.isPending) return
+        markAllNotificationsRead.mutate()
+    }
+
+    const handleNotificationClick = (notification: NotificationRecord) => {
+        if (!notification.read_at) {
+            markNotificationRead.mutate(notification.id)
+        }
+
+        if (notification.cta_route) {
+            navigate(notification.cta_route)
+        }
+    }
+
+    const handlePremiumAnalyticsClick = () => {
+        toast.info("Analytics is a Premium feature. Upgrade to unlock full analytics.")
+        navigate("/subscription")
     }
 
     return (
@@ -95,10 +129,24 @@ export function DashboardHeader() {
                                     Path
                                 </Button>
                             </Link>
-                            <Link to="/analytics">
-                                <Button variant="ghost" className="gap-2 text-sm">
+                            {hasFullAnalytics ? (
+                                <Link to="/analytics">
+                                    <Button variant="ghost" className="gap-2 text-sm">
+                                        <BarChart3 className="w-4 h-4" />
+                                        Analytics
+                                    </Button>
+                                </Link>
+                            ) : (
+                                <Button variant="ghost" className="gap-2 text-sm" onClick={handlePremiumAnalyticsClick}>
                                     <BarChart3 className="w-4 h-4" />
                                     Analytics
+                                    <Badge variant="outline" className="ml-1 text-[10px] uppercase">Premium</Badge>
+                                </Button>
+                            )}
+                            <Link to="/subscription">
+                                <Button variant="ghost" className="gap-2 text-sm">
+                                    <CreditCard className="w-4 h-4" />
+                                    Subscription
                                 </Button>
                             </Link>
                         </nav>
@@ -117,27 +165,38 @@ export function DashboardHeader() {
                             <DropdownMenuContent align="end" className="w-[calc(100vw-2rem)] sm:w-80">
                                 <div className="flex items-center justify-between px-2 py-2">
                                     <DropdownMenuLabel className="p-0">Notifications</DropdownMenuLabel>
-                                    <Button variant="ghost" size="sm" className="h-auto p-1 text-xs" onClick={handleMarkAllRead}>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-auto p-1 text-xs"
+                                        onClick={handleMarkAllRead}
+                                        disabled={unreadCount === 0 || markAllNotificationsRead.isPending}
+                                    >
                                         Mark all as read
                                     </Button>
                                 </div>
                                 <DropdownMenuSeparator />
                                 <div className="max-h-[400px] overflow-y-auto">
-                                    {notifications.map((notif) => (
-                                        <DropdownMenuItem
-                                            key={notif.id}
-                                            className={`flex flex-col items-start p-3 cursor-pointer ${!notif.read ? "bg-primary/5" : ""}`}
-                                        >
-                                            <div className="flex items-start justify-between w-full gap-2">
-                                                <div className="flex-1">
-                                                    <p className="font-medium text-sm">{notif.title}</p>
-                                                    <p className="text-xs text-muted-foreground mt-1">{notif.message}</p>
-                                                    <p className="text-xs text-muted-foreground mt-1">{notif.time}</p>
+                                    {notifications.length === 0 ? (
+                                        <div className="p-3 text-xs text-muted-foreground">You are all caught up.</div>
+                                    ) : (
+                                        notifications.map((notif) => (
+                                            <DropdownMenuItem
+                                                key={notif.id}
+                                                className={`flex flex-col items-start p-3 cursor-pointer ${!notif.read_at ? "bg-primary/5" : ""}`}
+                                                onClick={() => handleNotificationClick(notif)}
+                                            >
+                                                <div className="flex items-start justify-between w-full gap-2">
+                                                    <div className="flex-1">
+                                                        <p className="font-medium text-sm">{notif.title}</p>
+                                                        <p className="text-xs text-muted-foreground mt-1">{notif.body}</p>
+                                                        <p className="text-xs text-muted-foreground mt-1">{formatNotificationTime(notif.created_at)}</p>
+                                                    </div>
+                                                    {!notif.read_at && <div className="w-2 h-2 rounded-full bg-primary flex-shrink-0 mt-1" />}
                                                 </div>
-                                                {!notif.read && <div className="w-2 h-2 rounded-full bg-primary flex-shrink-0 mt-1" />}
-                                            </div>
-                                        </DropdownMenuItem>
-                                    ))}
+                                            </DropdownMenuItem>
+                                        ))
+                                    )}
                                 </div>
                             </DropdownMenuContent>
                         </DropdownMenu>
@@ -193,10 +252,31 @@ export function DashboardHeader() {
                                 Learning Path
                             </Button>
                         </Link>
-                        <Link to="/analytics" onClick={() => setIsMobileMenuOpen(false)}>
-                            <Button variant="ghost" className="w-full justify-start gap-3 text-base">
+                        {hasFullAnalytics ? (
+                            <Link to="/analytics" onClick={() => setIsMobileMenuOpen(false)}>
+                                <Button variant="ghost" className="w-full justify-start gap-3 text-base">
+                                    <BarChart3 className="w-5 h-5" />
+                                    Analytics
+                                </Button>
+                            </Link>
+                        ) : (
+                            <Button
+                                variant="ghost"
+                                className="w-full justify-start gap-3 text-base"
+                                onClick={() => {
+                                    setIsMobileMenuOpen(false)
+                                    handlePremiumAnalyticsClick()
+                                }}
+                            >
                                 <BarChart3 className="w-5 h-5" />
                                 Analytics
+                                <Badge variant="outline" className="ml-auto text-[10px] uppercase">Premium</Badge>
+                            </Button>
+                        )}
+                        <Link to="/subscription" onClick={() => setIsMobileMenuOpen(false)}>
+                            <Button variant="ghost" className="w-full justify-start gap-3 text-base">
+                                <CreditCard className="w-5 h-5" />
+                                Subscription
                             </Button>
                         </Link>
                     </nav>

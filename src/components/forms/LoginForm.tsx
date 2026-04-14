@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { useNavigate, useLocation, Link } from "react-router-dom"
 import { useAuth } from "@/contexts/AuthContext"
 import { getOAuthCallbackError, getOAuthReturnPath, clearOAuthReturnPath } from "@/lib/oauthRedirect"
+import { getPostLoginDestination } from "@/lib/authRouting"
 import { SocialAuthButtons } from "@/components/auth/SocialAuthButtons"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -24,15 +25,18 @@ export function LoginForm() {
     const from = (location.state as { from?: { pathname: string } })?.from?.pathname || "/dashboard"
 
     useEffect(() => {
-        if (authLoading || !user) return
-        if (profile?.has_completed_profiling) {
-            const oauthPath = getOAuthReturnPath()
-            const finalPath = oauthPath !== '/dashboard' ? oauthPath : from
-            clearOAuthReturnPath()
-            navigate(finalPath, { replace: true })
-        } else if (profile) {
-            navigate("/profiling", { replace: true })
-        }
+        if (authLoading || !user || !profile) return
+
+        const oauthPath = getOAuthReturnPath()
+        const destination = getPostLoginDestination({
+            role: profile.role,
+            hasCompletedProfiling: profile.has_completed_profiling,
+            fromPath: from,
+            oauthReturnPath: oauthPath,
+        })
+
+        clearOAuthReturnPath()
+        navigate(destination, { replace: true })
     }, [user, profile, authLoading, navigate, from])
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -48,12 +52,19 @@ export function LoginForm() {
                 return
             }
 
-            if (freshProfile?.has_completed_profiling) {
-                navigate(from, { replace: true })
-            } else {
-                navigate("/profiling", { replace: true })
+            if (!freshProfile) {
+                // Auth listener will complete redirect once profile is loaded.
+                return
             }
-        } catch (err) {
+
+            const destination = getPostLoginDestination({
+                role: freshProfile.role,
+                hasCompletedProfiling: freshProfile.has_completed_profiling,
+                fromPath: from,
+            })
+
+            navigate(destination, { replace: true })
+        } catch {
             setError("An unexpected error occurred. Please try again.")
         } finally {
             setLoading(false)

@@ -12,6 +12,8 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0"
+import { computeBalancedQuizTypeTargets, countQuestionsByType } from "./quizAllocation.ts"
+import { filterInvalidIdentificationQuestions } from "./identificationContract.ts"
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -20,12 +22,16 @@ const corsHeaders = {
 
 const MAX_RETRIES = 3
 const BASE_DELAY_MS = 2000
+const QUIZ_PRIORITY_PREMIUM = 2
+const QUIZ_PRIORITY_FREE = 1
 
 interface GenerateQuizRequest {
     documentId: string
     questionCount?: number
     difficulty?: string
     questionTypes?: string[]
+    /** Optional: client-provided targets (server recomputes for safety) */
+    questionTypeTargets?: Record<string, number>
     enhanceWithLlm?: boolean
     /** Optional: user ID for mastery-aware generation */
     userId?: string
@@ -71,6 +77,7 @@ interface NlpGenerateQuestionsPayload {
     chunks: NlpChunkPayload[]
     all_keyphrases: string[]
     question_types: string[]
+    question_type_targets?: Record<string, number>
     max_questions_per_chunk: number
     max_total_questions: number
     difficulty: string
@@ -85,6 +92,12 @@ const DIFFICULTY_MAP: Record<string, string> = {
     hard: 'advanced',
     mixed: 'mixed',
 }
+
+const IDENTIFICATION_PROMPT_RULES = [
+    "Identification questions are short-answer concept or topic lookups only.",
+    "For identification, correct_answer must be a concise term or phrase, never a sentence or paragraph.",
+    "Identification question_text must ask the user to identify a concept, topic, or term, not explain or define it in detail.",
+].join("\n")
 
 function parseTimeoutMs(value: string | null, fallbackMs: number): number {
     if (!value) return fallbackMs
@@ -131,10 +144,17 @@ serve(async (req) => {
             questionCount = 10,
             difficulty = 'mixed',
             questionTypes = ['multiple_choice', 'identification', 'true_false', 'fill_in_blank'],
+            questionTypeTargets: _clientQuestionTypeTargets,
             enhanceWithLlm = true,
             userId: requestUserId,
             focusConceptIds,
         } = body
+
+        const { stableSelectedTypes: stableQuestionTypes, targetsByType: requestedTargetsByType } =
+            computeBalancedQuizTypeTargets({
+                totalCount: questionCount,
+                selectedTypes: questionTypes,
+            })
 
         if (!documentId) {
             throw new Error('INVALID_REQUEST:Document ID is required.')
@@ -247,6 +267,9 @@ serve(async (req) => {
 
         // 4. Query user mastery data for adaptive generation (Phase 6.1)
         const resolvedUserId = requestUserId || userId
+        const subscription = await getSubscriptionForUser(supabase, resolvedUserId)
+        const priorityTier = hasPremiumEntitlement(subscription) ? 'premium' : 'free'
+        const priority = priorityTier === 'premium' ? QUIZ_PRIORITY_PREMIUM : QUIZ_PRIORITY_FREE
 
         interface MasteryInfo {
             mastery_level: string
@@ -299,6 +322,8 @@ serve(async (req) => {
                 description: `Auto-generated quiz from "${document.title}"`,
                 difficulty,
                 status: 'generating',
+                priority_tier: priorityTier,
+                priority,
             })
             .select()
             .single()
@@ -309,6 +334,10 @@ serve(async (req) => {
 
         quizId = quiz.id
         console.log(`📝 Quiz record created: ${quizId}`)
+
+        if (priorityTier === 'free') {
+            await waitForPremiumQuizTurn(supabase, quizId)
+        }
 
         // 5. Build NLP service payload with per-chunk keyphrases and sentences
         const nlpChunks: NlpChunkPayload[] = chunks.map((chunk: { id: string; content: string }) => {
@@ -377,6 +406,7 @@ serve(async (req) => {
                     chunks: nlpChunks,
                     all_keyphrases: allKeyphrases,
                     question_types: questionTypes,
+                    question_type_targets: requestedTargetsByType as Record<string, number>,
                     max_questions_per_chunk: Math.min(5, Math.ceil(questionCount / Math.max(1, chunks.length)) + 1),
                     max_total_questions: questionCount,
                     difficulty: nlpDifficulty,
@@ -443,6 +473,99 @@ serve(async (req) => {
             console.log('ℹ️ NLP_SERVICE_URL not configured, skipping template AQG')
         }
 
+        // If the NLP service returned fewer questions than requested, attempt deterministic supplementation
+        // using the remaining per-type quotas (and then stable-order rebalance) while respecting selected types.
+        if (usedNlpService && nlpServiceUrl && questions.length < questionCount) {
+            const normalizeKey = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+            const dedupByText = (qs: NlpQuestion[]) => {
+                const seen = new Set<string>()
+                const out: NlpQuestion[] = []
+                for (const q of qs) {
+                    const key = normalizeKey(q.question_text)
+                    if (!key || seen.has(key)) continue
+                    seen.add(key)
+                    out.push(q)
+                }
+                return out
+            }
+
+            for (let attempt = 1; attempt <= 2 && questions.length < questionCount; attempt++) {
+                const actualByType = countQuestionsByType(questions)
+                const missingTotal = questionCount - questions.length
+
+                const supplementalTargets: Record<string, number> = {}
+                let supplementalSum = 0
+                for (const t of stableQuestionTypes) {
+                    const target = (requestedTargetsByType as Record<string, number>)[t] || 0
+                    const actual = actualByType[t] || 0
+                    const remaining = Math.max(0, target - actual)
+                    if (remaining > 0) {
+                        supplementalTargets[t] = remaining
+                        supplementalSum += remaining
+                    }
+                }
+
+                // If we still need more, rebalance across selected types in stable order.
+                if (supplementalSum < missingTotal) {
+                    let toAdd = missingTotal - supplementalSum
+                    for (const t of stableQuestionTypes) {
+                        if (toAdd <= 0) break
+                        supplementalTargets[t] = (supplementalTargets[t] || 0) + 1
+                        toAdd -= 1
+                    }
+                }
+
+                const willRequest = Object.values(supplementalTargets).reduce((a, b) => a + b, 0)
+                if (willRequest <= 0) break
+
+                console.log(`🧩 Supplementing questions (attempt=${attempt}) missing=${missingTotal} targets=${JSON.stringify(supplementalTargets)}`)
+
+                try {
+                    const timeoutMs = parseTimeoutMs(Deno.env.get('NLP_SERVICE_TIMEOUT_MS'), 60000)
+                    const supplementPayload: NlpGenerateQuestionsPayload = {
+                        chunks: nlpChunks,
+                        all_keyphrases: allKeyphrases,
+                        question_types: questionTypes,
+                        question_type_targets: supplementalTargets,
+                        max_questions_per_chunk: Math.min(5, Math.ceil(willRequest / Math.max(1, chunks.length)) + 1),
+                        max_total_questions: willRequest,
+                        difficulty: nlpDifficulty,
+                        concepts: conceptInfo,
+                    }
+                    if (hasSlidePages) supplementPayload.document_type = 'slides'
+                    if (masteryMap.size > 0) {
+                        supplementPayload.mastery_context = activeConceptList.map(c => ({
+                            concept_name: c.name,
+                            mastery_level: masteryMap.get(c.id)?.mastery_level ?? 'unknown',
+                            mastery_score: masteryMap.get(c.id)?.mastery_score ?? null,
+                            adaptive_difficulty: getAdaptiveDifficulty(c.id),
+                        }))
+                    }
+
+                    const resp = await fetchWithTimeout(
+                        `${nlpServiceUrl}/generate-questions`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(supplementPayload),
+                        },
+                        timeoutMs
+                    )
+
+                    if (resp.ok) {
+                        const data = await resp.json()
+                        if (data.success && data.questions?.length) {
+                            questions = dedupByText([...questions, ...data.questions]).slice(0, questionCount)
+                            console.log(`🧩 Supplement added=${data.questions.length} total_now=${questions.length}`)
+                        }
+                    }
+                } catch (e) {
+                    console.warn('⚠️ Supplement attempt failed:', (e as Error).message)
+                    break
+                }
+            }
+        }
+
         // 7. Gemini enhancement or fallback
         const canUseGemini = Boolean(geminiApiKey)
 
@@ -455,6 +578,7 @@ serve(async (req) => {
                 activeConceptList,
                 questionCount,
                 questionTypes,
+                requestedTargetsByType as Record<string, number>,
                 geminiApiKey!,
                 nlpDifficulty
             )
@@ -462,6 +586,12 @@ serve(async (req) => {
             // Enhance template-generated questions with Gemini
             console.log('✨ Enhancing template questions with Gemini...')
             questions = await enhanceWithGeminiLlm(questions, chunks, geminiApiKey!)
+        }
+
+        const preIdentificationFilterCount = questions.length
+        questions = filterInvalidIdentificationQuestions(questions)
+        if (preIdentificationFilterCount > questions.length) {
+            console.log(`🧹 Post-enhancement filter removed ${preIdentificationFilterCount - questions.length} invalid identification questions`)
         }
 
         // Post-enhancement quality gate: reject T/F questions that are interrogative
@@ -592,12 +722,84 @@ serve(async (req) => {
 
 // ─── Gemini Fallback: Generate questions entirely with Gemini ────────────────
 
+async function getSubscriptionForUser(
+    supabase: ReturnType<typeof createClient>,
+    userId: string | undefined,
+): Promise<{ plan: 'free' | 'premium'; status: 'active' | 'cancelled' | 'suspended'; trial_ends_at: string | null }> {
+    if (!userId) {
+        return { plan: 'free', status: 'active', trial_ends_at: null }
+    }
+
+    const { data, error } = await supabase
+        .from('subscriptions')
+        .select('plan, status, trial_ends_at')
+        .eq('user_id', userId)
+        .maybeSingle()
+
+    if (error) {
+        console.warn('⚠️ Failed to read subscription, defaulting to free:', error.message)
+        return { plan: 'free', status: 'active', trial_ends_at: null }
+    }
+
+    return {
+        plan: data?.plan === 'premium' ? 'premium' : 'free',
+        status:
+            data?.status === 'cancelled' || data?.status === 'suspended'
+                ? data.status
+                : 'active',
+        trial_ends_at: data?.trial_ends_at ?? null,
+    }
+}
+
+function hasPremiumEntitlement(
+    subscription: { plan: 'free' | 'premium'; status: 'active' | 'cancelled' | 'suspended'; trial_ends_at: string | null },
+    now = new Date()
+): boolean {
+    const premiumActive = subscription.plan === 'premium' && subscription.status === 'active'
+    if (premiumActive) return true
+
+    if (!subscription.trial_ends_at) return false
+    const trialEnd = new Date(subscription.trial_ends_at)
+    if (Number.isNaN(trialEnd.getTime())) return false
+    return trialEnd.getTime() > now.getTime()
+}
+
+async function waitForPremiumQuizTurn(
+    supabase: ReturnType<typeof createClient>,
+    currentQuizId: string,
+): Promise<void> {
+    const maxWaitMs = 30_000
+    const pollMs = 1_000
+    const start = Date.now()
+
+    while (Date.now() - start < maxWaitMs) {
+        const { count, error } = await supabase
+            .from('quizzes')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'generating')
+            .eq('priority', QUIZ_PRIORITY_PREMIUM)
+            .neq('id', currentQuizId)
+
+        if (error) {
+            console.warn('⚠️ Failed to check premium queue, proceeding:', error.message)
+            return
+        }
+
+        if (!count || count <= 0) {
+            return
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, pollMs))
+    }
+}
+
 async function generateWithGemini(
     document: Record<string, unknown>,
     chunks: Array<{ id: string; content: string }>,
     concepts: Array<{ name: string; description?: string; keywords?: string[] }>,
     questionCount: number,
     questionTypes: string[],
+    questionTypeTargets: Record<string, number> | null,
     apiKey: string,
     difficulty: string = 'mixed'
 ): Promise<NlpQuestion[]> {
@@ -611,7 +813,7 @@ async function generateWithGemini(
     const typeDescriptions = questionTypes.map((t) => {
         switch (t) {
             case 'multiple_choice': return 'Multiple Choice (4 options, 1 correct)'
-            case 'identification': return 'Identification (open-ended, short answer)'
+            case 'identification': return 'Identification (short answer, concept/topic name only)'
             case 'true_false': return 'True or False'
             case 'fill_in_blank': return 'Fill in the Blank (sentence with a blank)'
             default: return t
@@ -621,6 +823,10 @@ async function generateWithGemini(
     const difficultyInstruction = difficulty === 'mixed'
         ? 'Mix difficulty levels across beginner, intermediate, and advanced.'
         : `Target difficulty level: ${difficulty}. Most questions should be ${difficulty}.`
+
+    const targetMixInstruction = questionTypeTargets && Object.keys(questionTypeTargets).length > 0
+        ? `Use this exact type mix (counts per type): ${JSON.stringify(questionTypeTargets)}.`
+        : 'Mix the types roughly evenly.'
 
     const prompt = `You are an expert academic tutor creating a quiz from a study document.
 
@@ -636,7 +842,7 @@ ${textSample.substring(0, 6000)}
 DIFFICULTY: ${difficultyInstruction}
 
 Generate exactly ${questionCount} quiz questions using these types: ${typeDescriptions}.
-Mix the types roughly evenly. Every question must be grounded in the document text above.
+${targetMixInstruction} Every question must be grounded in the document text above.
 Ensure questions cover different concepts — avoid asking multiple questions about the same topic.
 
 For each question provide:
@@ -658,7 +864,8 @@ Rules:
 - MCQ distractors must be plausible but clearly wrong
 - Fill-in-the-blank: use __________ for the blank
 - True/False: correct_answer must be "true" or "false"
-- True/False: question_text MUST be a declarative statement, NEVER a question ending with "?" or starting with "How", "What", etc.`
+- True/False: question_text MUST be a declarative statement, NEVER a question ending with "?" or starting with "How", "What", etc.
+${IDENTIFICATION_PROMPT_RULES}`
 
     const content = await callGemini(prompt, apiKey, 4096)
     try {
@@ -710,9 +917,11 @@ IMPORTANT RULES:
 - Do NOT invent new questions
 - ONLY improve phrasing, distractors, and add explanations
 - Return the same number of questions
+- If question_type is "identification", keep it as a short-answer concept/topic lookup with a concise term or phrase answer
 - True/False questions MUST be declarative statements, NEVER questions ending with "?"
 - If a true_false question is actually a question (interrogative), either rephrase it into a declarative statement or change question_type to "identification"
 - If you change a true_false to identification, set correct_answer to the answer of the question and options to null
+${IDENTIFICATION_PROMPT_RULES}
 
 QUESTIONS TO ENHANCE:
 ${JSON.stringify(questionsWithContext, null, 2)}

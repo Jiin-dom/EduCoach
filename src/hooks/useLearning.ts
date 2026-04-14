@@ -10,6 +10,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { adaptiveStudyKeys } from '@/hooks/useAdaptiveStudy'
+import { scheduleDocumentGoalWindow } from '@/services/goalWindowScheduling'
+import { ensureAdaptiveReviewQuizForDocument } from '@/services/adaptiveStudy'
 import {
     computeMastery,
     calculateSM2,
@@ -50,6 +53,7 @@ export interface ConceptMasteryWithDetails extends ConceptMasteryRow {
     concept_category: string | null
     concept_difficulty: string | null
     document_title: string | null
+    document_exam_date: string | null
     /** Mastery after time-based decay (display only, raw value unchanged) */
     display_mastery_score: number
     /** Mastery level after decay */
@@ -228,8 +232,8 @@ export function useConceptMasteryList() {
             const [conceptsRes, docsRes] = await Promise.all([
                 supabase.from('concepts').select('id, name, category, difficulty_level').in('id', conceptIds),
                 docIds.length > 0
-                    ? supabase.from('documents').select('id, title').in('id', docIds)
-                    : Promise.resolve({ data: [] as { id: string; title: string }[], error: null }),
+                    ? supabase.from('documents').select('id, title, exam_date').in('id', docIds)
+                    : Promise.resolve({ data: [] as { id: string; title: string, exam_date: string | null }[], error: null }),
             ])
 
             const conceptMap = new Map((conceptsRes.data || []).map((c) => [c.id, c]))
@@ -238,19 +242,32 @@ export function useConceptMasteryList() {
             return masteryRows.map((row) => {
                 const concept = conceptMap.get(row.concept_id)
                 const doc = row.document_id ? docMap.get(row.document_id) : null
-                // Apply mastery decay for overdue concepts
+                
+                // If there's an exam date, it acts as a hard deadline.
+                // If the scheduled SM-2 due_date is AFTER the exam, we pull it forward to the exam date.
+                let effectiveDueDate = row.due_date;
+                if (doc?.exam_date) {
+                    const examDateOnly = doc.exam_date.split('T')[0];
+                    if (row.due_date > examDateOnly) {
+                        effectiveDueDate = examDateOnly;
+                    }
+                }
+
+                // Apply mastery decay for overdue concepts using the effective due date
                 const { displayMastery, displayLevel } = getMasteryLevelWithDecay(
                     Number(row.mastery_score),
                     Number(row.confidence),
-                    row.due_date,
+                    effectiveDueDate,
                     Number(row.interval_days) || 1,
                 )
                 return {
                     ...row,
+                    due_date: effectiveDueDate,
                     concept_name: concept?.name ?? 'Unknown',
                     concept_category: concept?.category ?? null,
                     concept_difficulty: concept?.difficulty_level ?? null,
                     document_title: doc?.title ?? null,
+                    document_exam_date: doc?.exam_date ?? null,
                     display_mastery_score: displayMastery,
                     display_mastery_level: displayLevel,
                 } as ConceptMasteryWithDetails
@@ -280,7 +297,9 @@ export function useDueTopics() {
     const { data: all, ...rest } = useConceptMasteryList()
 
     const today = todayUTC()
-    const due = (all || []).filter((m) => m.due_date <= today)
+    const due = (all || [])
+        // Exclude bootstrap placeholders; due/review should reflect real performance only.
+        .filter((m) => m.total_attempts > 0 && m.due_date <= today)
         .sort((a, b) => b.priority_score - a.priority_score)
 
     return { data: due, ...rest }
@@ -293,7 +312,9 @@ export function useWeakTopics(limit = 5) {
     const { data: all, ...rest } = useConceptMasteryList()
 
     const weak = (all || [])
-        .filter((m) => m.mastery_level === 'needs_review')
+        // Exclude bootstrap placeholders created during file goal-window scheduling.
+        // Weak topics should only appear after at least one real student attempt.
+        .filter((m) => m.total_attempts > 0 && m.mastery_level === 'needs_review')
         .sort((a, b) => a.mastery_score - b.mastery_score)
         .slice(0, limit)
 
@@ -351,6 +372,7 @@ export function useRescheduleConceptDueDate() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: learningKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
         },
     })
 }
@@ -375,7 +397,7 @@ export function useLearningStats() {
             const [masteryRes, attemptsRes] = await Promise.all([
                 supabase
                     .from('user_concept_mastery')
-                    .select('mastery_score, mastery_level, confidence, due_date, interval_days')
+                    .select('mastery_score, mastery_level, confidence, due_date, interval_days, total_attempts')
                     .eq('user_id', user.id)
                     .abortSignal(signal),
                 supabase
@@ -390,7 +412,8 @@ export function useLearningStats() {
             if (masteryRes.error) throw new Error(masteryRes.error.message)
             if (attemptsRes.error) throw new Error(attemptsRes.error.message)
 
-            const mastery = masteryRes.data || []
+            // Exclude bootstrap placeholders from performance analytics.
+            const mastery = (masteryRes.data || []).filter((m) => Number(m.total_attempts ?? 0) > 0)
             const attempts = attemptsRes.data || []
 
             // Apply mastery decay for stats — use display values
@@ -913,7 +936,7 @@ export async function recomputeConceptMastery(
  */
 export function useProcessQuizResults() {
     const queryClient = useQueryClient()
-    const { user } = useAuth()
+    const { user, profile } = useAuth()
 
     return useMutation({
         mutationFn: async (input: ProcessQuizResultsInput) => {
@@ -932,7 +955,7 @@ export function useProcessQuizResults() {
 
             const needsResolution = questions.filter((q) => !q.concept_id)
 
-            let chunkToConceptMap = new Map<string, string>()
+            const chunkToConceptMap = new Map<string, string>()
             let fallbackConceptId: string | null = null
 
             if (needsResolution.length > 0) {
@@ -1038,10 +1061,41 @@ export function useProcessQuizResults() {
                 await recomputeConceptMastery(user.id, conceptId, documentId, quality, learningConfig)
             }
 
+            // Goal-window scheduling:
+            // If the document has a file goal end-date (`documents.exam_date`), keep the plan
+            // continuously adapted as mastery data changes.
+            const { data: docRow } = await supabase
+                .from('documents')
+                .select('exam_date')
+                .eq('id', documentId)
+                .maybeSingle()
+
+            const activeExamDate = docRow?.exam_date
+            if (activeExamDate) {
+                await scheduleDocumentGoalWindow({
+                    userId: user.id,
+                    documentId,
+                    examDate: activeExamDate,
+                    availableStudyDays: profile?.available_study_days ?? null,
+                    dailyStudyMinutes: profile?.daily_study_minutes ?? 30,
+                    learningConfig,
+                })
+            }
+
+            try {
+                await ensureAdaptiveReviewQuizForDocument({
+                    userId: user.id,
+                    documentId,
+                })
+            } catch (adaptiveQuizError) {
+                console.warn('[Learning] Adaptive review quiz sync failed:', adaptiveQuizError)
+            }
+
             return { processedConcepts: conceptAnswers.size }
         },
         onSuccess: (result) => {
             queryClient.invalidateQueries({ queryKey: learningKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
             if (result && result.processedConcepts > 0) {
                 toast.success('Mastery scores updated', {
                     description: `${result.processedConcepts} concept${result.processedConcepts > 1 ? 's' : ''} updated based on your quiz performance.`,

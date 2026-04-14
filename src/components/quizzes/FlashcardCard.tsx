@@ -10,9 +10,9 @@ interface FlashcardCardProps {
     lastStudied: string
 }
 
-export function FlashcardCard({ id: _id, title, cards, subject, lastStudied }: FlashcardCardProps) {
+export function FlashcardCard({ id, title, cards, subject, lastStudied }: FlashcardCardProps) {
     return (
-        <Card className="hover:shadow-lg transition-shadow">
+        <Card className="hover:shadow-lg transition-shadow" data-flashcard-id={id}>
             <CardHeader>
                 <div className="flex items-start justify-between">
                     <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">

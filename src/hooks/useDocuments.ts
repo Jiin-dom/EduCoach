@@ -9,6 +9,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { deleteFile } from '@/lib/storage'
 import { useAuth } from '@/contexts/AuthContext'
+import { learningKeys } from '@/hooks/useLearning'
+import { adaptiveStudyKeys } from '@/hooks/useAdaptiveStudy'
+import { quizKeys } from '@/hooks/useQuizzes'
 
 export interface SummarySection {
     title: string
@@ -34,6 +37,8 @@ export interface Document {
     id: string
     user_id: string
     title: string
+    goal_label?: string | null
+    quiz_deadline_label?: string | null
     file_name: string
     file_path: string
     file_type: 'pdf' | 'docx' | 'txt' | 'md'
@@ -46,6 +51,7 @@ export interface Document {
     processed_by?: 'pure_nlp' | 'gemini' | null
     processing_quality?: number | null
     deadline?: string | null
+    exam_date?: string | null
     created_at: string
     updated_at: string
 }
@@ -58,6 +64,119 @@ export type ProcessDocumentInput =
         documentId: string
         processor?: DocumentProcessor
     }
+
+export async function processDocumentRequest(input: ProcessDocumentInput) {
+    const payload = typeof input === 'string' ? { documentId: input } : input
+    const { documentId, processor } = payload
+    console.log('[DocumentProcessing] Starting document processing...', {
+        documentId,
+        processor,
+        timestamp: new Date().toISOString()
+    })
+
+    // Pre-flight: ensure we have a valid session BEFORE changing any
+    // document state. This prevents the "stuck in processing" scenario
+    // where the status update succeeds but the Edge Function 401s.
+    const session = await ensureFreshSession()
+    if (!session) {
+        throw new Error('Your session has expired — please log in again')
+    }
+
+    console.log('[DocumentProcessing] Updating document status to "processing"...')
+    const updateResult = await supabase
+        .from('documents')
+        .update({ status: 'processing' })
+        .eq('id', documentId)
+
+    if (updateResult.error) {
+        console.error('[DocumentProcessing] ❌ Failed to update status:', updateResult.error)
+    } else {
+        console.log('[DocumentProcessing] ✅ Status updated to "processing"')
+    }
+
+    // Call the Edge Function
+    console.log('[DocumentProcessing] 🌐 Invoking Edge Function "process-document"...')
+    const edgeFunctionStartTime = performance.now()
+
+    console.log('[DocumentProcessing] 🧠 NLP extraction started (server-side)')
+    const { data, error } = await supabase.functions.invoke('process-document', {
+        body: {
+            documentId,
+            ...(processor ? { processor } : {}),
+        },
+    })
+
+    const edgeFunctionDuration = (performance.now() - edgeFunctionStartTime).toFixed(2)
+
+    if (error) {
+        console.error('[DocumentProcessing] ❌ Edge Function client error:', {
+            error: error.message,
+            duration: `${edgeFunctionDuration}ms`,
+            documentId
+        })
+
+        // The Edge Function may have returned a user-friendly error in
+        // the response body, or it may have already updated the DB.
+        // Extract the friendly message when available.
+        const serverMessage = (data as Record<string, unknown>)?.error as string | undefined
+
+        // Re-check the actual document status before overwriting.
+        const { data: currentDoc } = await supabase
+            .from('documents')
+            .select('status, error_message')
+            .eq('id', documentId)
+            .single()
+
+        const currentStatus = currentDoc?.status
+
+        if (currentStatus === 'ready') {
+            console.log('[DocumentProcessing] ✅ Edge Function already completed (recovered from client timeout)')
+            return { success: true, message: 'Document processed successfully (recovered from timeout)' }
+        }
+
+        if (currentStatus === 'processing') {
+            console.log('[DocumentProcessing] ⏳ Edge Function still running, not overwriting status')
+            throw new Error(
+                'Processing is taking longer than expected. ' +
+                'The document will update automatically when ready.'
+            )
+        }
+
+        // If the Edge Function already saved a friendly error_message
+        // to the DB, don't overwrite it with the generic SDK message.
+        if (currentStatus === 'error' && currentDoc?.error_message) {
+            console.log('[DocumentProcessing] Edge Function already set error in DB, preserving it')
+            throw new Error(currentDoc.error_message)
+        }
+
+        // Edge Function didn't run — use the server response message
+        // if available, otherwise fall back to a friendly default.
+        const friendlyMsg = serverMessage
+            || 'Something went wrong while processing your document. Please try again.'
+
+        console.log('[DocumentProcessing] 🔄 Setting document error status...')
+        await supabase
+            .from('documents')
+            .update({ status: 'error', error_message: friendlyMsg })
+            .eq('id', documentId)
+
+        throw new Error(friendlyMsg)
+    }
+
+    console.log('[DocumentProcessing] 🎉 Edge Function completed successfully!', {
+        duration: `${edgeFunctionDuration}ms`,
+        documentId,
+        response: data
+    })
+
+    console.log('[DocumentProcessing] ✅ NLP extraction finished (response received)', {
+        documentId,
+        processingTimeMs: data?.processingTimeMs,
+        conceptCount: data?.conceptCount
+    })
+
+    return data
+}
 
 // Query keys for cache management
 export const documentKeys = {
@@ -181,21 +300,21 @@ export function useDeleteDocument() {
 
     return useMutation({
         mutationFn: async (document: Document) => {
-            // 1. Delete from storage first
-            const { error: storageError } = await deleteFile(document.file_path)
-            if (storageError) {
-                console.error('Storage deletion failed:', storageError)
-                // Continue anyway - database entry should be removed
-            }
-
-            // 2. Delete from database
+            // Delete the database row first so a relational conflict does not
+            // orphan the UI record after the storage object has already been removed.
             const { error: dbError } = await supabase
                 .from('documents')
                 .delete()
                 .eq('id', document.id)
+                .eq('user_id', document.user_id)
 
             if (dbError) {
                 throw new Error(dbError.message)
+            }
+
+            const { error: storageError } = await deleteFile(document.file_path)
+            if (storageError) {
+                console.error('Storage deletion failed after document row removal:', storageError)
             }
 
             return document.id
@@ -206,8 +325,11 @@ export function useDeleteDocument() {
                 old?.filter((doc) => doc.id !== deletedId)
             )
 
-            // Invalidate to ensure fresh data
+            // Invalidate dependent views so related records disappear immediately
             queryClient.invalidateQueries({ queryKey: documentKeys.all })
+            queryClient.invalidateQueries({ queryKey: ['quizzes'] })
+            queryClient.invalidateQueries({ queryKey: ['adaptive-study'] })
+            queryClient.invalidateQueries({ queryKey: ['learning'] })
         },
     })
 }
@@ -224,7 +346,7 @@ export function useUpdateDocument() {
             updates,
         }: {
             documentId: string
-            updates: Partial<Pick<Document, 'title' | 'status'>>
+            updates: Partial<Pick<Document, 'title' | 'status' | 'exam_date' | 'deadline' | 'goal_label' | 'quiz_deadline_label'>>
         }) => {
             const { data, error } = await supabase
                 .from('documents')
@@ -247,6 +369,10 @@ export function useUpdateDocument() {
 
             // Update detail cache
             queryClient.setQueryData(documentKeys.detail(updatedDoc.id), updatedDoc)
+            queryClient.invalidateQueries({ queryKey: documentKeys.all })
+            queryClient.invalidateQueries({ queryKey: learningKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
+            queryClient.invalidateQueries({ queryKey: quizKeys.all })
         },
     })
 }
@@ -260,118 +386,7 @@ export function useProcessDocument() {
     const queryClient = useQueryClient()
 
     return useMutation({
-        mutationFn: async (input: ProcessDocumentInput) => {
-            const payload = typeof input === 'string' ? { documentId: input } : input
-            const { documentId, processor } = payload
-            console.log('[DocumentProcessing] Starting document processing...', {
-                documentId,
-                processor,
-                timestamp: new Date().toISOString()
-            })
-
-            // Pre-flight: ensure we have a valid session BEFORE changing any
-            // document state. This prevents the "stuck in processing" scenario
-            // where the status update succeeds but the Edge Function 401s.
-            const session = await ensureFreshSession()
-            if (!session) {
-                throw new Error('Your session has expired — please log in again')
-            }
-
-            console.log('[DocumentProcessing] Updating document status to "processing"...')
-            const updateResult = await supabase
-                .from('documents')
-                .update({ status: 'processing' })
-                .eq('id', documentId)
-
-            if (updateResult.error) {
-                console.error('[DocumentProcessing] ❌ Failed to update status:', updateResult.error)
-            } else {
-                console.log('[DocumentProcessing] ✅ Status updated to "processing"')
-            }
-
-            // Call the Edge Function
-            console.log('[DocumentProcessing] 🌐 Invoking Edge Function "process-document"...')
-            const edgeFunctionStartTime = performance.now()
-
-            console.log('[DocumentProcessing] 🧠 NLP extraction started (server-side)')
-            const { data, error } = await supabase.functions.invoke('process-document', {
-                body: {
-                    documentId,
-                    ...(processor ? { processor } : {}),
-                },
-            })
-
-            const edgeFunctionDuration = (performance.now() - edgeFunctionStartTime).toFixed(2)
-
-            if (error) {
-                console.error('[DocumentProcessing] ❌ Edge Function client error:', {
-                    error: error.message,
-                    duration: `${edgeFunctionDuration}ms`,
-                    documentId
-                })
-
-                // The Edge Function may have returned a user-friendly error in
-                // the response body, or it may have already updated the DB.
-                // Extract the friendly message when available.
-                const serverMessage = (data as Record<string, unknown>)?.error as string | undefined
-
-                // Re-check the actual document status before overwriting.
-                const { data: currentDoc } = await supabase
-                    .from('documents')
-                    .select('status, error_message')
-                    .eq('id', documentId)
-                    .single()
-
-                const currentStatus = currentDoc?.status
-
-                if (currentStatus === 'ready') {
-                    console.log('[DocumentProcessing] ✅ Edge Function already completed (recovered from client timeout)')
-                    return { success: true, message: 'Document processed successfully (recovered from timeout)' }
-                }
-
-                if (currentStatus === 'processing') {
-                    console.log('[DocumentProcessing] ⏳ Edge Function still running, not overwriting status')
-                    throw new Error(
-                        'Processing is taking longer than expected. ' +
-                        'The document will update automatically when ready.'
-                    )
-                }
-
-                // If the Edge Function already saved a friendly error_message
-                // to the DB, don't overwrite it with the generic SDK message.
-                if (currentStatus === 'error' && currentDoc?.error_message) {
-                    console.log('[DocumentProcessing] Edge Function already set error in DB, preserving it')
-                    throw new Error(currentDoc.error_message)
-                }
-
-                // Edge Function didn't run — use the server response message
-                // if available, otherwise fall back to a friendly default.
-                const friendlyMsg = serverMessage
-                    || 'Something went wrong while processing your document. Please try again.'
-
-                console.log('[DocumentProcessing] 🔄 Setting document error status...')
-                await supabase
-                    .from('documents')
-                    .update({ status: 'error', error_message: friendlyMsg })
-                    .eq('id', documentId)
-
-                throw new Error(friendlyMsg)
-            }
-
-            console.log('[DocumentProcessing] 🎉 Edge Function completed successfully!', {
-                duration: `${edgeFunctionDuration}ms`,
-                documentId,
-                response: data
-            })
-
-            console.log('[DocumentProcessing] ✅ NLP extraction finished (response received)', {
-                documentId,
-                processingTimeMs: data?.processingTimeMs,
-                conceptCount: data?.conceptCount
-            })
-
-            return data
-        },
+        mutationFn: processDocumentRequest,
         onSuccess: (data, documentId) => {
             console.log('[DocumentProcessing] ✅ Processing mutation successful, refreshing cache...', {
                 documentId,

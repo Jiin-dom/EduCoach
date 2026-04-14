@@ -19,7 +19,7 @@ flowchart LR
     G --> I["📈 Analytics Updated"]
 ```
 
-**In plain English:** You upload study materials → take quizzes on them → every answer you give is logged → three algorithms (WMS, SM-2, Priority Scheduler) crunch the numbers → your personalized learning path and analytics update automatically.
+**In plain English:** You upload study materials -> EduCoach bootstraps an initial scheduled plan (quiz/flashcards/review) using extracted concepts and your availability -> every answer you give later is logged -> three algorithms (WMS, SM-2, Priority Scheduler) crunch the numbers -> EduCoach adapts priorities based on performance -> targeted quizzes, flashcards, and review sessions update automatically -> your personalized learning path and analytics stay current.
 
 ---
 
@@ -27,11 +27,12 @@ flowchart LR
 
 | File | Role |
 |------|------|
-| [QuizView.tsx](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/components/quizzes/QuizView.tsx) | Where the user takes quizzes — triggers the learning engine on submit |
-| [learningAlgorithms.ts](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/lib/learningAlgorithms.ts) | Pure math functions — WMS, SM-2, Priority Score (zero side effects) |
-| [useLearning.ts](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts) | React Query hooks — reads/writes to Supabase, orchestrates the pipeline |
-| [LearningPathContent.tsx](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/components/learning-path/LearningPathContent.tsx) | The Learning Path page — displays the prioritized topic list |
-| [AnalyticsContent.tsx](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/components/analytics/AnalyticsContent.tsx) | The Analytics page — charts, heatmaps, drill-downs |
+| [QuizView.tsx](../../src/components/quizzes/QuizView.tsx) | Where the user takes quizzes — triggers the learning engine on submit |
+| [learningAlgorithms.ts](../../src/lib/learningAlgorithms.ts) | Pure math functions — WMS, SM-2, Priority Score (zero side effects) |
+| [useLearning.ts](../../src/hooks/useLearning.ts) | React Query hooks — reads/writes to Supabase, orchestrates the pipeline |
+| [LearningPathContent.tsx](../../src/components/learning-path/LearningPathContent.tsx) | The Learning Path page — displays the prioritized topic list |
+| [AnalyticsContent.tsx](../../src/components/analytics/AnalyticsContent.tsx) | The Analytics page — charts, heatmaps, drill-downs |
+| [ProfileContent.tsx](../../src/components/profile/ProfileContent.tsx) | Profile availability editor — updates days/time/minutes and triggers replanning |
 
 ---
 
@@ -61,9 +62,9 @@ submitAttempt.mutate(attemptData, {
 
 ### Step 2: Fan Out Per-Question Logs
 
-Inside [useProcessQuizResults](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#527-678), the mutation does this:
+Inside [useProcessQuizResults](../../src/hooks/useLearning.ts#527-678), the mutation does this:
 
-1. **Resolves concept IDs** — each quiz question is linked to a [concept](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/lib/learningAlgorithms.ts#313-325). If `concept_id` is missing on the question, it tries to resolve it via `source_chunk_id → concept` mapping, or falls back to the document's most important concept.
+1. **Resolves concept IDs** — each quiz question is linked to a [concept](../../src/lib/learningAlgorithms.ts#313-325). If `concept_id` is missing on the question, it tries to resolve it via `source_chunk_id → concept` mapping, or falls back to the document's most important concept.
 
 2. **Computes `attempt_index`** — queries existing logs to figure out "this is the Nth time the user has answered a question about this concept."
 
@@ -83,9 +84,9 @@ Inside [useProcessQuizResults](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/C
 
 After logging, the mutation groups all answers by `concept_id` and for **each concept**:
 
-1. Calculates the concept's quiz accuracy ([conceptAccuracyPercent](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/lib/learningAlgorithms.ts#313-325))
+1. Calculates the concept's quiz accuracy ([conceptAccuracyPercent](../../src/lib/learningAlgorithms.ts#313-325))
 2. Maps that accuracy to an SM-2 quality rating (0–5)
-3. Calls [recomputeConceptMastery()](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#435-524) which runs the full pipeline ↓
+3. Calls [recomputeConceptMastery()](../../src/hooks/useLearning.ts#435-524) which runs the full pipeline ↓
 
 ---
 
@@ -269,20 +270,74 @@ A typical quiz covers **multiple concepts**. So one quiz with 10 questions might
 - **Ongoing quizzes** = SM-2 adjusts review schedules, mastery fluctuates based on performance
 
 > [!TIP]
-> The system also integrates **flashcard reviews** (not just quizzes). When you review flashcards linked to concepts, those also update mastery scores through the same [recomputeConceptMastery](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#435-524) function. So flashcards + quizzes both feed into the same learning path.
+> The system also integrates **flashcard reviews** (not just quizzes). When you review flashcards linked to concepts, those also update mastery scores through the same [recomputeConceptMastery](../../src/hooks/useLearning.ts#435-524) function. So flashcards + quizzes both feed into the same learning path.
+
+---
+
+## Adaptive Study Generation
+
+The learning path now acts as a **shipped planner surface**, not just a reporting screen.
+
+Once EduCoach has concept and scheduling data, it turns those findings into visible study work. At first upload this appears as a baseline plan; after attempts it becomes performance-adaptive:
+
+1. **Targeted quizzes**
+   - Generate quizzes weighted toward weak concepts or overdue review topics.
+   - Reduce emphasis on already-mastered concepts unless spaced repetition says they are due again.
+
+2. **Targeted flashcards**
+   - Create flashcards for repeated recall on the same weak concepts.
+   - Use them as lighter-weight follow-up practice between larger quizzes.
+
+3. **Review sessions**
+   - Group due or weak concepts into review blocks that can be scheduled on the learning path.
+   - Use the student's availability, deadlines, and review urgency to decide when they should appear.
+
+4. **Continuous replanning**
+   - Every time the student completes a quiz, flashcard session, or review, the mastery engine runs again.
+   - The next generated study set should change based on the latest mastery, confidence, and due-date data.
+
+5. **Manual quiz creation remains independent**
+   - Students can manually create quizzes at any time.
+   - Adaptive quizzes should complement manual quizzes, not replace or block them.
+
+6. **Baseline quiz kickoff on upload**
+   - After document processing succeeds, EduCoach auto-starts a baseline diagnostic quiz.
+   - The upload flow shows a kickoff toast so students know generation has started.
+   - Baseline type targets reduce fill-in-the-blank share to keep the first quiz broadly diagnostic.
+
+This creates the current shipped loop:
+
+`performance data -> weakness detection -> generated study work -> scheduled learning path -> new performance data`
+
+### Availability Updates and Replanning
+
+The schedule is also availability-driven, not only performance-driven:
+
+- Students can edit `available_study_days`, `preferred_study_time_start`, `preferred_study_time_end`, and `daily_study_minutes` from Profile.
+- Saving availability changes automatically replans goal-window schedules for goal-dated documents.
+- Profile also exposes a manual **Replan Learning Path** action.
+- The Learning Path calendar also exposes a manual **Reschedule Automatically** action that uses the same replanning flow.
+- Replanning runs per document, may complete partially, and shows progress/feedback in the UI.
+- Schedule/calendar quiz-task clicks now provide explicit status feedback/routing when a linked quiz is still missing.
 
 ---
 
 ## 🛤️ How the Learning Path Page Displays Data
 
-The [LearningPathContent.tsx](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/components/learning-path/LearningPathContent.tsx) component pulls data from two hooks:
+The page now builds a shared read-model through `useLearningPathPlan()` so the content view and calendar use the same visible schedule.
 
-1. **[useConceptMasteryList()](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#160-210)** — all concept mastery records with concept names and document titles
-2. **[useLearningStats()](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#251-336)** — aggregated stats (totals, averages, streak)
+The plan combines:
+
+1. **[useConceptMasteryList()](../../src/hooks/useLearning.ts#160-210)** — concept mastery records and due dates
+2. **Adaptive study tasks** — generated quiz, flashcard, and review work
+3. **Document goal markers** — file goals from `exam_date`
+4. **Quiz deadline markers** — assessment targets derived from document `deadline`
+
+`useLearningStats()` still powers the aggregate stat cards and readiness summaries.
 
 ### The Four Priority Sections
 
-The component sorts all concepts into four groups:
+The component sorts attempt-backed concept mastery records into four performance groups (placeholder rows with no attempts are shown separately in the generated plan):
 
 ```mermaid
 flowchart TD
@@ -294,19 +349,29 @@ flowchart TD
     D -- mastered --> G["✅ Mastered\n(sorted by highest mastery first)"]
 ```
 
-1. **🎯 Due Today** — Topics where `due_date ≤ today`. Sorted by priority score (most urgent first). These are overdue or due-now SM-2 reviews.
-2. **⚠️ Needs Review** — Topics with mastery < 60% (that aren't already in "Due Today"). Sorted weakest first.
-3. **📖 Developing** — Topics with mastery 60–79%. Still learning. Sorted weakest first.
-4. **✅ Mastered** — Topics with mastery ≥ 80% and confidence ≥ 67%. Sorted strongest first.
+1. **🎯 Due Today** — Topics where `due_date ≤ today` and there is real attempt data. Sorted by priority score (most urgent first).
+2. **⚠️ Needs Review** — Attempt-backed topics with mastery < 60% (that aren't already in "Due Today"). Sorted weakest first.
+3. **📖 Developing** — Attempt-backed topics with mastery 60–79%. Sorted weakest first.
+4. **✅ Mastered** — Attempt-backed topics with mastery ≥ 80% and confidence ≥ 67%. Sorted strongest first.
+
+### Generated Plan Section
+
+The page also renders a generated-plan section for goal-window placeholders and goal markers:
+
+- **Planned Baseline** items show scheduled study work for concepts that have no attempts yet.
+- **File Goal** markers show document target dates from `exam_date`.
+- **Quiz Deadline** markers show assessment target dates derived from `deadline`.
+
+This keeps the learning path visible even before the student has produced enough quiz history to populate the four mastery sections.
 
 ### Summary Stats (Top Cards)
 
 | Card | Data Source |
 |------|-----------|
 | Due Today count | Filtered from mastery list where `due_date <= today` |
-| Needs Review count | From [useLearningStats().needsReviewCount](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#251-336) |
-| Developing count | From [useLearningStats().developingCount](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#251-336) |
-| Mastered count | From [useLearningStats().masteredCount](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#251-336) |
+| Needs Review count | From [useLearningStats().needsReviewCount](../../src/hooks/useLearning.ts#251-336) |
+| Developing count | From [useLearningStats().developingCount](../../src/hooks/useLearning.ts#251-336) |
+| Mastered count | From [useLearningStats().masteredCount](../../src/hooks/useLearning.ts#251-336) |
 
 ### Overall Readiness Bar
 
@@ -325,20 +390,20 @@ Shows `averageMastery` across ALL tracked concepts as a progress bar with percen
 
 ## 📈 Analytics — How It All Gets Visualized
 
-The [AnalyticsContent.tsx](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/components/analytics/AnalyticsContent.tsx) page provides multiple views into the same underlying data:
+The [AnalyticsContent.tsx](../../src/components/analytics/AnalyticsContent.tsx) page provides multiple views into the same underlying data:
 
 ### Overview Stats (4 cards at top)
 
 | Stat | Source | What it means |
 |------|--------|---------------|
-| **Concepts Tracked** | [useLearningStats().totalConcepts](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#251-336) | Total unique concepts with mastery data (broken down: mastered / developing / needs review) |
-| **Quizzes Completed** | [useLearningStats().quizzesCompleted](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#251-336) | Count of completed attempts from `attempts` table |
-| **Average Score** | [useLearningStats().averageScore](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#251-336) | Mean score across all quiz attempts |
-| **Study Streak** | [useLearningStats().studyStreak](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#251-336) | Consecutive UTC days with at least one quiz attempt |
+| **Concepts Tracked** | [useLearningStats().totalConcepts](../../src/hooks/useLearning.ts#251-336) | Total unique concepts with mastery data (broken down: mastered / developing / needs review) |
+| **Quizzes Completed** | [useLearningStats().quizzesCompleted](../../src/hooks/useLearning.ts#251-336) | Count of completed attempts from `attempts` table |
+| **Average Score** | [useLearningStats().averageScore](../../src/hooks/useLearning.ts#251-336) | Mean score across all quiz attempts |
+| **Study Streak** | [useLearningStats().studyStreak](../../src/hooks/useLearning.ts#251-336) | Consecutive UTC days with at least one quiz attempt |
 
 ### Study Activity Heatmap
 
-- **Hook:** [useStudyActivity()](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#396-432)
+- **Hook:** [useStudyActivity()](../../src/hooks/useLearning.ts#396-432)
 - **Data:** Queries `question_attempt_log` for the last **90 days**, counts questions per day
 - **Display:** GitHub-style green heatmap, 5 intensity levels (0 = gray, 1-4 = green shades)
 - **Purpose:** Shows consistency of study habits at a glance
@@ -360,15 +425,15 @@ Three sub-sections:
 
 ### Tab 2: Trends
 
-- **Hook:** [useScoreTrend()](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#344-388)
+- **Hook:** [useScoreTrend()](../../src/hooks/useLearning.ts#344-388)
 - **Data:** Daily average quiz scores from the `attempts` table for the last **30 days**
 - **Display:** Recharts `LineChart` showing score over time
 - **Purpose:** Shows whether you're improving, plateauing, or declining
 
 ### Tab 3: Weak Topics
 
-- **Hook:** [useWeakTopics(10)](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#237-250)
-- Lists concepts with `mastery_level = 'needs_review'`, sorted by lowest mastery first
+- **Hook:** [useWeakTopics(10)](../../src/hooks/useLearning.ts#237-250)
+- Lists attempt-backed concepts with `mastery_level = 'needs_review'`, sorted by lowest mastery first
 - Each topic is clickable → opens the concept drill-down
 - Shows: concept name, document, category, mastery %, attempt count, confidence %
 
@@ -434,14 +499,15 @@ erDiagram
 
 ## 🔁 Sources That Feed Into the Learning Path
 
-The learning path isn't just fed by quizzes. Two sources update mastery:
+The learning path isn't just fed by quizzes. Multiple study activities should feed mastery and future planning:
 
 | Source | How it works |
 |--------|-------------|
-| **Quizzes** | [useProcessQuizResults](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#527-678) mutation runs after every quiz submission. Inserts log rows, runs WMS + SM-2 per concept. |
-| **Flashcard Reviews** | `useReviewFlashcard` in `useFlashcards.ts` — after rating a flashcard (SM-2 quality), it inserts a `question_attempt_log` entry and calls [recomputeConceptMastery](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#435-524). |
+| **Quizzes** | [useProcessQuizResults](../../src/hooks/useLearning.ts#527-678) mutation runs after every quiz submission. Inserts log rows, runs WMS + SM-2 per concept. |
+| **Flashcard Reviews** | `useReviewFlashcard` in `useFlashcards.ts` — after rating a flashcard (SM-2 quality), it inserts a `question_attempt_log` entry and calls [recomputeConceptMastery](../../src/hooks/useLearning.ts#435-524). |
+| **Scheduled Review Sessions** | Review activities placed on the learning path should also update the same mastery records once they produce student performance data. |
 
-Both sources use the **same** [recomputeConceptMastery()](file:///d:/UC%20Subjects/4th%20Year%202nd%20Sem/CAPSTONE2/code/Dev-EduCoachv1/educoach/src/hooks/useLearning.ts#435-524) function, so quizzes and flashcards are treated equally by the mastery engine.
+All of these study activities should converge on the **same mastery engine** so the next generated quizzes, flashcards, and review sessions reflect the student's latest performance.
 
 ---
 
@@ -469,4 +535,4 @@ Say a student uploads their "Data Structures" lecture notes. The NLP pipeline ex
 - 📖 Developing: Stacks, Queues
 - ⚠️ Needs Review: Linked Lists (priority score is highest — study this first!)
 
-**The system keeps adapting with every quiz and flashcard review.**
+**The system keeps adapting with every quiz, flashcard review, and scheduled review activity.**

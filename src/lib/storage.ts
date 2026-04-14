@@ -389,7 +389,7 @@ export async function downloadFileAsText(
     try {
         const text = await data.text()
         return { data: text, error: null }
-    } catch (err) {
+    } catch {
         return { data: null, error: new Error('Failed to read file as text') }
     }
 }
@@ -427,4 +427,3 @@ export function formatFileSize(bytes: number): string {
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
 }
-

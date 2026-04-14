@@ -198,9 +198,9 @@ export default function LandingPage() {
                                 <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
                                     <Award className="w-6 h-6 text-primary" />
                                 </div>
-                                <h3 className="text-xl font-semibold mb-2">AI Tutor Assistant</h3>
+                                <h3 className="text-xl font-semibold mb-2">EduBuddy Assistant</h3>
                                 <p className="text-muted-foreground">
-                                    Get instant help with your questions through our intelligent AI tutor available 24/7.
+                                    Get instant help with your questions through our intelligent EduBuddy assistant available 24/7.
                                 </p>
                             </CardContent>
                         </Card>
@@ -290,7 +290,7 @@ export default function LandingPage() {
                                     <div>
                                         <h4 className="font-semibold mb-1">Always Available</h4>
                                         <p className="text-muted-foreground">
-                                            Study anytime, anywhere with 24/7 access to your materials and AI tutor.
+                                            Study anytime, anywhere with 24/7 access to your materials and EduBuddy.
                                         </p>
                                     </div>
                                 </li>

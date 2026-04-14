@@ -1503,6 +1503,9 @@ class GenerateQuestionsInput(BaseModel):
     chunks: List[ChunkInput]
     all_keyphrases: List[str] = []
     question_types: List[str] = ["identification", "true_false", "multiple_choice", "fill_in_blank"]
+    # Optional explicit targets per question type (e.g., {"multiple_choice": 8, "true_false": 7}).
+    # When provided, generation should prefer meeting these quotas deterministically.
+    question_type_targets: Optional[Dict[str, int]] = None
     max_questions_per_chunk: int = 3
     max_total_questions: int = 15
     difficulty: str = "mixed"
@@ -1531,17 +1534,22 @@ _IDENTIFICATION_TEMPLATES_BEGINNER = [
     "What does {kp} refer to?",
 ]
 _IDENTIFICATION_TEMPLATES_INTERMEDIATE = [
-    "Explain {kp} in detail.",
-    "What is the purpose of {kp}?",
-    "How does {kp} work?",
-    "Describe the role of {kp}.",
+    "What term is being described?",
+    "Which concept matches this description?",
+    "Identify the concept related to {kp}.",
+    "What is the name of the concept discussed here?",
 ]
 _IDENTIFICATION_TEMPLATES_ADVANCED = [
-    "What are the key characteristics of {kp}?",
-    "Compare and contrast {kp} with related concepts.",
-    "What are the implications of {kp}?",
-    "Analyze how {kp} relates to the broader topic.",
+    "Which topic best matches this description?",
+    "What concept is being referenced here?",
+    "Name the concept described in this statement.",
+    "Identify the key term discussed here.",
 ]
+
+IDENTIFICATION_MAX_WORDS = 8
+IDENTIFICATION_MAX_CHARS = 80
+_IDENTIFICATION_LONG_FORM_PROMPT_RE = re.compile(r"^(explain|describe|compare|analyze|why|how)\b", re.IGNORECASE)
+_IDENTIFICATION_SENTENCE_MARKER_RE = re.compile(r"[.!?]|[,;:]")
 
 _DIFFICULTY_TYPE_WEIGHTS = {
     "beginner":     {"identification": 3, "true_false": 4, "multiple_choice": 2, "fill_in_blank": 1},
@@ -1636,8 +1644,8 @@ def _select_difficulty_label(target_difficulty: str, question_type: str) -> str:
 def _generate_identification(sentence_text: str, keyphrase: str,
                              chunk_id: str, difficulty: str = "mixed") -> Optional[GeneratedQuestion]:
     """Template-based identification question with difficulty-varied templates."""
-    answer = sentence_text.strip()
-    if len(answer) < 20:
+    answer = keyphrase.strip()
+    if len(answer) < 2:
         return None
 
     diff_label = _select_difficulty_label(difficulty, "identification")
@@ -1655,7 +1663,7 @@ def _generate_identification(sentence_text: str, keyphrase: str,
         question_text=q_text,
         correct_answer=answer,
         difficulty_label=diff_label,
-        explanation=_build_explanation(answer, keyphrase),
+        explanation=_build_explanation(sentence_text, keyphrase),
     )
 
 
@@ -1822,6 +1830,16 @@ def _validate_question(q: GeneratedQuestion) -> bool:
         return False
     if len(q.correct_answer) < 2:
         return False
+    if q.question_type == "identification":
+        answer_words = [word for word in q.correct_answer.strip().split() if word]
+        if len(q.correct_answer.strip()) > IDENTIFICATION_MAX_CHARS:
+            return False
+        if len(answer_words) > IDENTIFICATION_MAX_WORDS:
+            return False
+        if _IDENTIFICATION_SENTENCE_MARKER_RE.search(q.correct_answer):
+            return False
+        if _IDENTIFICATION_LONG_FORM_PROMPT_RE.match(q.question_text.strip()):
+            return False
     if q.question_type == "true_false":
         text = q.question_text.strip()
         if text.endswith("?"):
@@ -1857,9 +1875,9 @@ def _generate_slide_questions(
     type_set = set(question_types)
 
     _SLIDE_IDENT_TEMPLATES = [
-        "What is covered in the section on {name}?",
-        "Summarize the key points about {name}.",
-        "What are the main ideas related to {name}?",
+        "Which concept matches this slide description: {desc}?",
+        "What topic is described here: {desc}?",
+        "Identify the concept referred to in this slide summary: {desc}",
     ]
     _SLIDE_MCQ_TEMPLATES = [
         "Which of the following best describes {name}?",
@@ -1882,11 +1900,12 @@ def _generate_slide_questions(
         # Identification from slide topic
         if "identification" in type_set and len(questions) < max_questions:
             template = random.choice(_SLIDE_IDENT_TEMPLATES)
+            desc_short = desc[:180].rstrip()
             q = GeneratedQuestion(
                 chunk_id="",
                 question_type="identification",
-                question_text=template.format(name=name),
-                correct_answer=desc[:300],
+                question_text=template.format(desc=desc_short),
+                correct_answer=name,
                 difficulty_label=diff_label,
                 explanation=f"This is covered in the slide on '{name}': {desc[:150]}",
             )
@@ -2039,9 +2058,28 @@ def generate_questions(input: GenerateQuestionsInput):
         default_type_weights = _DIFFICULTY_TYPE_WEIGHTS.get(difficulty, _DIFFICULTY_TYPE_WEIGHTS["mixed"])
         mastery_lookup = _build_mastery_lookup(input.mastery_context)
 
+        # Optional: type quotas. Filter to selected question_types and normalize to non-negative ints.
+        remaining_by_type: Optional[Dict[str, int]] = None
+        target_total = input.max_total_questions
+        if input.question_type_targets:
+            filtered: Dict[str, int] = {}
+            for qt in input.question_types:
+                raw = input.question_type_targets.get(qt)
+                if raw is None:
+                    continue
+                try:
+                    n = int(raw)
+                except Exception:
+                    continue
+                if n > 0:
+                    filtered[qt] = n
+            if filtered:
+                remaining_by_type = dict(filtered)
+                target_total = min(input.max_total_questions, sum(filtered.values()))
+
         print(f"[nlp-service] /generate-questions start chunks={len(input.chunks)} "
               f"types={input.question_types} difficulty={difficulty} "
-              f"max_total={input.max_total_questions} concepts={len(input.concepts)} "
+              f"max_total={target_total} concepts={len(input.concepts)} "
               f"mastery_ctx={len(input.mastery_context or [])}", flush=True)
 
         all_questions: List[GeneratedQuestion] = []
@@ -2049,7 +2087,7 @@ def generate_questions(input: GenerateQuestionsInput):
         used_keyphrases: set = set()
 
         for chunk in input.chunks:
-            if len(all_questions) >= input.max_total_questions * 2:
+            if len(all_questions) >= target_total * 2:
                 break
 
             chunk_questions: List[GeneratedQuestion] = []
@@ -2088,6 +2126,8 @@ def generate_questions(input: GenerateQuestionsInput):
             for sent in imp_sentences:
                 if len(chunk_questions) >= chunk_max_questions:
                     break
+                if remaining_by_type is not None and sum(remaining_by_type.values()) <= 0:
+                    break
 
                 kp = _find_keyphrase_in_sentence(sent, keyphrases)
 
@@ -2107,6 +2147,8 @@ def generate_questions(input: GenerateQuestionsInput):
                 effective_weights = _DIFFICULTY_TYPE_WEIGHTS.get(effective_difficulty, default_type_weights)
                 weighted_types = []
                 for qt in input.question_types:
+                    if remaining_by_type is not None and remaining_by_type.get(qt, 0) <= 0:
+                        continue
                     w = effective_weights.get(qt, 1)
                     weighted_types.extend([qt] * w)
                 random.shuffle(weighted_types)
@@ -2116,6 +2158,8 @@ def generate_questions(input: GenerateQuestionsInput):
                     if len(chunk_questions) >= chunk_max_questions:
                         break
                     if qt not in type_set:
+                        continue
+                    if remaining_by_type is not None and remaining_by_type.get(qt, 0) <= 0:
                         continue
 
                     q = None
@@ -2134,6 +2178,8 @@ def generate_questions(input: GenerateQuestionsInput):
                         chunk_questions.append(q)
                         if kp:
                             used_keyphrases.add(kp.lower())
+                        if remaining_by_type is not None:
+                            remaining_by_type[qt] = max(0, remaining_by_type.get(qt, 0) - 1)
                         break
 
             all_questions.extend(chunk_questions)
@@ -2145,7 +2191,7 @@ def generate_questions(input: GenerateQuestionsInput):
                 input.all_keyphrases,
                 difficulty,
                 input.question_types,
-                max(3, input.max_total_questions - len(all_questions)),
+                max(3, target_total - len(all_questions)),
             )
             all_questions.extend(slide_questions)
             if slide_questions:
@@ -2156,11 +2202,11 @@ def generate_questions(input: GenerateQuestionsInput):
 
         concept_names = [c.name for c in input.concepts] if input.concepts else []
         all_questions = _balance_by_concept_coverage(
-            all_questions, input.max_total_questions, concept_names
+            all_questions, target_total, concept_names
         )
 
-        if len(all_questions) > input.max_total_questions:
-            all_questions = all_questions[:input.max_total_questions]
+        if len(all_questions) > target_total:
+            all_questions = all_questions[:target_total]
 
         by_type: dict = {}
         for q in all_questions:
@@ -2173,7 +2219,12 @@ def generate_questions(input: GenerateQuestionsInput):
         return GenerateQuestionsResponse(
             success=True,
             questions=all_questions,
-            stats={"total": len(all_questions), "by_type": by_type, "difficulty": difficulty},
+            stats={
+                "total": len(all_questions),
+                "by_type": by_type,
+                "difficulty": difficulty,
+                "requested_type_targets": input.question_type_targets or None,
+            },
         )
 
     except Exception as e:

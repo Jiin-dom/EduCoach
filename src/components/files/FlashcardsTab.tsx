@@ -1,10 +1,12 @@
 import { useState, useMemo } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Layers, ChevronRight, RotateCcw, CheckCircle2, Loader2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useDocumentFlashcards, useReviewFlashcard, useGenerateFlashcards, type Flashcard } from '@/hooks/useFlashcards'
+import { adaptiveStudyKeys } from '@/hooks/useAdaptiveStudy'
 
 interface FlashcardsTabProps {
     documentId: string
@@ -14,6 +16,7 @@ interface FlashcardsTabProps {
 type ReviewRating = 'again' | 'hard' | 'good' | 'easy'
 
 export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps) {
+    const queryClient = useQueryClient()
     const { data: cards, isLoading } = useDocumentFlashcards(documentId)
     const reviewMutation = useReviewFlashcard()
     const generateFlashcards = useGenerateFlashcards()
@@ -21,6 +24,7 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
     const [currentIdx, setCurrentIdx] = useState(0)
     const [flipped, setFlipped] = useState(false)
     const [sessionDone, setSessionDone] = useState(0)
+    const [sessionCards, setSessionCards] = useState<Flashcard[]>([])
 
     const dueCards = useMemo(() => {
         if (!cards) return []
@@ -31,15 +35,28 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
     const totalCards = cards?.length ?? 0
     const dueCount = dueCards.length
 
+    const exitStudyMode = (options?: { invalidateAdaptive?: boolean }) => {
+        setStudyMode(false)
+        setCurrentIdx(0)
+        setFlipped(false)
+        setSessionCards([])
+        if (options?.invalidateAdaptive) {
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
+        }
+    }
+
     const handleRate = async (card: Flashcard, rating: ReviewRating) => {
-        await reviewMutation.mutateAsync({ card, rating })
+        await reviewMutation.mutateAsync({
+            card,
+            rating,
+            deferAdaptiveInvalidation: true,
+        })
         setFlipped(false)
         setSessionDone(prev => prev + 1)
-        if (currentIdx + 1 < dueCards.length) {
+        if (currentIdx + 1 < sessionCards.length) {
             setCurrentIdx(prev => prev + 1)
         } else {
-            setStudyMode(false)
-            setCurrentIdx(0)
+            exitStudyMode({ invalidateAdaptive: true })
         }
     }
 
@@ -88,10 +105,10 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
         )
     }
 
-    if (studyMode && dueCards.length > 0) {
-        const card = dueCards[currentIdx]
+    if (studyMode && sessionCards.length > 0) {
+        const card = sessionCards[currentIdx]
         if (!card) {
-            setStudyMode(false)
+            exitStudyMode({ invalidateAdaptive: true })
             return null
         }
 
@@ -101,14 +118,14 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
                     <span className="text-sm font-medium">Study Session</span>
                     <div className="flex items-center gap-2">
                         <Badge variant="secondary" className="text-xs">
-                            {currentIdx + 1} / {dueCards.length}
+                            {currentIdx + 1} / {sessionCards.length}
                         </Badge>
-                        <Button variant="ghost" size="sm" onClick={() => { setStudyMode(false); setCurrentIdx(0); setFlipped(false) }}>
+                        <Button variant="ghost" size="sm" onClick={() => exitStudyMode({ invalidateAdaptive: true })}>
                             Exit
                         </Button>
                     </div>
                 </div>
-                <Progress value={(currentIdx / dueCards.length) * 100} className="h-1.5" />
+                <Progress value={(currentIdx / sessionCards.length) * 100} className="h-1.5" />
 
                 <div className="flex justify-center">
                     <button
@@ -204,7 +221,12 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
                 <Button
                     className="w-full gap-2"
                     size="lg"
-                    onClick={() => { setStudyMode(true); setCurrentIdx(0); setFlipped(false) }}
+                    onClick={() => {
+                        setSessionCards(dueCards)
+                        setStudyMode(true)
+                        setCurrentIdx(0)
+                        setFlipped(false)
+                    }}
                 >
                     <ChevronRight className="w-4 h-4" />
                     Study {dueCount} Due Card{dueCount !== 1 ? 's' : ''}

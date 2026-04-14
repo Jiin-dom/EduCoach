@@ -10,10 +10,11 @@ import {
     CheckCircle2, XCircle, ArrowRight, ArrowLeft, Trophy,
     Loader2, AlertCircle, ArrowUpRight, RotateCcw
 } from "lucide-react"
-import { useNavigate, useParams, Link } from "react-router-dom"
-import { useQuiz, useQuizQuestions, useSubmitAttempt, useGenerateQuiz } from "@/hooks/useQuizzes"
+import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom"
+import { useQuiz, useQuizQuestions, useSubmitAttempt, useGenerateQuiz, useQuizAttempts } from "@/hooks/useQuizzes"
 import type { QuizQuestion, AttemptAnswer } from "@/hooks/useQuizzes"
 import { useProcessQuizResults } from "@/hooks/useLearning"
+import { isAnswerCorrect } from "@/lib/quizAnswering"
 
 function questionTypeLabel(type: QuizQuestion['question_type']): string {
     switch (type) {
@@ -25,82 +26,18 @@ function questionTypeLabel(type: QuizQuestion['question_type']): string {
     }
 }
 
-function normalizeForGrading(text: string): string {
-    return text
-        .toLowerCase()
-        .trim()
-        .replace(/^(the|a|an)\s+/i, '')
-        .replace(/[.,;:!?'"()[\]{}]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-}
-
-function levenshteinDistance(a: string, b: string): number {
-    const m = a.length
-    const n = b.length
-    const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0))
-
-    for (let i = 0; i <= m; i++) dp[i][0] = i
-    for (let j = 0; j <= n; j++) dp[0][j] = j
-
-    for (let i = 1; i <= m; i++) {
-        for (let j = 1; j <= n; j++) {
-            dp[i][j] = a[i - 1] === b[j - 1]
-                ? dp[i - 1][j - 1]
-                : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
-        }
-    }
-    return dp[m][n]
-}
-
-function isAnswerCorrect(question: QuizQuestion, userAnswer: string): boolean {
-    if (!userAnswer) return false
-    const ua = userAnswer.toLowerCase().trim()
-    const ca = question.correct_answer.toLowerCase().trim()
-
-    if (question.question_type === 'true_false') {
-        return ua === ca
-    }
-    if (question.question_type === 'multiple_choice') {
-        return ua === ca
-    }
-
-    // Fuzzy grading for identification and fill_in_blank
-    const normUa = normalizeForGrading(userAnswer)
-    const normCa = normalizeForGrading(question.correct_answer)
-
-    if (normUa === normCa) return true
-
-    // For fill_in_blank, the expected answer is usually short -- use tighter matching
-    if (question.question_type === 'fill_in_blank') {
-        const maxLen = Math.max(normUa.length, normCa.length)
-        if (maxLen === 0) return false
-        const dist = levenshteinDistance(normUa, normCa)
-        return dist / maxLen <= 0.2
-    }
-
-    // For identification, allow fuzzy match (80% similarity)
-    const maxLen = Math.max(normUa.length, normCa.length)
-    if (maxLen === 0) return false
-    const dist = levenshteinDistance(normUa, normCa)
-    const similarity = 1 - dist / maxLen
-    if (similarity >= 0.8) return true
-
-    // Also accept if the core answer is contained (but require >60% of the correct answer)
-    if (normCa.length > 5 && normUa.includes(normCa)) return true
-    if (normUa.length > 5 && normUa.length >= normCa.length * 0.6 && normCa.includes(normUa)) return true
-
-    return false
-}
-
 export function QuizView() {
     const navigate = useNavigate()
     const { id } = useParams<{ id: string }>()
     const startedAtRef = useRef(new Date().toISOString())
     const startTimestampRef = useRef(Date.now())
 
+    const [searchParams] = useSearchParams()
+    const reviewMode = searchParams.get('review') === 'true'
+
     const { data: quiz, isLoading: quizLoading, error: quizError } = useQuiz(id)
     const { data: questions, isLoading: questionsLoading } = useQuizQuestions(id)
+    const { data: attempts, isLoading: attemptsLoading } = useQuizAttempts(id)
     const submitAttempt = useSubmitAttempt()
     const processQuizResults = useProcessQuizResults()
     const retryGenerate = useGenerateQuiz()
@@ -109,6 +46,19 @@ export function QuizView() {
     const [answers, setAnswers] = useState<Record<string, string>>({})
     const [showResults, setShowResults] = useState(false)
     const [elapsedSeconds, setElapsedSeconds] = useState(0)
+
+    // Load past attempt if in review mode
+    useEffect(() => {
+        if (reviewMode && attempts && attempts.length > 0 && questions && questions.length > 0) {
+            const latestAttempt = attempts[0]
+            const pastAnswers: Record<string, string> = {}
+            latestAttempt.answers.forEach(a => {
+                pastAnswers[a.question_id] = a.user_answer
+            })
+            setAnswers(pastAnswers)
+            setShowResults(true)
+        }
+    }, [reviewMode, attempts, questions])
 
     // Per-question time tracking
     const questionStartRef = useRef(Date.now())
@@ -124,7 +74,7 @@ export function QuizView() {
     }, [showResults, quiz, questions])
 
     // Loading state
-    if (quizLoading || questionsLoading) {
+    if (quizLoading || questionsLoading || (reviewMode && attemptsLoading)) {
         return (
             <div className="max-w-3xl mx-auto">
                 <Card>
