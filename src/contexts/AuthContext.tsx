@@ -20,6 +20,8 @@ export type OAuthProvider = 'google' | 'facebook' | 'apple'
 interface UserProfile {
     id: string
     email: string | null
+    first_name: string | null
+    last_name: string | null
     display_name: string | null
     avatar_url: string | null
     learning_style: string | null
@@ -47,7 +49,7 @@ interface AuthContextType {
     session: Session | null
     loading: boolean
     signIn: (email: string, password: string) => Promise<{ error: Error | null; profile: UserProfile | null }>
-    signUp: (email: string, password: string) => Promise<{ error: Error | null }>
+    signUp: (email: string, password: string, firstName: string, lastName: string) => Promise<{ error: Error | null }>
     signInWithOAuth: (provider: OAuthProvider, returnTo?: string) => Promise<{ error: Error | null }>
     signOut: () => Promise<void>
     updateProfile: (updates: Partial<UserProfile>) => Promise<{ error: Error | null }>
@@ -271,8 +273,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: null, profile: userProfile }
     }
 
-    const signUp = async (email: string, password: string) => {
-        const { error } = await supabase.auth.signUp({ email, password })
+    const signUp = async (email: string, password: string, firstName: string, lastName: string) => {
+        const displayName = `${firstName} ${lastName}`.trim()
+        const { error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+                data: { first_name: firstName, last_name: lastName, display_name: displayName }
+            }
+        })
         return { error: error as Error | null }
     }
 

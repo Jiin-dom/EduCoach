@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import { useNavigate, useLocation, Link } from "react-router-dom"
 import { useAuth } from "@/contexts/AuthContext"
+import { validateEmail } from "@/lib/authValidation"
 import { getOAuthCallbackError, getOAuthReturnPath, clearOAuthReturnPath } from "@/lib/oauthRedirect"
 import { getPostLoginDestination } from "@/lib/authRouting"
 import { SocialAuthButtons } from "@/components/auth/SocialAuthButtons"
@@ -19,6 +20,7 @@ export function LoginForm() {
     const [email, setEmail] = useState("")
     const [password, setPassword] = useState("")
     const [error, setError] = useState<string | null>(() => getOAuthCallbackError())
+    const [emailError, setEmailError] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
 
     // Get the intended destination from state, or default to dashboard
@@ -42,6 +44,11 @@ export function LoginForm() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setError(null)
+        setEmailError(null)
+
+        const emailErr = validateEmail(email)
+        if (emailErr) { setEmailError(emailErr); return }
+
         setLoading(true)
 
         try {
@@ -100,6 +107,7 @@ export function LoginForm() {
                             required
                             className="h-11 rounded-full px-4 border-muted-foreground/30 focus-visible:ring-primary/50"
                         />
+                        {emailError && <p className="text-xs text-destructive">{emailError}</p>}
                     </div>
 
                     <div className="space-y-2">

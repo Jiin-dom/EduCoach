@@ -84,7 +84,7 @@ const dayOfWeekOptions = [
 
 export function ProfilingForm() {
     const navigate = useNavigate()
-    const { updateProfile } = useAuth()
+    const { profile, updateProfile } = useAuth()
 
     // Form state
     const [step, setStep] = useState(1)
@@ -95,7 +95,7 @@ export function ProfilingForm() {
     const [studyTimeStart, setStudyTimeStart] = useState<string>("18:00")
     const [studyTimeEnd, setStudyTimeEnd] = useState<string>("23:59")
     const [availableStudyDays, setAvailableStudyDays] = useState<string[]>([])
-    const [displayName, setDisplayName] = useState<string>("")
+    const [displayName, setDisplayName] = useState<string>(profile?.first_name || "")
 
     // Submission state
     const [isSubmitting, setIsSubmitting] = useState(false)
@@ -201,7 +201,7 @@ export function ProfilingForm() {
                     </div>
                 </div>
                 <CardDescription>
-                    {step === 1 && "What should we call you?"}
+                    {step === 1 && "Pick a display name — a nickname or your first name"}
                     {step === 2 && "How do you learn best?"}
                     {step === 3 && "What's your primary learning goal?"}
                     {step === 4 && "What subjects are you studying?"}
@@ -214,10 +214,10 @@ export function ProfilingForm() {
                 {step === 1 && (
                     <div className="space-y-4">
                         <div className="space-y-2">
-                            <Label htmlFor="displayName">Your Name</Label>
+                            <Label htmlFor="displayName">Display Name</Label>
                             <Input
                                 id="displayName"
-                                placeholder="Enter your name or nickname"
+                                placeholder="Enter a nickname or your first name"
                                 value={displayName}
                                 onChange={(e) => setDisplayName(e.target.value)}
                                 className="text-lg py-6"

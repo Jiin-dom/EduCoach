@@ -338,7 +338,7 @@ export function FilesContent() {
                     </div>
                     <div>
                         <h1 className="text-2xl sm:text-3xl font-bold">Study Materials</h1>
-                        <p className="text-sm sm:text-base text-muted-foreground">Upload first, then process pending files when you are ready</p>
+                        <p className="text-sm sm:text-base text-muted-foreground">Single files process automatically. Bulk uploads are queued — click Process All when ready.</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
@@ -364,7 +364,7 @@ export function FilesContent() {
                             <CardDescription>
                                 {isBatchRunning
                                     ? `Processing ${activeIds.length} file${activeIds.length === 1 ? "" : "s"} now with ${queuedCount} still queued.`
-                                    : `${pendingCount} pending file${pendingCount === 1 ? "" : "s"} ready for processing.`}
+                                    : `${pendingCount} file${pendingCount === 1 ? " was" : "s were"} uploaded in bulk and queued to prevent overload. Click Process All to start.`}
                             </CardDescription>
                         </div>
                         <Button

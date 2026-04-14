@@ -317,7 +317,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                                     : "Uploading files and creating pending documents in your library."
                                 : isSingleSelection
                                     ? "Upload your document to generate AI-powered quizzes and study guides."
-                                    : "Upload one file to start processing automatically, or upload several files to add them as pending and process them later."}
+                                    : "Upload one file to start processing automatically. Uploading multiple files adds them as pending — you can process them from the Files page when ready."}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -508,7 +508,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                                         </p>
                                         {uploadMode === "defer_processing" && (
                                             <p className="text-xs text-muted-foreground">
-                                                Processing does not start automatically. Use the Files page to process pending documents when you are ready.
+                                                Files uploaded in bulk are queued to prevent system overload. Head to the Files page and click Process All when ready.
                                             </p>
                                         )}
                                     </div>
