@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
 
@@ -183,6 +183,28 @@ export function useAdaptiveStudyTasks() {
         refetchInterval: (query) => {
             const tasks = query.state.data as AdaptiveStudyTask[] | undefined
             return tasks?.some((task) => task.status === 'generating') ? 4000 : false
+        },
+    })
+}
+
+export function useRescheduleAdaptiveStudyTask() {
+    const queryClient = useQueryClient()
+    const { user } = useAuth()
+
+    return useMutation({
+        mutationFn: async (input: { taskId: string; newScheduledDate: string }) => {
+            if (!user) throw new Error('Not authenticated')
+
+            const { data, error } = await supabase.rpc('reschedule_adaptive_study_task', {
+                p_task_id: input.taskId,
+                p_new_date: input.newScheduledDate,
+            })
+
+            if (error) throw new Error(error.message)
+            return data
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
         },
     })
 }
