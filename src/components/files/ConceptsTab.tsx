@@ -138,7 +138,7 @@ export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, o
                                         {(concept.keywords || []).slice(0, 3).map((kw) => (
                                             <Badge key={kw} variant="secondary" className="text-[10px] hidden sm:inline-flex">{kw}</Badge>
                                         ))}
-                                        {concept.source_pages?.map((p) => (
+                                        {concept.source_pages?.slice(0, 6).map((p) => (
                                             <Badge
                                                 key={p}
                                                 variant="outline"
@@ -148,6 +148,11 @@ export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, o
                                                 <FileText className="w-2.5 h-2.5" />p.{p}
                                             </Badge>
                                         ))}
+                                        {(concept.source_pages?.length ?? 0) > 6 && (
+                                            <Badge variant="outline" className="text-[10px] hidden sm:inline-flex">
+                                                +{concept.source_pages!.length - 6}
+                                            </Badge>
+                                        )}
                                     </div>
                                 </div>
                                 <div className="w-16 flex-shrink-0 pt-1">
