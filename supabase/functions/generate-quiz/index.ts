@@ -20,7 +20,6 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const MAX_RETRIES = 3
 const BASE_DELAY_MS = 2000
 const QUIZ_PRIORITY_PREMIUM = 2
 const QUIZ_PRIORITY_FREE = 1
@@ -105,6 +104,51 @@ function parseTimeoutMs(value: string | null, fallbackMs: number): number {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackMs
 }
 
+function dedupByText(qs: NlpQuestion[]): NlpQuestion[] {
+    const normalizeKey = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+    const seen = new Set<string>()
+    const out: NlpQuestion[] = []
+    for (const q of qs) {
+        const key = normalizeKey(q.question_text)
+        if (!key || seen.has(key) || !q.question_text.trim()) continue
+        seen.add(key)
+        out.push(q)
+    }
+    return out
+}
+
+function validateAndFilter(questions: NlpQuestion[]): NlpQuestion[] {
+    let filtered = filterInvalidIdentificationQuestions(questions)
+    filtered = filtered.filter((q) => {
+        if (q.question_type === 'true_false') {
+            const text = q.question_text.trim()
+            if (text.endsWith('?')) return false
+            if (/^(how|what|why|when|where|who|which|can|could|should|would|is|are|do|does|did|will|has|have)\b/i.test(text)) return false
+            if (/\.\.\.|\u2026/.test(text)) return false
+        }
+        return true
+    })
+    return filtered
+}
+
+/**
+ * Robustly adds new questions to an existing set while preserving uniqueness and respecting a cap.
+ */
+function addUniqueQuestions(existing: NlpQuestion[], added: NlpQuestion[], max: number): NlpQuestion[] {
+    const normalizeKey = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+    const seen = new Set(existing.map(q => normalizeKey(q.question_text)).filter(Boolean))
+    const result = [...existing]
+
+    for (const q of added) {
+        if (result.length >= max) break
+        const key = normalizeKey(q.question_text)
+        if (!key || seen.has(key) || !q.question_text.trim()) continue
+        seen.add(key)
+        result.push(q)
+    }
+    return result
+}
+
 async function fetchWithTimeout(
     url: string,
     options: RequestInit,
@@ -144,7 +188,6 @@ serve(async (req) => {
             questionCount = 10,
             difficulty = 'mixed',
             questionTypes = ['multiple_choice', 'identification', 'true_false', 'fill_in_blank'],
-            questionTypeTargets: _clientQuestionTypeTargets,
             enhanceWithLlm = true,
             userId: requestUserId,
             focusConceptIds,
@@ -336,7 +379,7 @@ serve(async (req) => {
         console.log(`📝 Quiz record created: ${quizId}`)
 
         if (priorityTier === 'free') {
-            await waitForPremiumQuizTurn(supabase, quizId)
+            await waitForPremiumQuizTurn(supabase, quiz.id)
         }
 
         // 5. Build NLP service payload with per-chunk keyphrases and sentences
@@ -476,19 +519,6 @@ serve(async (req) => {
         // If the NLP service returned fewer questions than requested, attempt deterministic supplementation
         // using the remaining per-type quotas (and then stable-order rebalance) while respecting selected types.
         if (usedNlpService && nlpServiceUrl && questions.length < questionCount) {
-            const normalizeKey = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
-            const dedupByText = (qs: NlpQuestion[]) => {
-                const seen = new Set<string>()
-                const out: NlpQuestion[] = []
-                for (const q of qs) {
-                    const key = normalizeKey(q.question_text)
-                    if (!key || seen.has(key)) continue
-                    seen.add(key)
-                    out.push(q)
-                }
-                return out
-            }
-
             for (let attempt = 1; attempt <= 2 && questions.length < questionCount; attempt++) {
                 const actualByType = countQuestionsByType(questions)
                 const missingTotal = questionCount - questions.length
@@ -647,28 +677,90 @@ serve(async (req) => {
             console.log(`ℹ️ Skipping validation pass (quota tier: ${quotaTier})`)
         }
 
+        // Final global validation and de-duplication of the initial generation set
+        questions = validateAndFilter(dedupByText(questions))
+
+        // Guaranteed count catch-up: if filtering left us short, fill the gap.
+        let catchUpAttempts = 0
+        const MAX_CATCHUP_ATTEMPTS = 4
+
+        while (
+            questions.length < questionCount &&
+            canUseGemini &&
+            quotaTier !== 'red' &&
+            catchUpAttempts < MAX_CATCHUP_ATTEMPTS
+        ) {
+            catchUpAttempts++
+            const missingCount = questionCount - questions.length
+            const buffer = Math.max(1, Math.min(missingCount, 3))
+            const targetCatchUpCount = missingCount + buffer
+
+            console.log(`🧩 Catch-up pass #${catchUpAttempts} active. Current count: ${questions.length}/${questionCount}. Requesting ${targetCatchUpCount} more.`)
+
+            const actualByType = countQuestionsByType(questions)
+            const supplementalTargets: Record<string, number> = {}
+            let remainingToAllocate = targetCatchUpCount
+
+            for (const t of stableQuestionTypes) {
+                const target = (requestedTargetsByType as Record<string, number>)[t] || 0
+                const actual = actualByType[t] || 0
+                const missingForThisType = Math.max(0, target - actual)
+                const take = Math.min(missingForThisType, remainingToAllocate)
+                if (take > 0) {
+                    supplementalTargets[t] = take
+                    remainingToAllocate -= take
+                }
+            }
+
+            if (remainingToAllocate > 0) {
+                for (let i = 0; i < remainingToAllocate; i++) {
+                    const t = stableQuestionTypes[i % stableQuestionTypes.length]
+                    supplementalTargets[t] = (supplementalTargets[t] || 0) + 1
+                }
+            }
+
+            try {
+                const catchUpBatch = await generateWithGemini(
+                    document,
+                    chunks,
+                    activeConceptList,
+                    targetCatchUpCount,
+                    questionTypes,
+                    supplementalTargets,
+                    geminiApiKey!,
+                    nlpDifficulty
+                )
+                metrics.geminiCallsMade++
+
+                if (catchUpBatch.length > 0) {
+                    const validCatchUp = validateAndFilter(catchUpBatch)
+                    const beforeAddCount = questions.length
+                    questions = addUniqueQuestions(questions, validCatchUp, questionCount)
+                    const addedCount = questions.length - beforeAddCount
+
+                    console.log(`✅ Catch-up #${catchUpAttempts} produced ${catchUpBatch.length} items (${validCatchUp.length} valid). Added ${addedCount} unique items. Total: ${questions.length}/${questionCount}`)
+                }
+            } catch (err) {
+                const msg = (err as Error).message
+                if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED')) {
+                    console.warn(`⚠️ Catch-up #${catchUpAttempts} hit quota pressure; degrading to red tier`)
+                    quotaTier = 'red'
+                    break
+                }
+                console.warn(`⚠️ Catch-up pass #${catchUpAttempts} encountered an error:`, msg)
+            }
+        }
+
+        if (questions.length > questionCount) {
+            questions = questions.slice(0, questionCount)
+        }
+
+        if (questions.length < questionCount) {
+            console.warn(`🚨 Final quiz count ${questions.length} is still below target ${questionCount} after all catch-up attempts.`)
+        }
+
         metrics.quotaTier = quotaTier
         metrics.nlpOnlyFallback = quotaTier === 'red'
-
-        const preIdentificationFilterCount = questions.length
-        questions = filterInvalidIdentificationQuestions(questions)
-        if (preIdentificationFilterCount > questions.length) {
-            console.log(`🧹 Post-enhancement filter removed ${preIdentificationFilterCount - questions.length} invalid identification questions`)
-        }
-
-        const preFilterCount = questions.length
-        questions = questions.filter(q => {
-            if (q.question_type === 'true_false') {
-                const text = q.question_text.trim()
-                if (text.endsWith('?')) return false
-                if (/^(how|what|why|when|where|who|which|can|could|should|would|is|are|do|does|did|will|has|have)\b/i.test(text)) return false
-                if (/\.\.\.|\u2026/.test(text)) return false
-            }
-            return true
-        })
-        if (preFilterCount > questions.length) {
-            console.log(`🧹 Post-enhancement filter removed ${preFilterCount - questions.length} invalid T/F questions`)
-        }
 
         console.log(`📊 Quality metrics: ${JSON.stringify(metrics)}`)
 
@@ -1021,7 +1113,10 @@ Return ONLY valid JSON:
         }
         const parsed = JSON.parse(jsonStr.trim())
         if (parsed.questions?.length > 0) {
-            console.log(`✅ Gemini enhanced ${parsed.questions.length} questions`)
+            if (parsed.questions.length < questions.length) {
+                console.warn(`⚠️ Gemini enhancement returned ${parsed.questions.length} questions, but ${questions.length} were expected.`)
+            }
+            console.log(`✅ Gemini enhanced ${parsed.questions.length}/${questions.length} questions`)
             return parsed.questions.map((q: Record<string, unknown>) => ({
                 chunk_id: (q.chunk_id as string) || '',
                 question_type: q.question_type as string,

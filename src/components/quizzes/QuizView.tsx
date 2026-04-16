@@ -413,10 +413,11 @@ export function QuizView() {
                                 {question.options.map((option, index) => (
                                     <div
                                         key={index}
-                                        className="flex items-center space-x-3 p-4 rounded-lg border hover:bg-accent/5 cursor-pointer"
+                                        className="flex items-center space-x-3 p-4 rounded-lg border hover:bg-accent/5 cursor-pointer transition-colors hover:border-primary/50"
+                                        onClick={() => handleAnswer(option)}
                                     >
                                         <RadioGroupItem value={option} id={`option-${index}`} />
-                                        <Label htmlFor={`option-${index}`} className="flex-1 cursor-pointer">
+                                        <Label htmlFor={`option-${index}`} className="flex-1 cursor-pointer font-medium">
                                             {option}
                                         </Label>
                                     </div>
@@ -432,10 +433,11 @@ export function QuizView() {
                                 {["true", "false"].map((val) => (
                                     <div
                                         key={val}
-                                        className="flex items-center space-x-3 p-4 rounded-lg border hover:bg-accent/5 cursor-pointer"
+                                        className="flex items-center space-x-3 p-4 rounded-lg border hover:bg-accent/5 cursor-pointer transition-colors hover:border-primary/50"
+                                        onClick={() => handleAnswer(val)}
                                     >
                                         <RadioGroupItem value={val} id={`tf-${question.id}-${val}`} />
-                                        <Label htmlFor={`tf-${question.id}-${val}`} className="flex-1 cursor-pointer capitalize">
+                                        <Label htmlFor={`tf-${question.id}-${val}`} className="flex-1 cursor-pointer capitalize font-medium">
                                             {val}
                                         </Label>
                                     </div>
