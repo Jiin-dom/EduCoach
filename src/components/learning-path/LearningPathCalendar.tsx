@@ -22,6 +22,7 @@ import {
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
 import { useNavigate } from "react-router-dom"
 import { useLearningPathPlan } from "@/hooks/useLearningPathPlan"
+import { useRescheduleAdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { getLearningPathItemsForDate, type LearningPathPlanItem, type PlannedReviewPlanItem } from "@/lib/learningPathPlan"
 import { useReplanLearningPath } from "@/hooks/useGoalWindowScheduling"
 import { useAuth } from "@/contexts/AuthContext"
@@ -56,6 +57,7 @@ export function LearningPathCalendar() {
     const { data: efficiency } = useStudyEfficiency();
     const plan = useLearningPathPlan()
     const rescheduleDueDate = useRescheduleConceptDueDate()
+    const rescheduleAdaptiveTask = useRescheduleAdaptiveStudyTask()
     const replanLearningPath = useReplanLearningPath()
     const { profile } = useAuth()
 
@@ -94,6 +96,16 @@ export function LearningPathCalendar() {
             })
     }
 
+    const isMovingItem = rescheduleDueDate.isPending || rescheduleAdaptiveTask.isPending
+
+    const dragPayload = (payload: Record<string, string>) => JSON.stringify(payload)
+
+    const renderFixedBadge = () => (
+        <span className="ml-auto shrink-0 rounded-full border border-current/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide opacity-70">
+            Fixed
+        </span>
+    )
+
     // Helper to render pills based on session type
     const renderSessionBadge = (session: PlannedReviewPlanItem) => {
         let colors = ""
@@ -112,8 +124,10 @@ export function LearningPathCalendar() {
             <div
                 draggable
                 onDragStart={(e) => {
-                    // Store the concept being moved; on drop we resolve masteryScore/confidence from `masteryList`.
-                    e.dataTransfer.setData('text/plain', session.conceptId)
+                    e.dataTransfer.setData('text/plain', dragPayload({
+                        kind: "planned_review",
+                        conceptId: session.conceptId,
+                    }))
                     e.dataTransfer.effectAllowed = 'move'
                 }}
                 className={`p-2 rounded-md border text-xs mb-2 ${colors} cursor-grab active:cursor-grabbing`}
@@ -144,7 +158,10 @@ export function LearningPathCalendar() {
             <div
                 draggable
                 onDragStart={(e) => {
-                    e.dataTransfer.setData('text/plain', session.conceptId)
+                    e.dataTransfer.setData('text/plain', dragPayload({
+                        kind: "planned_review",
+                        conceptId: session.conceptId,
+                    }))
                     e.dataTransfer.effectAllowed = 'move'
                 }}
                 className={`mt-1 text-[10px] p-1 rounded truncate border flex items-center gap-1 ${colors} cursor-grab active:cursor-grabbing`}
@@ -176,15 +193,17 @@ export function LearningPathCalendar() {
                         type="button"
                         onClick={() => navigate(`/quizzes/${item.quizId}`)}
                         className={`w-full mt-1 text-[10px] font-bold p-1 rounded truncate border flex items-center gap-1 ${colors} hover:opacity-90 transition-opacity`}
-                        title={item.title}
+                        title={`${item.title} (fixed milestone)`}
                     >
                         {icon}
-                        {item.title}
+                        <span className="truncate">{item.title}</span>
+                        {renderFixedBadge()}
                     </button>
                 ) : (
-                    <div className={`mt-1 text-[10px] font-bold p-1 rounded truncate border flex items-center gap-1 ${colors}`}>
+                    <div className={`mt-1 text-[10px] font-bold p-1 rounded truncate border flex items-center gap-1 ${colors}`} title={`${item.title} (fixed milestone)`}>
                         {icon}
-                        {item.title}
+                        <span className="truncate">{item.title}</span>
+                        {renderFixedBadge()}
                     </div>
                 )
             }
@@ -194,18 +213,20 @@ export function LearningPathCalendar() {
                     type="button"
                     onClick={() => navigate(`/quizzes/${item.quizId}`)}
                     className={`w-full text-left p-2 rounded-md border text-xs mb-2 ${colors} hover:opacity-90 transition-opacity cursor-pointer`}
-                    title={`${label} goal`}
+                    title={`${label} goal (fixed milestone)`}
                 >
                     <div className="flex items-center gap-1 font-bold mb-1 truncate">
                         {icon}
-                        {label}: {item.title}
+                        <span className="truncate">{label}: {item.title}</span>
+                        {renderFixedBadge()}
                     </div>
                 </button>
             ) : (
-                <div className={`p-2 rounded-md border text-xs mb-2 ${colors}`}>
+                <div className={`p-2 rounded-md border text-xs mb-2 ${colors}`} title={`${label} goal (fixed milestone)`}>
                     <div className="flex items-center gap-1 font-bold mb-1 truncate">
                         {icon}
-                        {label}: {item.title}
+                        <span className="truncate">{label}: {item.title}</span>
+                        {renderFixedBadge()}
                     </div>
                 </div>
             )
@@ -254,8 +275,16 @@ export function LearningPathCalendar() {
             <button
                 type="button"
                 onClick={openTask}
-                className={`${compact ? 'mt-1 text-[10px] p-1' : 'p-2 text-xs mb-2'} w-full rounded-md border ${colors} text-left hover:opacity-90 transition-opacity`}
-                title={task.title}
+                draggable
+                onDragStart={(e) => {
+                    e.dataTransfer.setData('text/plain', dragPayload({
+                        kind: "adaptive_task",
+                        taskId: task.id,
+                    }))
+                    e.dataTransfer.effectAllowed = 'move'
+                }}
+                className={`${compact ? 'mt-1 text-[10px] p-1' : 'p-2 text-xs mb-2'} w-full rounded-md border ${colors} text-left hover:opacity-90 transition-opacity cursor-grab active:cursor-grabbing`}
+                title={`${task.title}. Drag to move or click to open.`}
             >
                 <div className="font-bold truncate">
                     {label}: {task.documentTitle}
@@ -264,22 +293,61 @@ export function LearningPathCalendar() {
         )
     }
 
-    const handleRescheduleDrop = (conceptId: string, targetDateStr: string) => {
-        if (!conceptId || !targetDateStr) return
+    const handleRescheduleDrop = (rawPayload: string, targetDateStr: string) => {
+        if (!rawPayload || !targetDateStr) return
+
+        let payload: { kind?: string; conceptId?: string; taskId?: string } | null = null
+        try {
+            payload = JSON.parse(rawPayload)
+        } catch {
+            payload = { kind: "planned_review", conceptId: rawPayload }
+        }
+
+        if (payload?.kind === "adaptive_task" && payload.taskId) {
+            const source = plan.items.find((item) => item.kind === "adaptive_task" && item.task.id === payload?.taskId)
+            if (!source || source.kind !== "adaptive_task") return
+            if (source.task.scheduledDate === targetDateStr) return
+
+            rescheduleAdaptiveTask.mutate(
+                { taskId: source.task.id, newScheduledDate: targetDateStr },
+                {
+                    onSuccess: () => {
+                        toast.success(`Moved ${source.task.type} to ${targetDateStr}.`)
+                    },
+                    onError: (error) => {
+                        toast.error(error instanceof Error ? error.message : "Failed to move study task.")
+                    },
+                },
+            )
+            return
+        }
+
+        const conceptId = payload?.conceptId
+        if (!conceptId) return
         const current = getSessionsForDate(targetDateStr)
         if (current.some((item) => item.conceptId === conceptId)) return
         const source = plan.items.find((item) => item.kind === "planned_review" && item.conceptId === conceptId)
         if (!source || source.kind !== "planned_review") return
         const currentMastery = source.mastery
         if (!currentMastery) return
-        if (currentMastery.due_date === targetDateStr) return // no-op
+        if (currentMastery.due_date === targetDateStr) return
 
-        rescheduleDueDate.mutate({
-            conceptId,
-            newDueDate: targetDateStr,
-            masteryScore: Number(currentMastery.mastery_score),
-            confidence: Number(currentMastery.confidence),
-        })
+        rescheduleDueDate.mutate(
+            {
+                conceptId,
+                newDueDate: targetDateStr,
+                masteryScore: Number(currentMastery.mastery_score),
+                confidence: Number(currentMastery.confidence),
+            },
+            {
+                onSuccess: () => {
+                    toast.success(`Moved ${source.source === "baseline" ? "planned review" : "review"} to ${targetDateStr}.`)
+                },
+                onError: (error) => {
+                    toast.error(error instanceof Error ? error.message : "Failed to move review.")
+                },
+            },
+        )
     }
 
     const handleAutomaticReplan = async () => {
@@ -415,9 +483,9 @@ export function LearningPathCalendar() {
                                                 }}
                                                 onDrop={(e) => {
                                                     e.preventDefault()
-                                                    if (rescheduleDueDate.isPending) return
-                                                    const conceptId = e.dataTransfer.getData('text/plain')
-                                                    handleRescheduleDrop(conceptId, dateStr)
+                                                    if (isMovingItem) return
+                                                    const payload = e.dataTransfer.getData('text/plain')
+                                                    handleRescheduleDrop(payload, dateStr)
                                                 }}
                                             >
                                                 <div className="mb-3">
@@ -463,9 +531,9 @@ export function LearningPathCalendar() {
                                                     }}
                                                     onDrop={(e) => {
                                                         e.preventDefault()
-                                                        if (rescheduleDueDate.isPending) return
-                                                        const conceptId = e.dataTransfer.getData('text/plain')
-                                                        handleRescheduleDrop(conceptId, dateStr)
+                                                        if (isMovingItem) return
+                                                        const payload = e.dataTransfer.getData('text/plain')
+                                                        handleRescheduleDrop(payload, dateStr)
                                                     }}
                                                 >
                                                     <span className="text-xs font-medium">{i + 1}</span>
