@@ -1534,16 +1534,16 @@ _IDENTIFICATION_TEMPLATES_BEGINNER = [
     "What does {kp} refer to?",
 ]
 _IDENTIFICATION_TEMPLATES_INTERMEDIATE = [
-    "What term is being described?",
-    "Which concept matches this description?",
+    'Based on the following:\n\n"{sentence}"\n\nWhat term is being described?',
+    'Based on the following:\n\n"{sentence}"\n\nWhich concept matches this description?',
     "Identify the concept related to {kp}.",
-    "What is the name of the concept discussed here?",
+    'Based on the following:\n\n"{sentence}"\n\nWhat is the name of the concept discussed here?',
 ]
 _IDENTIFICATION_TEMPLATES_ADVANCED = [
-    "Which topic best matches this description?",
-    "What concept is being referenced here?",
-    "Name the concept described in this statement.",
-    "Identify the key term discussed here.",
+    'Consider the following:\n\n"{sentence}"\n\nWhich topic best matches this description?',
+    'Consider the following:\n\n"{sentence}"\n\nWhat concept is being referenced?',
+    'Consider the following:\n\n"{sentence}"\n\nName the concept described in this statement.',
+    'Consider the following:\n\n"{sentence}"\n\nIdentify the key term discussed here.',
 ]
 
 IDENTIFICATION_MAX_WORDS = 8
@@ -1641,6 +1641,13 @@ def _select_difficulty_label(target_difficulty: str, question_type: str) -> str:
     return defaults.get(question_type, "intermediate")
 
 
+def _mask_keyphrase_in_sentence(sentence: str, keyphrase: str) -> str:
+    """Remove the keyphrase from a sentence so the answer isn't leaked in the stem."""
+    pattern = re.compile(re.escape(keyphrase), re.IGNORECASE)
+    masked = pattern.sub("______", sentence)
+    return masked.strip()
+
+
 def _generate_identification(sentence_text: str, keyphrase: str,
                              chunk_id: str, difficulty: str = "mixed") -> Optional[GeneratedQuestion]:
     """Template-based identification question with difficulty-varied templates."""
@@ -1656,7 +1663,8 @@ def _generate_identification(sentence_text: str, keyphrase: str,
     else:
         templates = _IDENTIFICATION_TEMPLATES_INTERMEDIATE
 
-    q_text = random.choice(templates).format(kp=keyphrase)
+    masked_sentence = _mask_keyphrase_in_sentence(sentence_text, keyphrase)
+    q_text = random.choice(templates).format(kp=keyphrase, sentence=masked_sentence)
     return GeneratedQuestion(
         chunk_id=chunk_id,
         question_type="identification",
