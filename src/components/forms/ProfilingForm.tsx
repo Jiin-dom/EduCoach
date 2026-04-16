@@ -7,7 +7,14 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
-import { ArrowRight, ArrowLeft, BookOpen, Eye, Headphones, PenTool, Loader2 } from "lucide-react"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
+import { ArrowRight, ArrowLeft, BookOpen, Eye, Headphones, PenTool, Loader2, Clock, Plus } from "lucide-react"
 
 // Learning style options with descriptions
 const learningStyles = [
@@ -82,9 +89,23 @@ const dayOfWeekOptions = [
     { id: "sun", label: "Sun" },
 ]
 
+// Generate 15-minute intervals for the time picker
+const timeOptions = Array.from({ length: 24 * 4 }).map((_, i) => {
+    const hour = Math.floor(i / 4)
+    const minute = (i % 4) * 15
+    const ampm = hour >= 12 ? 'PM' : 'AM'
+    const displayHour = hour % 12 || 12
+    const displayMinute = minute.toString().padStart(2, '0')
+    const value = `${hour.toString().padStart(2, '0')}:${displayMinute}`
+    return {
+        value,
+        label: `${displayHour}:${displayMinute} ${ampm}`
+    }
+})
+
 export function ProfilingForm() {
     const navigate = useNavigate()
-    const { updateProfile } = useAuth()
+    const { profile, updateProfile } = useAuth()
 
     // Form state
     const [step, setStep] = useState(1)
@@ -95,7 +116,7 @@ export function ProfilingForm() {
     const [studyTimeStart, setStudyTimeStart] = useState<string>("18:00")
     const [studyTimeEnd, setStudyTimeEnd] = useState<string>("23:59")
     const [availableStudyDays, setAvailableStudyDays] = useState<string[]>([])
-    const [displayName, setDisplayName] = useState<string>("")
+    const [displayName, setDisplayName] = useState<string>(profile?.first_name || "")
 
     // Submission state
     const [isSubmitting, setIsSubmitting] = useState(false)
@@ -201,7 +222,7 @@ export function ProfilingForm() {
                     </div>
                 </div>
                 <CardDescription>
-                    {step === 1 && "What should we call you?"}
+                    {step === 1 && "Pick a display name — a nickname or your first name"}
                     {step === 2 && "How do you learn best?"}
                     {step === 3 && "What's your primary learning goal?"}
                     {step === 4 && "What subjects are you studying?"}
@@ -214,10 +235,10 @@ export function ProfilingForm() {
                 {step === 1 && (
                     <div className="space-y-4">
                         <div className="space-y-2">
-                            <Label htmlFor="displayName">Your Name</Label>
+                            <Label htmlFor="displayName">Display Name</Label>
                             <Input
                                 id="displayName"
-                                placeholder="Enter your name or nickname"
+                                placeholder="Enter a nickname or your first name"
                                 value={displayName}
                                 onChange={(e) => setDisplayName(e.target.value)}
                                 className="text-lg py-6"
@@ -315,65 +336,90 @@ export function ProfilingForm() {
 
                 {/* Step 5: Daily Study Time */}
                 {step === 5 && (
-                    <div className="space-y-6">
-                        <div className="space-y-3">
-                            <Label className="block">Study time window</Label>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-2 mb-1">
+                                <Clock className="w-4 h-4 text-primary" />
+                                <Label className="text-base font-bold">Study Time Window</Label>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                    <Label htmlFor="studyStart" className="text-sm">
-                                        Start
+                                    <Label htmlFor="studyStart" className="text-xs uppercase tracking-wider font-bold text-muted-foreground">
+                                        Starting At
                                     </Label>
-                                    <Input
-                                        id="studyStart"
-                                        type="time"
-                                        value={studyTimeStart}
-                                        onChange={(e) => setStudyTimeStart(e.target.value)}
-                                    />
+                                    <Select value={studyTimeStart} onValueChange={setStudyTimeStart}>
+                                        <SelectTrigger id="studyStart" className="h-12 text-base rounded-xl transition-all hover:border-primary/50">
+                                            <SelectValue placeholder="Select start time" />
+                                        </SelectTrigger>
+                                        <SelectContent className="max-h-48">
+                                            {timeOptions.map((opt) => (
+                                                <SelectItem key={`start-${opt.value}`} value={opt.value}>
+                                                    {opt.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                 </div>
+
                                 <div className="space-y-2">
-                                    <Label htmlFor="studyEnd" className="text-sm">
-                                        End
+                                    <Label htmlFor="studyEnd" className="text-xs uppercase tracking-wider font-bold text-muted-foreground">
+                                        Ending At
                                     </Label>
-                                    <Input
-                                        id="studyEnd"
-                                        type="time"
-                                        value={studyTimeEnd}
-                                        onChange={(e) => setStudyTimeEnd(e.target.value)}
-                                    />
+                                    <Select value={studyTimeEnd} onValueChange={setStudyTimeEnd}>
+                                        <SelectTrigger id="studyEnd" className="h-12 text-base rounded-xl transition-all hover:border-primary/50">
+                                            <SelectValue placeholder="Select end time" />
+                                        </SelectTrigger>
+                                        <SelectContent className="max-h-60">
+                                            {timeOptions.map((opt) => (
+                                                <SelectItem key={`end-${opt.value}`} value={opt.value}>
+                                                    {opt.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                 </div>
                             </div>
+                            <p className="text-[11px] text-muted-foreground italic">
+                                Tip: We'll schedule your study sessions within this timeframe.
+                            </p>
                         </div>
 
-                        <div className="space-y-3">
-                            <Label className="block">Days you can study</Label>
-                            <p className="text-sm text-muted-foreground">Select all days that usually work.</p>
-                            <div className="flex flex-wrap gap-3">
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-2 mb-1">
+                                <Plus className="w-4 h-4 text-primary" />
+                                <Label className="text-base font-bold">Weekly Availability</Label>
+                            </div>
+                            <p className="text-sm text-muted-foreground">Select the days that work best for your schedule.</p>
+                            <div className="flex flex-wrap gap-2">
                                 {dayOfWeekOptions.map((d) => (
                                     <div
                                         key={d.id}
-                                        className={`inline-flex items-center gap-3 p-3 rounded-lg border ${
-                                            availableStudyDays.includes(d.id) ? "border-primary bg-primary/5" : ""
+                                        className={`inline-flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer hover:shadow-sm ${
+                                            availableStudyDays.includes(d.id) 
+                                                ? "border-primary bg-primary/5 ring-1 ring-primary/20" 
+                                                : "bg-white hover:border-muted-foreground/30"
                                         }`}
+                                        onClick={() => {
+                                            const next = availableStudyDays.includes(d.id)
+                                                ? availableStudyDays.filter((x) => x !== d.id)
+                                                : [...availableStudyDays, d.id]
+                                            setAvailableStudyDays(next)
+                                        }}
                                     >
                                         <Checkbox
                                             id={`day-${d.id}`}
                                             checked={availableStudyDays.includes(d.id)}
-                                            onCheckedChange={(checked) => {
-                                                const isChecked = checked === true
-                                                const next = isChecked
-                                                    ? [...availableStudyDays, d.id]
-                                                    : availableStudyDays.filter((x) => x !== d.id)
-                                                setAvailableStudyDays(next)
-                                            }}
+                                            onCheckedChange={() => {}} // click handled by div
                                         />
-                                        <Label htmlFor={`day-${d.id}`} className="cursor-pointer">
+                                        <Label htmlFor={`day-${d.id}`} className="cursor-pointer font-medium">
                                             {d.label}
                                         </Label>
                                     </div>
                                 ))}
                             </div>
                             {availableStudyDays.length > 0 && (
-                                <p className="text-sm text-primary">
+                                <p className="text-sm text-primary font-medium">
                                     {availableStudyDays.length} day{availableStudyDays.length > 1 ? "s" : ""} selected
                                 </p>
                             )}

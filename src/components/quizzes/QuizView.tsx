@@ -26,6 +26,19 @@ function questionTypeLabel(type: QuizQuestion['question_type']): string {
     }
 }
 
+const WEAK_STEM_PATTERNS = [
+    /^what term is being described\??$/i,
+    /^which concept matches this description\??$/i,
+    /^what is the name of the concept discussed here\??$/i,
+    /^identify the key term\b/i,
+    /^which topic best matches\b/i,
+]
+
+function isQuestionStemWeak(text: string): boolean {
+    if (!text || text.trim().length < 10) return true
+    return WEAK_STEM_PATTERNS.some(p => p.test(text.trim()))
+}
+
 export function QuizView() {
     const navigate = useNavigate()
     const { id } = useParams<{ id: string }>()
@@ -383,6 +396,12 @@ export function QuizView() {
 
             <Card>
                 <CardHeader>
+                    {isQuestionStemWeak(question.question_text) && (
+                        <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 mb-3">
+                            <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+                            <p className="text-sm text-amber-800">This question may be unclear. Feel free to skip it — it won't count against you.</p>
+                        </div>
+                    )}
                     <CardTitle className="text-xl">{question.question_text}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -394,10 +413,11 @@ export function QuizView() {
                                 {question.options.map((option, index) => (
                                     <div
                                         key={index}
-                                        className="flex items-center space-x-3 p-4 rounded-lg border hover:bg-accent/5 cursor-pointer"
+                                        className="flex items-center space-x-3 p-4 rounded-lg border hover:bg-accent/5 cursor-pointer transition-colors hover:border-primary/50"
+                                        onClick={() => handleAnswer(option)}
                                     >
                                         <RadioGroupItem value={option} id={`option-${index}`} />
-                                        <Label htmlFor={`option-${index}`} className="flex-1 cursor-pointer">
+                                        <Label htmlFor={`option-${index}`} className="flex-1 cursor-pointer font-medium">
                                             {option}
                                         </Label>
                                     </div>
@@ -413,10 +433,11 @@ export function QuizView() {
                                 {["true", "false"].map((val) => (
                                     <div
                                         key={val}
-                                        className="flex items-center space-x-3 p-4 rounded-lg border hover:bg-accent/5 cursor-pointer"
+                                        className="flex items-center space-x-3 p-4 rounded-lg border hover:bg-accent/5 cursor-pointer transition-colors hover:border-primary/50"
+                                        onClick={() => handleAnswer(val)}
                                     >
                                         <RadioGroupItem value={val} id={`tf-${question.id}-${val}`} />
-                                        <Label htmlFor={`tf-${question.id}-${val}`} className="flex-1 cursor-pointer capitalize">
+                                        <Label htmlFor={`tf-${question.id}-${val}`} className="flex-1 cursor-pointer capitalize font-medium">
                                             {val}
                                         </Label>
                                     </div>

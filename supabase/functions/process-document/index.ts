@@ -385,23 +385,56 @@ serve(async (req) => {
         let analysisResult: GeminiResponse = pureNlpResult
         let processedBy = 'pure_nlp'
 
-        if (usePureNlp) {
-            console.log(`🧠 Using Pure NLP analysis${isProcessorOverride ? ' (override)' : ' (default)'}`)
-            if (!isProcessorOverride && (analysisResult.concepts.length === 0 || analysisResult.summary.trim().length === 0)) {
-                if (canUseGemini) {
-                    console.log('⚠️ Pure NLP returned limited results, falling back to Gemini...')
-                    analysisResult = await runGeminiAnalysis()
-                    processedBy = 'gemini'
-                } else {
-                    console.log('⚠️ Pure NLP results limited and Gemini unavailable; continuing with NLP output')
-                }
+        // Multimodal PDF path: for slide-deck PDFs, send the raw file to Gemini
+        // so it can interpret the visual layout instead of relying on Tika text scraping.
+        const isPdfFile = document.file_type === 'pdf'
+        const isSlideDocument = extractedDocumentType === 'slides'
+        let usedMultimodal = false
+
+        if (isPdfFile && isSlideDocument && canUseGemini) {
+            console.log('📑 PDF slide deck detected — attempting Gemini multimodal processing')
+            try {
+                const pdfBuffer = await fileData.arrayBuffer()
+                const pdfBase64 = btoa(
+                    new Uint8Array(pdfBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+                )
+                console.log(`📄 PDF encoded: ${(pdfBuffer.byteLength / 1024).toFixed(1)} KB`)
+                const multimodalStart = Date.now()
+                analysisResult = await processPdfWithGemini(pdfBase64, geminiApiKey!)
+                analysisResult.concepts = deduplicateConcepts(analysisResult.concepts)
+                processedBy = 'gemini_multimodal'
+                usedMultimodal = true
+                console.log(`✅ Gemini multimodal completed in ${Date.now() - multimodalStart}ms — ${analysisResult.concepts.length} concepts`)
+            } catch (pdfErr) {
+                console.error('⚠️ PDF multimodal failed, falling back to NLP pipeline:', (pdfErr as Error).message)
             }
-        } else {
-            analysisResult = await runGeminiAnalysis()
-            processedBy = 'gemini'
+        }
+
+        if (!usedMultimodal) {
+            if (usePureNlp) {
+                console.log(`🧠 Using Pure NLP analysis${isProcessorOverride ? ' (override)' : ' (default)'}`)
+                if (!isProcessorOverride && (analysisResult.concepts.length === 0 || analysisResult.summary.trim().length === 0)) {
+                    if (canUseGemini) {
+                        console.log('⚠️ Pure NLP returned limited results, falling back to Gemini...')
+                        analysisResult = await runGeminiAnalysis()
+                        processedBy = 'gemini'
+                    } else {
+                        console.log('⚠️ Pure NLP results limited and Gemini unavailable; continuing with NLP output')
+                    }
+                }
+            } else {
+                analysisResult = await runGeminiAnalysis()
+                processedBy = 'gemini'
+            }
         }
 
         console.log(`🧠 Extracted ${analysisResult.concepts.length} concepts`)
+
+        const preValidationCount = analysisResult.concepts.length
+        analysisResult.concepts = validateConcepts(analysisResult.concepts)
+        if (analysisResult.concepts.length < preValidationCount) {
+            console.log(`🔍 Concept validation: ${preValidationCount} → ${analysisResult.concepts.length} (rejected ${preValidationCount - analysisResult.concepts.length} low-quality)`)
+        }
 
         // 8. Save concepts to database (with chunk_id mapping)
         let savedConceptIds: string[] = []
@@ -1530,6 +1563,17 @@ function isMetaSlide(slide: SlideData): boolean {
     return false
 }
 
+const VERB_INDICATORS_RE = /\b(is|are|was|were|has|have|had|can|could|will|would|may|might|shall|should|must|means|refers|involves|includes|uses|provides|allows|enables|requires|represents|defines|describes|performs|processes|contains|supports|determines|creates|produces|generates|handles|manages|applies|implements|computes|calculates|measures|combines|connects|converts|stores|retrieves|transmits|receives|operates|functions|serves)\b/i
+
+function isBulletDescriptive(bullet: string): boolean {
+    const words = bullet.split(/\s+/)
+    if (words.length < 5) return false
+    if (VERB_INDICATORS_RE.test(bullet)) return true
+    if (/:/.test(bullet) && (bullet.split(':')[1]?.trim().length ?? 0) > 15) return true
+    if (/[.!?]/.test(bullet) && bullet.length >= 60) return true
+    return false
+}
+
 function buildConceptsFromSlides(slides: SlideData[]): Concept[] {
     const concepts: Concept[] = []
     const usedNames = new Set<string>()
@@ -1555,7 +1599,14 @@ function buildConceptsFromSlides(slides: SlideData[]): Concept[] {
 
         if (cleanBullets.length === 0) continue
 
-        let description = cleanBullets.slice(0, 3).join('. ')
+        const descriptiveBullets = cleanBullets.filter(isBulletDescriptive)
+
+        let description: string
+        if (descriptiveBullets.length > 0) {
+            description = descriptiveBullets.slice(0, 3).join('. ')
+        } else {
+            description = `${name}: ${cleanBullets.slice(0, 4).join('. ')}`
+        }
         description = stripLeadingConjunctions(description)
         if (description.length > 300) {
             description = truncateOnSentenceBoundary(description, 300)
@@ -1563,6 +1614,12 @@ function buildConceptsFromSlides(slides: SlideData[]): Concept[] {
         if (!description.endsWith('.') && !description.endsWith('!') && !description.endsWith('?')) {
             description += '.'
         }
+
+        if (description.length < 40) continue
+
+        const descNorm = normalizeForDedup(description)
+        const nameNorm = normalizeForDedup(name)
+        if (descNorm === nameNorm || (descNorm.startsWith(nameNorm) && descNorm.length < nameNorm.length + 20)) continue
 
         const tags = filterConceptTags(
             (slide.keywords || []).map(k => stripArrowsAndArticles(k)).filter(Boolean),
@@ -1585,6 +1642,20 @@ function buildConceptsFromSlides(slides: SlideData[]): Concept[] {
     }
 
     return concepts
+}
+
+function validateConcepts(concepts: Concept[]): Concept[] {
+    return concepts.filter(c => {
+        if ((c.description || '').length < 40) return false
+
+        if (jaccardSimilarity(c.description || '', c.name) > 0.7) return false
+
+        if (!VERB_INDICATORS_RE.test(c.description || '')) {
+            if (!(/:/.test(c.description || '') && (c.description || '').length >= 50)) return false
+        }
+
+        return true
+    })
 }
 
 function buildStructuredSummaryFromSlides(
@@ -2192,6 +2263,187 @@ async function hasProcessedByColumn(
 
     processedByColumnCache = true
     return true
+}
+
+/**
+ * Send a multimodal request (PDF + text prompt) to Gemini with retry logic.
+ * Returns the raw text response from the model.
+ */
+async function callGeminiMultimodal(
+    pdfBase64: string,
+    prompt: string,
+    apiKey: string,
+    maxTokens: number
+): Promise<string> {
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            console.log(`🤖 Gemini multimodal call attempt ${attempt}/${MAX_RETRIES}...`)
+
+            const response = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [
+                                {
+                                    inline_data: {
+                                        mime_type: 'application/pdf',
+                                        data: pdfBase64,
+                                    },
+                                },
+                                { text: prompt },
+                            ],
+                        }],
+                        generationConfig: {
+                            temperature: 0.3,
+                            maxOutputTokens: maxTokens,
+                        },
+                    }),
+                }
+            )
+
+            if (!response.ok) {
+                const errorText = await response.text()
+                console.error(`Gemini multimodal error (attempt ${attempt}):`, errorText)
+
+                const isRetryable = response.status === 503 || response.status === 429 || response.status === 500
+
+                if (isRetryable && attempt < MAX_RETRIES) {
+                    const delayMs = BASE_DELAY_MS * Math.pow(2, attempt - 1)
+                    console.log(`⏳ Retryable error (${response.status}), waiting ${delayMs}ms...`)
+                    await new Promise(resolve => setTimeout(resolve, delayMs))
+                    continue
+                }
+
+                switch (response.status) {
+                    case 503:
+                        throw new Error('AI_BUSY:Our AI service is currently busy. Please wait a moment and try again.')
+                    case 429:
+                        throw new Error('AI_RATE_LIMIT:Too many requests. Please wait a few minutes before trying again.')
+                    case 400:
+                        throw new Error('AI_INVALID:The PDF could not be processed. It may be too large or contain unsupported content.')
+                    case 401:
+                    case 403:
+                        throw new Error('AI_AUTH:There\'s a configuration issue with our AI service. Please contact support.')
+                    default:
+                        throw new Error(`AI_ERROR:AI service error (${response.status}). Please try again later.`)
+                }
+            }
+
+            const data = await response.json()
+            const content = data.candidates?.[0]?.content?.parts?.[0]?.text
+
+            if (!content) {
+                const finishReason = data.candidates?.[0]?.finishReason
+                if (finishReason === 'SAFETY') {
+                    throw new Error('AI_SAFETY:The document was flagged by content safety filters. Please review the content.')
+                }
+                throw new Error('AI_EMPTY:The AI returned an empty response. Please try again.')
+            }
+
+            console.log(`✅ Gemini multimodal call successful on attempt ${attempt}`)
+            return content
+
+        } catch (error) {
+            if ((error as Error).message.includes(':')) {
+                throw error
+            }
+
+            if (attempt < MAX_RETRIES) {
+                const delayMs = BASE_DELAY_MS * Math.pow(2, attempt - 1)
+                console.log(`⏳ Network error, waiting ${delayMs}ms...`)
+                await new Promise(resolve => setTimeout(resolve, delayMs))
+                continue
+            }
+
+            throw new Error('AI_NETWORK:Unable to reach the AI service. Please check your connection and try again.')
+        }
+    }
+
+    throw new Error('AI_ERROR:Failed to process PDF after multiple attempts. Please try again later.')
+}
+
+/**
+ * Process a PDF document using Gemini's multimodal capabilities.
+ * Sends the raw PDF bytes so Gemini can interpret visual slide layouts,
+ * producing much higher-quality summaries and concepts than text-only extraction.
+ */
+async function processPdfWithGemini(pdfBase64: string, apiKey: string): Promise<GeminiResponse> {
+    console.log('📑 Processing PDF with Gemini multimodal...')
+
+    const prompt = `You are an expert academic tutor analyzing a PDF document. Study each page carefully and extract comprehensive study material.
+
+CRITICAL: For every section, bullet point, and concept, include the PAGE NUMBER(s) where that information appears in the PDF.
+
+Respond with this exact JSON structure:
+{
+  "summary": "2-3 sentence overview of the entire document covering what it is, key topics, and why it matters",
+  "structured_summary": {
+    "short": "Same 2-3 sentence overview as summary above",
+    "detailed": [
+      {"title": "Introduction", "icon": "play", "content": "2-4 sentences defining the topic and its significance", "pages": [1]},
+      {"title": "Core Concepts", "icon": "sparkles", "content": "2-4 sentences explaining fundamental principles, theories, and definitions", "pages": [1, 2]},
+      {"title": "Key Components", "icon": "grid", "content": "2-4 sentences detailing key components, methods, or processes", "pages": [2, 3]},
+      {"title": "Applications", "icon": "layers", "content": "2-4 sentences about real-world applications and examples", "pages": [3, 4]},
+      {"title": "Challenges", "icon": "alert-triangle", "content": "2-4 sentences about limitations, trade-offs, or common difficulties", "pages": [4]},
+      {"title": "Key Takeaways", "icon": "zap", "content": "2-3 sentences of what students MUST remember for exams", "pages": [1, 4]}
+    ],
+    "bullets": [
+      {"label": "DEFINITION", "text": "Term: clear, concise definition", "page": 1},
+      {"label": "KEY CONCEPT", "text": "Explanation of important concept", "page": 2},
+      {"label": "PROCESS", "text": "Process Name: Step 1, Step 2, Step 3", "page": 3},
+      {"label": "EXAMPLE", "text": "Concept example: real-world example", "page": 3},
+      {"label": "KEY DISTINCTION", "text": "A vs B: the key difference", "page": 4},
+      {"label": "CHALLENGE", "text": "Common difficulty or limitation", "page": 4},
+      {"label": "ADVANTAGE", "text": "Key benefit or strength", "page": 2},
+      {"label": "DEFINITION", "text": "Another term: its definition", "page": 1}
+    ]
+  },
+  "concepts": [
+    {
+      "name": "Concept Name (2-5 words)",
+      "description": "1-3 sentence explanation of what this concept means, why it matters, and how it relates to the broader topic. Must be a complete, coherent explanation — not a bullet list.",
+      "category": "Topic Category",
+      "importance": 8,
+      "difficulty_level": "intermediate",
+      "keywords": ["related_term_1", "related_term_2", "related_term_3"],
+      "source_pages": [1, 2]
+    }
+  ]
+}
+
+=== DETAILED SECTION RULES ===
+- Generate 4-6 sections using the headers and icons shown above
+- Each section content should be 2-4 complete sentences, NOT bullet fragments
+- pages array must contain actual page numbers from the PDF
+- If the document doesn't have content for a section (e.g. no "Applications"), omit that section
+
+=== BULLET POINT RULES ===
+- Generate 6-10 bullet points
+- Each must have a label from: DEFINITION, KEY CONCEPT, PROCESS, EXAMPLE, KEY DISTINCTION, CHALLENGE, ADVANTAGE
+- text must start with the topic/term followed by a colon, then the explanation
+- page must be an actual page number from the PDF
+
+=== CONCEPT RULES ===
+- Generate 5-12 concepts depending on document complexity
+- name: short title, 2-5 words (e.g. "Convolutional Neural Networks", not "CNN")
+- description: MUST be 1-3 complete sentences explaining the concept. Never use bullet fragments or just list sub-items.
+- category: group related concepts under the same category name
+- importance: 1-10 (10 = most exam-critical)
+- difficulty_level: one of "beginner", "intermediate", "advanced"
+- keywords: 3-5 related technical terms a student should know
+- source_pages: actual page numbers where this concept appears
+
+=== GENERAL RULES ===
+- Return ONLY valid JSON, no markdown code blocks
+- Be specific and precise — avoid vague or generic statements
+- Prioritize exam-relevant information
+- All page numbers must be real page numbers from the PDF`
+
+    const content = await callGeminiMultimodal(pdfBase64, prompt, apiKey, 8000)
+    return parseGeminiResponse(content)
 }
 
 /**

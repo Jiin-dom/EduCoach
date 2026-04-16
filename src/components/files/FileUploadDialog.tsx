@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -45,6 +46,7 @@ function makeUploadBatchItems(files: File[]): UploadBatchItem[] {
 
 export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplete }: FileUploadDialogProps) {
     const { user } = useAuth()
+    const navigate = useNavigate()
     const processDocument = useProcessDocument()
     const scheduleGoalWindow = useScheduleDocumentGoalWindow()
 
@@ -164,6 +166,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
         setPhase("uploading")
 
         let anyUploaded = false
+        let lastDocumentId: string | null = null
         const shouldProcessImmediately =
             getUploadProcessingMode(items.length) === "process_immediately" && uploadableItems.length === 1
 
@@ -216,6 +219,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                 if (shouldProcessImmediately) {
                     try {
                         await processDocument.mutateAsync(insertedDoc.id)
+                        lastDocumentId = insertedDoc.id
 
                         if (goalDate) {
                             try {
@@ -279,6 +283,11 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
         }
 
         setPhase("complete")
+
+        // Auto-redirect for single successful upload
+        if (items.length === 1 && lastDocumentId) {
+            navigate(`/files/${lastDocumentId}`)
+        }
     }
 
     const allowedTypesText = Object.values(ALLOWED_FILE_TYPES).map((type) => type.toUpperCase()).join(", ")
@@ -317,7 +326,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                                     : "Uploading files and creating pending documents in your library."
                                 : isSingleSelection
                                     ? "Upload your document to generate AI-powered quizzes and study guides."
-                                    : "Upload one file to start processing automatically, or upload several files to add them as pending and process them later."}
+                                    : "Upload one file to start processing automatically. Uploading multiple files adds them as pending — you can process them from the Files page when ready."}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -508,7 +517,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                                         </p>
                                         {uploadMode === "defer_processing" && (
                                             <p className="text-xs text-muted-foreground">
-                                                Processing does not start automatically. Use the Files page to process pending documents when you are ready.
+                                                Files uploaded in bulk are queued to prevent system overload. Head to the Files page and click Process All when ready.
                                             </p>
                                         )}
                                     </div>

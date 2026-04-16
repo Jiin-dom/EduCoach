@@ -103,6 +103,12 @@ function ConceptDrillDown({ concept, onBack, timeline }: { concept: ConceptMaste
                         <TrendingUp className="w-4 h-4" />
                         <span>Ease: {concept.ease_factor}</span>
                     </div>
+                    {concept.last_reviewed_at && (
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                            <Clock className="w-4 h-4" />
+                            <span>Last reviewed: {new Date(concept.last_reviewed_at).toLocaleDateString()}</span>
+                        </div>
+                    )}
                 </div>
 
                 {timeline && timeline.length > 1 && (

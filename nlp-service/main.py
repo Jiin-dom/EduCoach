@@ -77,7 +77,10 @@ _NON_LETTER_RE = re.compile(r"[^a-zA-Z]+")
 
 _STRAY_ACCENT_RE = re.compile(r"\xe2[\x80-\xbf]*")
 _LEFTOVER_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
-_ARROW_RE = re.compile(r'[\u2190-\u21ff\u27f0-\u27ff\u2900-\u297f\u25b6\u25ba\u279c-\u279e]')
+_ARROW_RE = re.compile(
+    r'[\u2190-\u21ff\u27f0-\u27ff\u2900-\u297f\u25b6\u25ba\u279c-\u279e'
+    r'\u2022\u2023\u25cf-\u25d3\u25aa\u25ab\u25cb\u00b7\u2219]'
+)
 _LEADING_ARTICLE_RE = re.compile(r'^(the|a|an)\s+', re.IGNORECASE)
 _PPTX_CONTENT_TYPES = frozenset([
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
@@ -132,6 +135,76 @@ def _strip_arrows(text: str) -> str:
     """Remove arrow characters and normalize surrounding whitespace."""
     result = _ARROW_RE.sub(' ', text)
     return _MULTISPACE_RE.sub(' ', result).strip()
+
+
+_LEADING_LIST_MARKER_RE = re.compile(r'^[\-\*\u2013\u2014]\s+|^\d+\.\s+')
+_LEADING_BULLET_CHAR_RE = re.compile(
+    r'^[\u2022\u2023\u25cf\u25cb\u25aa\u25ab\u00b7\u2219\u25b6\u25ba\u25c6\u25c7\u25e6]+\s*'
+)
+_DOUBLE_PERIOD_RE = re.compile(r'\.{2,}$')
+_ORPHAN_PAREN_START_RE = re.compile(r'^\([^)]*\)\s*')
+_ORPHAN_PAREN_END_RE = re.compile(r'\s*\([^)]*\)$')
+
+
+def _strip_leading_title_echo(text: str) -> str:
+    """Strip a duplicated slide title from the start of a sentence.
+    e.g. 'Q-Table The Q-Table is a table...' -> 'The Q-Table is a table...'
+    """
+    words = text.split()
+    if len(words) < 4:
+        return text
+    for prefix_len in range(1, min(6, len(words) // 2)):
+        prefix = ' '.join(words[:prefix_len]).lower().rstrip(':')
+        rest = ' '.join(words[prefix_len:])
+        if prefix in rest.lower()[:len(prefix) + 20]:
+            return rest
+    return text
+
+
+def _sanitize_sentence(text: str) -> str:
+    """Clean a sentence for use in a quiz question stem or explanation."""
+    if not text:
+        return text
+    result = _strip_arrows(text)
+    result = _LEADING_BULLET_CHAR_RE.sub('', result)
+    result = _LEADING_LIST_MARKER_RE.sub('', result)
+    result = result.lstrip('\u2013\u2014-* \t')
+    result = _MULTISPACE_RE.sub(' ', result).strip()
+    if not result:
+        return result
+    result = _strip_leading_title_echo(result)
+    # Strip numbered step prefix: "1. Initialize..." -> "Initialize..."
+    result = re.sub(r'^(?:step\s+)?\d+[\.\)]\s*', '', result, flags=re.IGNORECASE).strip()
+    if not result:
+        return result
+    result = result[0].upper() + result[1:]
+    result = _DOUBLE_PERIOD_RE.sub('.', result)
+    if result and result[-1] not in '.?!':
+        result += '.'
+    return result
+
+
+def _sanitize_answer(text: str) -> str:
+    """Clean an answer/keyphrase string without forcing casing or punctuation."""
+    if not text:
+        return text
+    result = _strip_arrows(text)
+    result = _LEADING_BULLET_CHAR_RE.sub('', result)
+    result = _LEADING_LIST_MARKER_RE.sub('', result)
+    result = result.lstrip('\u2013\u2014-* \t')
+    result = _MULTISPACE_RE.sub(' ', result).strip()
+    return result
+
+
+def _sanitize_options(options: List[str]) -> List[str]:
+    """Clean every option in an MCQ option list."""
+    return [_sanitize_answer(o) for o in options if o]
+
+
+def _sanitize_for_embedding(text: str) -> str:
+    """Clean text for embedding inside a template (strip trailing period to avoid '.?')."""
+    result = _sanitize_sentence(text)
+    return result.rstrip('.')
 
 
 def _extract_slides_from_html(html_content: str) -> List[dict]:
@@ -376,6 +449,7 @@ _CONJUNCTION_PREPS = frozenset([
 ])
 
 _CONSECUTIVE_CAPS_RE = re.compile(r"(?:\b[A-Z][a-z]*\s+){5,}")
+_MASHED_BULLET_RE = re.compile(r'[a-z,] [A-Z][a-z]')
 
 _INTERROGATIVE_STARTS = re.compile(
     r"^(how|what|why|when|where|who|which|can|could|should|would|"
@@ -429,6 +503,11 @@ def is_good_sentence(sentence: str) -> bool:
 
     # Reject mashed slide titles (>4 consecutive capitalized words mid-sentence)
     if _CONSECUTIVE_CAPS_RE.search(s[1:]):
+        return False
+
+    # Reject mashed bullet points (3+ mid-sentence capitals without preceding punctuation)
+    mashed_hits = _MASHED_BULLET_RE.findall(s[1:])
+    if len(mashed_hits) >= 3:
         return False
 
     # Reject if conjunction/preposition ratio is too high (fragmented PDF join)
@@ -1529,21 +1608,20 @@ class GenerateQuestionsResponse(BaseModel):
     error: Optional[str] = None
 
 _IDENTIFICATION_TEMPLATES_BEGINNER = [
-    "What is {kp}?",
-    "Define {kp}.",
-    "What does {kp} refer to?",
+    'Read the following:\n\n"{sentence}"\n\nWhat is the term being described?',
+    'From the text:\n\n"{sentence}"\n\nWhat concept is this about?',
+    'Read the following:\n\n"{sentence}"\n\nWhat does this passage refer to?',
 ]
 _IDENTIFICATION_TEMPLATES_INTERMEDIATE = [
-    "What term is being described?",
-    "Which concept matches this description?",
-    "Identify the concept related to {kp}.",
-    "What is the name of the concept discussed here?",
+    'Based on the following:\n\n"{sentence}"\n\nWhat term is being described?',
+    'Based on the following:\n\n"{sentence}"\n\nWhich concept matches this description?',
+    'Based on the following:\n\n"{sentence}"\n\nWhat is the name of the concept discussed here?',
 ]
 _IDENTIFICATION_TEMPLATES_ADVANCED = [
-    "Which topic best matches this description?",
-    "What concept is being referenced here?",
-    "Name the concept described in this statement.",
-    "Identify the key term discussed here.",
+    'Consider the following:\n\n"{sentence}"\n\nWhich topic best matches this description?',
+    'Consider the following:\n\n"{sentence}"\n\nWhat concept is being referenced?',
+    'Consider the following:\n\n"{sentence}"\n\nName the concept described in this statement.',
+    'Consider the following:\n\n"{sentence}"\n\nIdentify the key term discussed here.',
 ]
 
 IDENTIFICATION_MAX_WORDS = 8
@@ -1552,10 +1630,10 @@ _IDENTIFICATION_LONG_FORM_PROMPT_RE = re.compile(r"^(explain|describe|compare|an
 _IDENTIFICATION_SENTENCE_MARKER_RE = re.compile(r"[.!?]|[,;:]")
 
 _DIFFICULTY_TYPE_WEIGHTS = {
-    "beginner":     {"identification": 3, "true_false": 4, "multiple_choice": 2, "fill_in_blank": 1},
-    "intermediate": {"identification": 2, "true_false": 2, "multiple_choice": 3, "fill_in_blank": 3},
-    "advanced":     {"identification": 1, "true_false": 1, "multiple_choice": 4, "fill_in_blank": 4},
-    "mixed":        {"identification": 2, "true_false": 2, "multiple_choice": 3, "fill_in_blank": 3},
+    "beginner":     {"true_false": 7, "multiple_choice": 6, "identification": 5, "fill_in_blank": 2},
+    "intermediate": {"multiple_choice": 6, "fill_in_blank": 5, "identification": 5, "true_false": 4},
+    "advanced":     {"multiple_choice": 7, "fill_in_blank": 6, "identification": 4, "true_false": 3},
+    "mixed":        {"multiple_choice": 6, "true_false": 5, "identification": 5, "fill_in_blank": 4},
 }
 
 
@@ -1619,11 +1697,12 @@ def _pick_distractors_semantic(correct: str, chunk_keyphrases: List[str],
 
 def _build_explanation(sentence_text: str, keyphrase: str = "") -> str:
     """Build a source-grounded explanation from the supporting sentence."""
-    clean = sentence_text.strip()
+    clean = _sanitize_sentence(sentence_text)
     if len(clean) > 200:
         clean = clean[:197] + "..."
     if keyphrase:
-        return f"The answer is '{keyphrase}'. According to the document: {clean}"
+        kp_clean = _sanitize_answer(keyphrase)
+        return f"The answer is '{kp_clean}'. According to the document: {clean}"
     return f"According to the document: {clean}"
 
 
@@ -1631,20 +1710,25 @@ def _select_difficulty_label(target_difficulty: str, question_type: str) -> str:
     """Pick a difficulty label consistent with the target and question type."""
     if target_difficulty in ("beginner", "intermediate", "advanced"):
         return target_difficulty
-    # 'mixed' - vary by question type
-    defaults = {
-        "true_false": "beginner",
-        "identification": "intermediate",
-        "multiple_choice": "intermediate",
-        "fill_in_blank": "intermediate",
-    }
-    return defaults.get(question_type, "intermediate")
+    # 'mixed' - genuinely distribute across all three difficulty levels
+    return random.choices(
+        ["beginner", "intermediate", "advanced"],
+        weights=[30, 45, 25],
+        k=1,
+    )[0]
+
+
+def _mask_keyphrase_in_sentence(sentence: str, keyphrase: str) -> str:
+    """Remove the keyphrase from a sentence so the answer isn't leaked in the stem."""
+    pattern = re.compile(re.escape(keyphrase), re.IGNORECASE)
+    masked = pattern.sub("______", sentence)
+    return masked.strip()
 
 
 def _generate_identification(sentence_text: str, keyphrase: str,
                              chunk_id: str, difficulty: str = "mixed") -> Optional[GeneratedQuestion]:
     """Template-based identification question with difficulty-varied templates."""
-    answer = keyphrase.strip()
+    answer = _sanitize_answer(keyphrase)
     if len(answer) < 2:
         return None
 
@@ -1656,7 +1740,8 @@ def _generate_identification(sentence_text: str, keyphrase: str,
     else:
         templates = _IDENTIFICATION_TEMPLATES_INTERMEDIATE
 
-    q_text = random.choice(templates).format(kp=keyphrase)
+    masked_sentence = _mask_keyphrase_in_sentence(sentence_text, keyphrase)
+    q_text = random.choice(templates).format(kp=keyphrase, sentence=masked_sentence)
     return GeneratedQuestion(
         chunk_id=chunk_id,
         question_type="identification",
@@ -1687,7 +1772,7 @@ def _generate_true_false(sentence_text: str, chunk_id: str,
         return GeneratedQuestion(
             chunk_id=chunk_id,
             question_type="true_false",
-            question_text=sentence_text.strip(),
+            question_text=_sanitize_sentence(sentence_text),
             correct_answer="true",
             difficulty_label=diff_label,
             explanation=_build_explanation(sentence_text),
@@ -1699,7 +1784,7 @@ def _generate_true_false(sentence_text: str, chunk_id: str,
         return GeneratedQuestion(
             chunk_id=chunk_id,
             question_type="true_false",
-            question_text=swapped.strip(),
+            question_text=_sanitize_sentence(swapped),
             correct_answer="false",
             difficulty_label=diff_label,
             explanation=f"This statement is false. {_build_explanation(sentence_text)}",
@@ -1721,7 +1806,7 @@ def _generate_true_false(sentence_text: str, chunk_id: str,
     return GeneratedQuestion(
         chunk_id=chunk_id,
         question_type="true_false",
-        question_text=negated.strip(),
+        question_text=_sanitize_sentence(negated),
         correct_answer="false",
         difficulty_label=diff_label,
         explanation=f"This statement is false because 'not' changes the meaning. {_build_explanation(sentence_text)}",
@@ -1771,12 +1856,13 @@ def _generate_mcq(sentence_text: str, keyphrase: str, chunk_keyphrases: List[str
     if not pattern.search(sentence_text):
         return None
 
-    stem = pattern.sub("__________", sentence_text, count=1).strip()
+    stem = _sanitize_sentence(pattern.sub("__________", sentence_text, count=1).strip())
     distractors = _pick_distractors_semantic(keyphrase, chunk_keyphrases, all_keyphrases, count=3)
     if len(distractors) < 2:
         return None
 
-    options = distractors[:3] + [keyphrase]
+    clean_answer = _sanitize_answer(keyphrase)
+    options = _sanitize_options(distractors[:3] + [clean_answer])
     random.shuffle(options)
 
     diff_label = _select_difficulty_label(difficulty, "multiple_choice")
@@ -1785,7 +1871,7 @@ def _generate_mcq(sentence_text: str, keyphrase: str, chunk_keyphrases: List[str
         question_type="multiple_choice",
         question_text=stem,
         options=options,
-        correct_answer=keyphrase,
+        correct_answer=clean_answer,
         difficulty_label=diff_label,
         explanation=_build_explanation(sentence_text, keyphrase),
     )
@@ -1799,13 +1885,14 @@ def _generate_fill_in_blank(sentence_text: str, keyphrase: str,
     if not pattern.search(sentence_text):
         return None
 
-    blanked = pattern.sub("__________", sentence_text, count=1).strip()
+    blanked = _sanitize_sentence(pattern.sub("__________", sentence_text, count=1).strip())
+    clean_answer = _sanitize_answer(keyphrase)
     diff_label = _select_difficulty_label(difficulty, "fill_in_blank")
     return GeneratedQuestion(
         chunk_id=chunk_id,
         question_type="fill_in_blank",
         question_text=blanked,
-        correct_answer=keyphrase,
+        correct_answer=clean_answer,
         difficulty_label=diff_label,
         explanation=_build_explanation(sentence_text, keyphrase),
     )
@@ -1824,11 +1911,21 @@ def _deduplicate_questions(questions: List[GeneratedQuestion]) -> List[Generated
     return result
 
 
+_ARTIFACT_RE = re.compile(
+    r'[\u2022\u2023\u25cf\u25cb\u25aa\u25ab\u00b7\u2219\u25b6\u25ba\u25c6\u25c7\u25e6]'
+)
+_STARTS_WITH_LIST_MARKER_RE = re.compile(r'^[\-\*]\s|^\d+\.\s')
+
+
 def _validate_question(q: GeneratedQuestion) -> bool:
     """Quality gate: reject questions that are too short, trivial, or malformed."""
     if len(q.question_text) < 15:
         return False
     if len(q.correct_answer) < 2:
+        return False
+    if _ARTIFACT_RE.search(q.question_text) or _ARTIFACT_RE.search(q.correct_answer):
+        return False
+    if _STARTS_WITH_LIST_MARKER_RE.match(q.question_text) or _STARTS_WITH_LIST_MARKER_RE.match(q.correct_answer):
         return False
     if q.question_type == "identification":
         answer_words = [word for word in q.correct_answer.strip().split() if word]
@@ -1848,6 +1945,8 @@ def _validate_question(q: GeneratedQuestion) -> bool:
             return False
         if _ELLIPSIS_RE.search(text):
             return False
+        if len(text.split()) < 6:
+            return False
     if q.question_type == "multiple_choice":
         if not q.options or len(q.options) < 3:
             return False
@@ -1857,7 +1956,30 @@ def _validate_question(q: GeneratedQuestion) -> bool:
     if q.question_type == "fill_in_blank":
         if "__________" not in q.question_text:
             return False
+        non_blank = q.question_text.replace("__________", "").strip().rstrip('.')
+        if len(non_blank) < 10:
+            return False
     return True
+
+
+def _truncate_to_sentence_boundary(text: str, max_chars: int = 180) -> str:
+    """Truncate text at a sentence boundary, avoiding mid-word cuts."""
+    if len(text) <= max_chars:
+        return text
+    sents = re.split(r'(?<=[.!?])\s+', text)
+    result = ""
+    for s in sents:
+        candidate = (result + " " + s).strip() if result else s
+        if len(candidate) > max_chars:
+            break
+        result = candidate
+    return result if result else text[:max_chars].rsplit(' ', 1)[0]
+
+
+def _has_verb(text: str) -> bool:
+    """Check if text contains at least one verb (indicates a real sentence, not a title)."""
+    doc = nlp(text[:500])
+    return any(tok.pos_ in ("VERB", "AUX") for tok in doc)
 
 
 def _generate_slide_questions(
@@ -1868,86 +1990,150 @@ def _generate_slide_questions(
     max_questions: int,
 ) -> List[GeneratedQuestion]:
     """
-    Generate questions specifically from slide-based concept data.
-    Uses concept names as natural topic stems and descriptions as answer material.
+    Generate questions from slide-based concept data with type rotation
+    and description quality gates.
     """
     questions: List[GeneratedQuestion] = []
-    type_set = set(question_types)
+    available_types = [qt for qt in question_types if qt in
+                       {"identification", "multiple_choice", "fill_in_blank", "true_false"}]
+    if not available_types:
+        return questions
 
     _SLIDE_IDENT_TEMPLATES = [
-        "Which concept matches this slide description: {desc}?",
-        "What topic is described here: {desc}?",
-        "Identify the concept referred to in this slide summary: {desc}",
+        'Based on the following:\n\n"{desc}"\n\nWhat concept is being described?',
+        'Read the following:\n\n"{desc}"\n\nWhat topic does this refer to?',
+        'Consider this description:\n\n"{desc}"\n\nIdentify the concept.',
     ]
-    _SLIDE_MCQ_TEMPLATES = [
-        "Which of the following best describes {name}?",
-        "What is the main purpose of {name}?",
+
+    _SLIDE_MCQ_STEM_TEMPLATES = [
+        'Which concept is described by the following:\n\n"{desc}"',
+        'What topic does this description refer to:\n\n"{desc}"',
     ]
 
     sorted_concepts = sorted(concepts, key=lambda c: c.importance, reverse=True)
+    other_names_pool = [_sanitize_answer(c.name) for c in sorted_concepts]
 
+    viable_concepts = []
     for concept in sorted_concepts:
+        name = _sanitize_answer(concept.name)
+        desc = _sanitize_sentence(concept.description)
+        if not desc or len(desc) < 40:
+            continue
+        desc_core = re.sub(r'[^a-z0-9 ]', '', desc.lower()).strip()
+        name_core = re.sub(r'[^a-z0-9 ]', '', name.lower()).strip()
+        if desc_core == name_core or (desc_core.startswith(name_core) and len(desc_core) < len(name_core) + 15):
+            continue
+        if not _has_verb(desc):
+            continue
+        viable_concepts.append((name, desc))
+
+    type_index = 0
+
+    for name, desc in viable_concepts:
         if len(questions) >= max_questions:
             break
 
-        name = concept.name
-        desc = concept.description.strip()
-        if not desc or len(desc) < 20:
+        qt = available_types[type_index % len(available_types)]
+        type_index += 1
+
+        desc_short = _sanitize_for_embedding(_truncate_to_sentence_boundary(desc))
+        if not desc_short or len(desc_short) < 20:
             continue
 
-        diff_label = _select_difficulty_label(difficulty, "identification")
-
-        # Identification from slide topic
-        if "identification" in type_set and len(questions) < max_questions:
+        if qt == "identification":
             template = random.choice(_SLIDE_IDENT_TEMPLATES)
-            desc_short = desc[:180].rstrip()
             q = GeneratedQuestion(
                 chunk_id="",
                 question_type="identification",
                 question_text=template.format(desc=desc_short),
                 correct_answer=name,
-                difficulty_label=diff_label,
-                explanation=f"This is covered in the slide on '{name}': {desc[:150]}",
+                difficulty_label=_select_difficulty_label(difficulty, "identification"),
+                explanation=f"The answer is '{name}'. According to the document: {_truncate_to_sentence_boundary(desc, 150)}",
             )
             if _validate_question(q):
                 questions.append(q)
 
-        # MCQ using concept name and other concepts as distractors
-        if "multiple_choice" in type_set and len(questions) < max_questions:
-            other_names = [c.name for c in sorted_concepts if c.name != name]
-            if len(other_names) >= 2:
-                distractors = random.sample(other_names, min(3, len(other_names)))
-                desc_short = desc.split('.')[0].strip()
-                if len(desc_short) > 15:
-                    template = random.choice(_SLIDE_MCQ_TEMPLATES)
-                    options = distractors[:3] + [desc_short]
-                    random.shuffle(options)
-                    q = GeneratedQuestion(
-                        chunk_id="",
-                        question_type="multiple_choice",
-                        question_text=template.format(name=name),
-                        options=options,
-                        correct_answer=desc_short,
-                        difficulty_label=_select_difficulty_label(difficulty, "multiple_choice"),
-                        explanation=f"The correct answer describes {name}: {desc[:150]}",
-                    )
-                    if _validate_question(q):
-                        questions.append(q)
+        elif qt == "multiple_choice":
+            pool = [n for n in other_names_pool if n.lower() != name.lower()]
+            if len(pool) >= 2:
+                distractors = random.sample(pool, min(3, len(pool)))
+                template = random.choice(_SLIDE_MCQ_STEM_TEMPLATES)
+                options = _sanitize_options(distractors[:3] + [name])
+                random.shuffle(options)
+                q = GeneratedQuestion(
+                    chunk_id="",
+                    question_type="multiple_choice",
+                    question_text=template.format(desc=desc_short),
+                    options=options,
+                    correct_answer=name,
+                    difficulty_label=_select_difficulty_label(difficulty, "multiple_choice"),
+                    explanation=f"'{name}' matches this description: {_truncate_to_sentence_boundary(desc, 150)}",
+                )
+                if _validate_question(q):
+                    questions.append(q)
 
-        # Fill-in-blank from description
-        if "fill_in_blank" in type_set and len(questions) < max_questions:
-            name_lower = name.lower()
-            desc_lower = desc.lower()
-            if name_lower in desc_lower:
+        elif qt == "fill_in_blank":
+            if name.lower() in desc.lower():
                 pattern = re.compile(re.escape(name), re.IGNORECASE)
-                blanked = pattern.sub("__________", desc, count=1)
+                blanked = _sanitize_sentence(pattern.sub("__________", desc, count=1))
+                blanked = _truncate_to_sentence_boundary(blanked, 300)
                 q = GeneratedQuestion(
                     chunk_id="",
                     question_type="fill_in_blank",
-                    question_text=blanked[:300],
+                    question_text=blanked,
                     correct_answer=name,
                     difficulty_label=_select_difficulty_label(difficulty, "fill_in_blank"),
-                    explanation=f"The blank should be filled with '{name}'.",
+                    explanation=f"The answer is '{name}'. {_truncate_to_sentence_boundary(desc, 120)}",
+                )
+                if _validate_question(q):
+                    questions.append(q)
+
+        elif qt == "true_false":
+            if not _is_declarative_statement(desc_short):
+                continue
+            diff_label = _select_difficulty_label(difficulty, "true_false")
+            make_false = random.random() < 0.5
+
+            if make_false:
+                swap_pool = [n for n in other_names_pool if n.lower() != name.lower()]
+                if swap_pool and name.lower() in desc.lower():
+                    replacement = random.choice(swap_pool)
+                    false_stmt = re.sub(
+                        re.escape(name), replacement, desc_short,
+                        count=1, flags=re.IGNORECASE
+                    )
+                    false_stmt = _sanitize_sentence(false_stmt)
+                    q = GeneratedQuestion(
+                        chunk_id="",
+                        question_type="true_false",
+                        question_text=false_stmt,
+                        correct_answer="false",
+                        difficulty_label=diff_label,
+                        explanation=f"This statement is false. The description actually refers to '{name}', not '{replacement}'.",
+                    )
+                    if _validate_question(q):
+                        questions.append(q)
+                else:
+                    swapped = _try_entity_swap(desc_short, all_keyphrases)
+                    if swapped:
+                        q = GeneratedQuestion(
+                            chunk_id="",
+                            question_type="true_false",
+                            question_text=_sanitize_sentence(swapped),
+                            correct_answer="false",
+                            difficulty_label=diff_label,
+                            explanation=f"This statement is false. {_build_explanation(desc_short)}",
+                        )
+                        if _validate_question(q):
+                            questions.append(q)
+            else:
+                q = GeneratedQuestion(
+                    chunk_id="",
+                    question_type="true_false",
+                    question_text=_sanitize_sentence(desc_short),
+                    correct_answer="true",
+                    difficulty_label=diff_label,
+                    explanation=f"This statement is true. {_build_explanation(desc_short)}",
                 )
                 if _validate_question(q):
                     questions.append(q)
@@ -2123,13 +2309,22 @@ def generate_questions(input: GenerateQuestionsInput):
 
             imp_sentences = chunk.important_sentences if chunk.important_sentences else good_sentences[:5]
 
-            for sent in imp_sentences:
+            for raw_sent in imp_sentences:
                 if len(chunk_questions) >= chunk_max_questions:
                     break
                 if remaining_by_type is not None and sum(remaining_by_type.values()) <= 0:
                     break
 
+                if not is_good_sentence(raw_sent):
+                    continue
+
+                sent = _sanitize_sentence(raw_sent)
+                if not sent or len(sent) < 15:
+                    continue
+
                 kp = _find_keyphrase_in_sentence(sent, keyphrases)
+                if kp:
+                    kp = _sanitize_answer(kp)
 
                 # Prefer keyphrases not yet used (for diversity)
                 if kp and kp.lower() in used_keyphrases:

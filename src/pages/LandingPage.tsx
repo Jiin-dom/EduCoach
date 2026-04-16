@@ -164,7 +164,7 @@ export default function LandingPage() {
                                 </div>
                                 <h3 className="text-xl font-semibold mb-2">Performance Analytics</h3>
                                 <p className="text-muted-foreground">
-                                    Track your progress with detailed insights, identify weak topics, and measure your readiness.
+                                    Track your progress with detailed insights, identify weak topics, and measure your preparation.
                                 </p>
                             </CardContent>
                         </Card>
@@ -281,7 +281,7 @@ export default function LandingPage() {
                                     <div>
                                         <h4 className="font-semibold mb-1">Track Progress</h4>
                                         <p className="text-muted-foreground">
-                                            Detailed analytics show your strengths, weaknesses, and readiness for exams.
+                                            Detailed analytics show your strengths, weaknesses, and preparation estimate for exams.
                                         </p>
                                     </div>
                                 </li>
@@ -305,7 +305,7 @@ export default function LandingPage() {
                                                 <TrendingUp className="w-5 h-5 text-primary" />
                                             </div>
                                             <div>
-                                                <p className="text-sm text-muted-foreground">Readiness Score</p>
+                                                <p className="text-sm text-muted-foreground">Preparation Estimate</p>
                                                 <p className="text-2xl font-bold">78%</p>
                                             </div>
                                         </div>

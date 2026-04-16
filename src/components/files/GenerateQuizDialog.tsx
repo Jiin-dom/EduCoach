@@ -48,6 +48,7 @@ export function GenerateQuizDialog({ open, onOpenChange, documentId }: GenerateQ
     const { stableSelectedTypes, targetsByType } = computeBalancedQuizTypeTargets({
         totalCount: questionCount,
         selectedTypes,
+        difficulty,
     })
     const breakdownText = formatQuizTypeTargetsForHumans({ stableSelectedTypes, targetsByType })
 

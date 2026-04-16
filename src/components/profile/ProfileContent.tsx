@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { validatePassword } from "@/lib/authValidation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -91,6 +92,8 @@ export function ProfileContent() {
     // Delete Account modal state
     const [deleteAccountOpen, setDeleteAccountOpen] = useState(false)
     const [deleteLoading, setDeleteLoading] = useState(false)
+    const [firstNameInput, setFirstNameInput] = useState(profile?.first_name ?? "")
+    const [lastNameInput, setLastNameInput] = useState(profile?.last_name ?? "")
     const [displayNameInput, setDisplayNameInput] = useState(profile?.display_name ?? "")
     const [isSavingProfile, setIsSavingProfile] = useState(false)
     const [confirmReplanOpen, setConfirmReplanOpen] = useState(false)
@@ -113,13 +116,13 @@ export function ProfileContent() {
     const handleChangePassword = async () => {
         setPasswordError(null)
 
-        // --- Client-side validation ---
         if (!currentPassword || !newPassword || !confirmPassword) {
             setPasswordError("All fields are required.")
             return
         }
-        if (newPassword.length < 6) {
-            setPasswordError("New password must be at least 6 characters.")
+        const pwErrors = validatePassword(newPassword)
+        if (pwErrors.length > 0) {
+            setPasswordError(pwErrors.join(". ") + ".")
             return
         }
         if (newPassword !== confirmPassword) {
@@ -198,6 +201,8 @@ export function ProfileContent() {
     }
 
     useEffect(() => {
+        setFirstNameInput(profile?.first_name ?? "")
+        setLastNameInput(profile?.last_name ?? "")
         setDisplayNameInput(profile?.display_name ?? "")
         setStudyTimeStartInput(profile?.preferred_study_time_start ?? "18:00")
         setStudyTimeEndInput(profile?.preferred_study_time_end ?? "23:59")
@@ -207,9 +212,14 @@ export function ProfileContent() {
 
     const displayName = profile?.display_name || "Student"
     const email = user?.email || profile?.email || ""
+    const normalizedCurrentFirstName = (profile?.first_name ?? "").trim()
+    const normalizedCurrentLastName = (profile?.last_name ?? "").trim()
     const normalizedCurrentDisplayName = (profile?.display_name ?? "").trim()
     const normalizedInputDisplayName = displayNameInput.trim()
+    const hasFirstNameChanged = firstNameInput.trim() !== normalizedCurrentFirstName
+    const hasLastNameChanged = lastNameInput.trim() !== normalizedCurrentLastName
     const hasDisplayNameChanged = normalizedInputDisplayName !== normalizedCurrentDisplayName
+    const hasNameChanged = hasFirstNameChanged || hasLastNameChanged || hasDisplayNameChanged
     const currentStart = profile?.preferred_study_time_start ?? "18:00"
     const currentEnd = profile?.preferred_study_time_end ?? "23:59"
     const currentMinutes = profile?.daily_study_minutes ?? 30
@@ -223,7 +233,7 @@ export function ProfileContent() {
         normalizedInputDays.length !== currentDays.length ||
         normalizedInputDays.some((d, i) => d !== currentDays[i])
     const hasScheduleChanged = hasStudyWindowChanged || hasDailyMinutesChanged || hasAvailableDaysChanged
-    const hasProfileChanges = hasDisplayNameChanged || hasScheduleChanged
+    const hasProfileChanges = hasNameChanged || hasScheduleChanged
     const initials = displayName
         .split(' ')
         .map((w) => w[0])
@@ -276,7 +286,7 @@ export function ProfileContent() {
         { label: "Best Subject", value: strongestSubject, icon: Brain },
         { label: "Needs Improvement", value: weakestSubject, icon: TrendingUp },
         { label: "Concepts Tracked", value: String(stats?.totalConcepts ?? 0), icon: Target },
-        { label: "Readiness Score", value: `${stats?.averageMastery ?? 0}%`, icon: Award },
+        { label: "Preparation Estimate", value: `${stats?.averageMastery ?? 0}%`, icon: Award },
     ]
 
     const saveProfileChanges = async (shouldReplanSchedule: boolean) => {
@@ -285,6 +295,8 @@ export function ProfileContent() {
         setIsSavingProfile(true)
         try {
             const { error } = await updateProfile({
+                first_name: firstNameInput.trim(),
+                last_name: lastNameInput.trim(),
                 display_name: normalizedInputDisplayName,
                 preferred_study_time_start: studyTimeStartInput,
                 preferred_study_time_end: studyTimeEndInput,
@@ -488,17 +500,39 @@ export function ProfileContent() {
                             <CardDescription>Update your personal details</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div className="space-y-2">
-                                    <Label htmlFor="fullName">Display Name</Label>
+                                    <Label htmlFor="firstName">First Name</Label>
                                     <Input
-                                        id="fullName"
+                                        id="firstName"
+                                        value={firstNameInput}
+                                        onChange={(e) => setFirstNameInput(e.target.value)}
+                                        onKeyDown={(e) => e.key === "Enter" && handleSaveProfile()}
+                                        disabled={isSavingProfile}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="lastName">Last Name</Label>
+                                    <Input
+                                        id="lastName"
+                                        value={lastNameInput}
+                                        onChange={(e) => setLastNameInput(e.target.value)}
+                                        onKeyDown={(e) => e.key === "Enter" && handleSaveProfile()}
+                                        disabled={isSavingProfile}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="displayName">Display Name (Nickname)</Label>
+                                    <Input
+                                        id="displayName"
                                         value={displayNameInput}
                                         onChange={(e) => setDisplayNameInput(e.target.value)}
                                         onKeyDown={(e) => e.key === "Enter" && handleSaveProfile()}
                                         disabled={isSavingProfile}
                                     />
                                 </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <Label htmlFor="email">Email</Label>
                                     <Input id="email" type="email" defaultValue={email} disabled />
