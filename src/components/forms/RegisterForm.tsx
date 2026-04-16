@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useNavigate, Link } from "react-router-dom"
 import { useAuth } from "@/contexts/AuthContext"
+import { validateEmail, validatePassword, validateName } from "@/lib/authValidation"
 import { SocialAuthButtons } from "@/components/auth/SocialAuthButtons"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,32 +15,37 @@ export function RegisterForm() {
 
     const [showPassword, setShowPassword] = useState(false)
     const [formData, setFormData] = useState({
-        name: "",
+        firstName: "",
+        lastName: "",
         email: "",
         password: "",
         confirmPassword: "",
     })
     const [error, setError] = useState<string | null>(null)
+    const [fieldErrors, setFieldErrors] = useState<Record<string, string | null>>({})
     const [loading, setLoading] = useState(false)
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setError(null)
 
-        if (formData.password !== formData.confirmPassword) {
-            setError("Passwords do not match")
-            return
+        const errors: Record<string, string | null> = {
+            firstName: validateName(formData.firstName, "First name"),
+            lastName: validateName(formData.lastName, "Last name"),
+            email: validateEmail(formData.email),
         }
+        const pwErrors = validatePassword(formData.password)
+        if (pwErrors.length > 0) errors.password = pwErrors.join(", ")
+        if (formData.password !== formData.confirmPassword) errors.confirmPassword = "Passwords do not match"
 
-        if (formData.password.length < 6) {
-            setError("Password must be at least 6 characters")
-            return
-        }
+        const hasErrors = Object.values(errors).some(Boolean)
+        setFieldErrors(errors)
+        if (hasErrors) return
 
         setLoading(true)
 
         try {
-            const { error } = await signUp(formData.email, formData.password)
+            const { error } = await signUp(formData.email, formData.password, formData.firstName.trim(), formData.lastName.trim())
 
             if (error) {
                 setError(error.message)
@@ -93,20 +99,38 @@ export function RegisterForm() {
                                 required
                                 className="h-11 rounded-full px-4 border-muted-foreground/30 focus-visible:ring-primary/50"
                             />
+                            {fieldErrors.email && <p className="text-xs text-destructive">{fieldErrors.email}</p>}
                         </div>
 
-                        <div className="space-y-2">
-                            <Label htmlFor="name" className="font-bold text-sm">Full Name</Label>
-                            <Input
-                                id="name"
-                                type="text"
-                                placeholder="e.g. John Doe"
-                                value={formData.name}
-                                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                disabled={loading}
-                                required
-                                className="h-11 rounded-full px-4 border-muted-foreground/30 focus-visible:ring-primary/50"
-                            />
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-2">
+                                <Label htmlFor="firstName" className="font-bold text-sm">First Name</Label>
+                                <Input
+                                    id="firstName"
+                                    type="text"
+                                    placeholder="e.g. John"
+                                    value={formData.firstName}
+                                    onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                                    disabled={loading}
+                                    required
+                                    className="h-11 rounded-full px-4 border-muted-foreground/30 focus-visible:ring-primary/50"
+                                />
+                                {fieldErrors.firstName && <p className="text-xs text-destructive">{fieldErrors.firstName}</p>}
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="lastName" className="font-bold text-sm">Last Name</Label>
+                                <Input
+                                    id="lastName"
+                                    type="text"
+                                    placeholder="e.g. Doe"
+                                    value={formData.lastName}
+                                    onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                                    disabled={loading}
+                                    required
+                                    className="h-11 rounded-full px-4 border-muted-foreground/30 focus-visible:ring-primary/50"
+                                />
+                                {fieldErrors.lastName && <p className="text-xs text-destructive">{fieldErrors.lastName}</p>}
+                            </div>
                         </div>
 
                         <div className="space-y-2">
@@ -130,6 +154,7 @@ export function RegisterForm() {
                                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                 </button>
                             </div>
+                            {fieldErrors.password && <p className="text-xs text-destructive">{fieldErrors.password}</p>}
                         </div>
 
                         <div className="space-y-2">
@@ -146,6 +171,7 @@ export function RegisterForm() {
                                     className="h-11 rounded-full px-4 border-muted-foreground/30 focus-visible:ring-primary/50 pr-11"
                                 />
                             </div>
+                            {fieldErrors.confirmPassword && <p className="text-xs text-destructive">{fieldErrors.confirmPassword}</p>}
                         </div>
 
                         <div className="text-center text-[11px] text-muted-foreground py-2 text-balance leading-relaxed font-medium">

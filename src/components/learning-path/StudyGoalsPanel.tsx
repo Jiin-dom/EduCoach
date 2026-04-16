@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/select"
 import { useDocuments, useUpdateDocument, type Document } from "@/hooks/useDocuments"
 import { useQuizzes, type Quiz } from "@/hooks/useQuizzes"
+import { useStudyGoals } from "@/hooks/useStudyGoals"
 import { toast } from "sonner"
 import { ExamManager } from "./ExamManager"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -40,20 +41,20 @@ import { useConceptMasteryList } from "@/hooks/useLearning"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-export type ReadinessLevel = 'High' | 'Medium' | 'Low' | 'Not Started'
+export type PreparationLevel = 'Strong' | 'Moderate' | 'Limited' | 'Not Started'
 
-function getReadinessLevel(score: number | null): ReadinessLevel {
+function getPreparationLevel(score: number | null): PreparationLevel {
     if (score === null) return 'Not Started'
-    if (score >= 80) return 'High'
-    if (score >= 60) return 'Medium'
-    return 'Low'
+    if (score >= 80) return 'Strong'
+    if (score >= 60) return 'Moderate'
+    return 'Limited'
 }
 
-function getReadinessColor(level: ReadinessLevel): string {
+function getPreparationColor(level: PreparationLevel): string {
     switch (level) {
-        case 'High': return 'bg-green-100 text-green-700 ring-green-200'
-        case 'Medium': return 'bg-blue-100 text-blue-700 ring-blue-200'
-        case 'Low': return 'bg-amber-100 text-amber-700 ring-amber-200'
+        case 'Strong': return 'bg-green-100 text-green-700 ring-green-200'
+        case 'Moderate': return 'bg-blue-100 text-blue-700 ring-blue-200'
+        case 'Limited': return 'bg-amber-100 text-amber-700 ring-amber-200'
         default: return 'bg-slate-100 text-slate-600 ring-slate-200'
     }
 }
@@ -75,19 +76,19 @@ function daysRemaining(deadline: string | null): string | null {
 function DocumentGoalCard({
     doc,
     onEdit,
-    readinessScore,
+    preparationScore,
 }: {
     doc: Document
     onEdit: (doc: Document) => void
-    readinessScore: number | null
+    preparationScore: number | null
 }) {
     const updateDocument = useUpdateDocument()
     const deactivatePlaceholders = useDeactivateDocumentGoalWindowPlaceholders()
     const goalStatus = daysRemaining(doc.exam_date || null)
     const isOverdue = goalStatus?.includes("overdue")
     
-    const readiness = getReadinessLevel(readinessScore)
-    const readinessColor = getReadinessColor(readiness)
+    const preparation = getPreparationLevel(preparationScore)
+    const preparationColor = getPreparationColor(preparation)
 
     const handleRemoveGoal = () => {
         updateDocument.mutate({
@@ -156,9 +157,9 @@ function DocumentGoalCard({
                                 </div>
                             )}
 
-                            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ring-1 ${readinessColor}`}>
+                            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ring-1 ${preparationColor}`}>
                                 <Sparkles className="w-3.5 h-3.5" />
-                                {readiness} Readiness
+                                {preparation} Preparation
                             </div>
                         </div>
                     </div>
@@ -173,21 +174,21 @@ function DocumentGoalCard({
 function QuizGoalCard({
     quiz,
     doc,
-    readinessScore,
+    preparationScore,
     onEdit,
 }: {
     quiz: Quiz
     doc: Document | undefined
-    readinessScore: number | null
+    preparationScore: number | null
     onEdit: (quiz: Quiz) => void
 }) {
     const updateDocument = useUpdateDocument()
     const goalStatus = daysRemaining(doc?.deadline || null)
     const isOverdue = goalStatus?.includes("overdue")
     
-    const readiness = getReadinessLevel(readinessScore)
-    const readinessColor = getReadinessColor(readiness)
-    const isMastered = readiness === 'High'
+    const preparation = getPreparationLevel(preparationScore)
+    const preparationColor = getPreparationColor(preparation)
+    const isMastered = preparation === 'Strong'
 
     const handleRemoveGoal = () => {
         if (!doc) return
@@ -261,19 +262,19 @@ function QuizGoalCard({
                                 </div>
                             )}
 
-                            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ring-1 ${readinessColor}`}>
+                            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ring-1 ${preparationColor}`}>
                                 <CheckCircle2 className="w-3.5 h-3.5" />
-                                {readiness} Readiness
+                                {preparation} Preparation
                             </div>
                         </div>
 
-                        {readinessScore !== null && (
+                        {preparationScore !== null && (
                             <div className="mt-4 space-y-1.5">
                                 <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
-                                    <span>Goal Readiness</span>
-                                    <span>{readiness}</span>
+                                    <span>Preparation Estimate</span>
+                                    <span>{preparation}</span>
                                 </div>
-                                <Progress value={readinessScore} className={`h-1.5 ${isMastered ? '[&>div]:bg-green-500' : ''}`} />
+                                <Progress value={preparationScore} className={`h-1.5 ${isMastered ? '[&>div]:bg-green-500' : ''}`} />
                             </div>
                         )}
                     </div>
@@ -443,17 +444,22 @@ export function StudyGoalsPanel() {
     const { data: documents, isLoading: docsLoading } = useDocuments()
     const { data: quizzes, isLoading: quizzesLoading, isError: quizzesError } = useQuizzes()
     const { data: allMastery } = useConceptMasteryList()
+    const { data: studyGoals } = useStudyGoals()
     
     const [showAddDialog, setShowAddDialog] = useState(false)
     const [quizToEdit, setQuizToEdit] = useState<Quiz | undefined>(undefined)
     const [docToEdit, setDocToEdit] = useState<Document | undefined>(undefined)
 
-    // Helper to calculate average mastery for a document
-    const getDocReadiness = (docId: string) => {
+    const getDocPreparation = (docId: string) => {
         if (!allMastery) return null
-        const docConcepts = allMastery.filter(m => m.document_id === docId && m.total_attempts > 0)
-        if (docConcepts.length === 0) return null
-        return Math.round(docConcepts.reduce((acc, m) => acc + m.display_mastery_score, 0) / docConcepts.length)
+        const allDocConcepts = allMastery.filter(m => m.document_id === docId)
+        if (allDocConcepts.length === 0) return null
+        const attempted = allDocConcepts.filter(m => m.total_attempts > 0)
+        if (attempted.length === 0) return null
+        const coverage = attempted.length / allDocConcepts.length
+        const avgMastery = Math.round(attempted.reduce((acc, m) => acc + m.display_mastery_score, 0) / attempted.length)
+        // Penalize low coverage: effective score scales with how much material was attempted
+        return Math.round(avgMastery * Math.min(coverage * 1.5, 1))
     }
 
     const docsWithGoals = useMemo(() => {
@@ -538,7 +544,7 @@ export function StudyGoalsPanel() {
                                     key={doc.id} 
                                     doc={doc} 
                                     onEdit={handleEditDoc} 
-                                    readinessScore={getDocReadiness(doc.id)}
+                                    preparationScore={getDocPreparation(doc.id)}
                                 />
                             ))
                         )}
@@ -569,13 +575,42 @@ export function StudyGoalsPanel() {
                                     key={quiz.id} 
                                     quiz={quiz} 
                                     doc={documents?.find(d => d.id === quiz.document_id)}
-                                    readinessScore={getDocReadiness(quiz.document_id)}
+                                    preparationScore={getDocPreparation(quiz.document_id)}
                                     onEdit={handleEditQuiz}
                                 />
                             ))
                         )}
                     </div>
                 </div>
+
+                {/* Explicit Study Goals (read-only surfacing) */}
+                {studyGoals && studyGoals.length > 0 && (
+                    <div className="xl:col-span-12 space-y-4">
+                        <h2 className="text-lg font-bold flex items-center gap-2">
+                            <Trophy className="w-5 h-5 text-amber-500" />
+                            Explicit Study Goals
+                        </h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {studyGoals.map((goal) => (
+                                <Card key={goal.id} className={goal.is_completed ? "opacity-60" : ""}>
+                                    <CardContent className="py-4 space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <span className="font-semibold text-sm">{goal.title}</span>
+                                            {goal.is_completed && (
+                                                <CheckCircle2 className="w-4 h-4 text-green-500" />
+                                            )}
+                                        </div>
+                                        <div className="flex gap-3 text-xs text-muted-foreground">
+                                            <span className="capitalize">{goal.goal_type.replace('_', ' ')}</span>
+                                            <span>Target: {goal.target_value}{goal.goal_type.includes('mastery') ? '%' : ''}</span>
+                                            {goal.deadline && <span>Due: {goal.deadline}</span>}
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 {/* Right Column: Sidebar */}
                 <div className="xl:col-span-3 space-y-6">

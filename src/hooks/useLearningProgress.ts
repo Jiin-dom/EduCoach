@@ -78,21 +78,57 @@ export function useWeeklyProgress() {
                 }
             }
 
-            // Get mastery scores to compute average delta
-            // We'll compute it as: avg score now minus avg score of concepts before this week's attempts
-            // const { data: allMastery } = await supabase
-            //     .from('user_concept_mastery')
-            //     .select('mastery_score')
-            //     .eq('user_id', user.id)
-            //     .abortSignal(signal)
+            // Real mastery delta from mastery_snapshots (before/after comparison)
+            let masteryDelta = 0
+            if (allConceptIds.length > 0) {
+                // Current scores: latest snapshot per concept within the window
+                const { data: currentSnapshots } = await supabase
+                    .from('mastery_snapshots')
+                    .select('concept_id, mastery_score, recorded_at')
+                    .eq('user_id', user.id)
+                    .in('concept_id', allConceptIds)
+                    .gte('recorded_at', since)
+                    .order('recorded_at', { ascending: false })
 
-            // const avgNow = (allMastery && allMastery.length > 0)
-            //     ? Math.round(allMastery.reduce((sum, m) => sum + Number(m.mastery_score), 0) / allMastery.length)
-            //     : 0
+                // Before scores: latest snapshot per concept BEFORE the window
+                const { data: beforeSnapshots } = await supabase
+                    .from('mastery_snapshots')
+                    .select('concept_id, mastery_score, recorded_at')
+                    .eq('user_id', user.id)
+                    .in('concept_id', allConceptIds)
+                    .lt('recorded_at', since)
+                    .order('recorded_at', { ascending: false })
 
-            // Positive delta approximation: concepts improved × average improvement per concept
-            // Simplified: just show the count of improved concepts as the headline
-            const masteryDelta = conceptsWithCorrect.size > 0 ? Math.max(1, Math.round(conceptsWithCorrect.size * 2)) : 0
+                if (currentSnapshots && currentSnapshots.length > 0) {
+                    // Dedupe to latest per concept
+                    const latestCurrent = new Map<string, number>()
+                    for (const s of currentSnapshots) {
+                        if (!latestCurrent.has(s.concept_id)) {
+                            latestCurrent.set(s.concept_id, Number(s.mastery_score))
+                        }
+                    }
+                    const latestBefore = new Map<string, number>()
+                    if (beforeSnapshots) {
+                        for (const s of beforeSnapshots) {
+                            if (!latestBefore.has(s.concept_id)) {
+                                latestBefore.set(s.concept_id, Number(s.mastery_score))
+                            }
+                        }
+                    }
+
+                    // Only compute delta for concepts that have both before and current
+                    const deltas: number[] = []
+                    for (const [conceptId, currentScore] of latestCurrent) {
+                        const beforeScore = latestBefore.get(conceptId)
+                        if (beforeScore !== undefined) {
+                            deltas.push(currentScore - beforeScore)
+                        }
+                    }
+                    if (deltas.length > 0) {
+                        masteryDelta = Math.round(deltas.reduce((a, b) => a + b, 0) / deltas.length)
+                    }
+                }
+            }
 
             return {
                 conceptsImproved: conceptsWithCorrect.size,

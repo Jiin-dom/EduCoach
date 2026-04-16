@@ -31,7 +31,8 @@ import {
 import { useLearningStats } from "@/hooks/useLearning"
 import type { ConceptMasteryWithDetails } from "@/hooks/useLearning"
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
-import { useGenerateReviewQuiz } from "@/hooks/useQuizzes"
+import { useGenerateReviewQuiz, useQuizzes } from "@/hooks/useQuizzes"
+import { useDocuments } from "@/hooks/useDocuments"
 import type { AdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { useLearningPathPlan } from "@/hooks/useLearningPathPlan"
 import type {
@@ -297,6 +298,7 @@ function SectionBlock({
                 <CardTitle className="flex items-center gap-2 text-base">
                     {icon}
                     {title}
+                    <Badge variant="secondary" className="text-[10px] font-medium ml-1">Based on your performance</Badge>
                     <Badge variant="outline" className="ml-auto">{items.length}</Badge>
                 </CardTitle>
             </CardHeader>
@@ -425,6 +427,8 @@ export function LearningPathContent() {
     const plan = useLearningPathPlan()
     const { data: stats, isLoading: statsLoading, isError: statsError } = useLearningStats()
     const { data: weeklyProgress } = useWeeklyProgress()
+    const { data: documents } = useDocuments()
+    const { data: quizzes } = useQuizzes()
     const generateReview = useGenerateReviewQuiz()
     const navigate = useNavigate()
 
@@ -637,23 +641,57 @@ export function LearningPathContent() {
                         </CardContent>
                     </Card>
                 ) : plan.items.length === 0 ? (
-                    <Card>
-                        <CardContent className="text-center py-16">
-                            <Brain className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
-                            <h3 className="text-lg font-semibold mb-2">No learning data yet</h3>
-                            <p className="text-muted-foreground mb-4">
-                                Upload study materials and take quizzes to build your personalized learning path.
-                            </p>
-                            <div className="flex gap-3 justify-center">
-                                <Link to="/files">
-                                    <Button variant="outline">Upload Materials</Button>
-                                </Link>
-                                <Link to="/quizzes">
-                                    <Button>Take a Quiz</Button>
-                                </Link>
-                            </div>
-                        </CardContent>
-                    </Card>
+                    (() => {
+                        const docs = documents || []
+                        const hasUploaded = docs.length > 0
+                        const hasProcessed = docs.some(d => d.status === 'ready')
+                        const hasAttempted = plan.performancePlannedReviews.length > 0
+                        const hasTarget = docs.some(d => d.exam_date != null)
+                        const steps = [
+                            { label: "Upload study materials", done: hasUploaded, link: "/files" },
+                            { label: "Process your documents", done: hasProcessed, link: "/files" },
+                            { label: "Take your first quiz", done: hasAttempted, link: "/quizzes" },
+                            { label: "Set a study target date", done: hasTarget, link: "/files" },
+                        ]
+                        const completedCount = steps.filter(s => s.done).length
+                        return (
+                            <Card>
+                                <CardContent className="py-10 px-6">
+                                    <div className="text-center mb-6">
+                                        <Brain className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+                                        <h3 className="text-lg font-semibold mb-1">Get started with your learning path</h3>
+                                        <p className="text-sm text-muted-foreground">
+                                            Complete these steps to build your personalized study plan.
+                                        </p>
+                                    </div>
+                                    <div className="mb-4">
+                                        <div className="flex items-center justify-between text-sm mb-1">
+                                            <span className="font-medium">{completedCount} of {steps.length} steps completed</span>
+                                            <span className="text-muted-foreground">{Math.round((completedCount / steps.length) * 100)}%</span>
+                                        </div>
+                                        <Progress value={(completedCount / steps.length) * 100} className="h-2" />
+                                    </div>
+                                    <ul className="space-y-3">
+                                        {steps.map((step, i) => (
+                                            <li key={i} className="flex items-center gap-3">
+                                                {step.done
+                                                    ? <CheckCircle2 className="w-5 h-5 text-primary shrink-0" />
+                                                    : <div className="w-5 h-5 rounded-full border-2 border-muted-foreground/30 shrink-0" />}
+                                                <span className={step.done ? "text-sm line-through text-muted-foreground" : "text-sm font-medium"}>
+                                                    {step.label}
+                                                </span>
+                                                {!step.done && (
+                                                    <Link to={step.link} className="ml-auto">
+                                                        <Button size="sm" variant="outline" className="h-7 text-xs">Go</Button>
+                                                    </Link>
+                                                )}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </CardContent>
+                            </Card>
+                        )
+                    })()
                 ) : (
                     <>
                         {/* Weekly Progress Summary */}
@@ -782,23 +820,81 @@ export function LearningPathContent() {
                             </Card>
                         </div>
 
-                        {/* Overall Mastery */}
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Overall Readiness</CardTitle>
-                                <CardDescription>
-                                    Your aggregate mastery across {stats?.totalConcepts ?? 0} tracked concepts
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="flex items-center gap-4">
-                                    <div className="text-4xl font-bold text-primary">
-                                        {stats?.averageMastery ?? 0}%
-                                    </div>
-                                    <Progress value={stats?.averageMastery ?? 0} className="flex-1 h-3" />
+                        {/* Overall Preparation Estimate */}
+                        {(() => {
+                            const totalTracked = stats?.totalConcepts ?? 0
+                            const attempted = plan.performancePlannedReviews.length
+                            const performance = stats?.averageMastery ?? 0
+                            const coverage = totalTracked > 0 ? attempted / totalTracked : 0
+                            const coveragePct = Math.round(coverage * 100)
+
+                            let label = "Not enough data"
+                            if (coverage >= 0.60 && performance >= 80) label = "Strong"
+                            else if (coverage >= 0.40 && performance >= 60) label = "Moderate"
+                            else if (coverage >= 0.25) label = "Limited"
+
+                            return (
+                                <Card>
+                                    <CardHeader>
+                                        <CardTitle>Overall Preparation Estimate</CardTitle>
+                                        <CardDescription>
+                                            Based on your quiz and flashcard performance across {totalTracked} tracked concepts.
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="space-y-3">
+                                        <div className="text-2xl font-bold text-primary">{label}</div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <p className="text-xs text-muted-foreground mb-1">Coverage</p>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-lg font-semibold">{coveragePct}%</span>
+                                                    <Progress value={coveragePct} className="flex-1 h-2" />
+                                                </div>
+                                                <p className="text-[11px] text-muted-foreground mt-0.5">{attempted} of {totalTracked} concepts attempted</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-xs text-muted-foreground mb-1">Performance</p>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-lg font-semibold">{performance}%</span>
+                                                    <Progress value={performance} className="flex-1 h-2" />
+                                                </div>
+                                                <p className="text-[11px] text-muted-foreground mt-0.5">Avg mastery of attempted concepts</p>
+                                            </div>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )
+                        })()}
+
+                        {/* Mastery explanation */}
+                        <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-4 py-3">
+                            <HelpCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                            <span>
+                                Mastery scores are based on recent quiz and flashcard performance, weighted by question difficulty and answer speed.
+                                Concepts are scheduled for review using spaced repetition (SM-2). Sections below are ordered by study priority.
+                            </span>
+                        </div>
+
+                        {/* Milestones */}
+                        {(() => {
+                            const milestones: { label: string; achieved: boolean }[] = []
+                            const hasFirstQuiz = (quizzes || []).length > 0 && plan.performancePlannedReviews.length > 0
+                            milestones.push({ label: "First quiz taken", achieved: hasFirstQuiz })
+                            const hasMastered = performanceMasteryList.some(m => m.display_mastery_level === 'mastered')
+                            milestones.push({ label: "First concept mastered", achieved: hasMastered })
+                            const achieved = milestones.filter(m => m.achieved)
+                            if (achieved.length === 0) return null
+                            return (
+                                <div className="flex flex-wrap gap-2">
+                                    {achieved.map((m, i) => (
+                                        <Badge key={i} variant="secondary" className="gap-1.5 text-xs">
+                                            <CheckCircle2 className="w-3 h-3" />
+                                            {m.label}
+                                        </Badge>
+                                    ))}
                                 </div>
-                            </CardContent>
-                        </Card>
+                            )
+                        })()}
 
                         {/* Prioritized Sections */}
                         <SectionBlock

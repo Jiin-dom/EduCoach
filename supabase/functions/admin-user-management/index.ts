@@ -11,7 +11,9 @@ type ManageUsersRequest =
       action: "create_user"
       email: string
       password: string
-      displayName: string
+      firstName: string
+      lastName: string
+      displayName?: string
     }
   | {
       action: "delete_user"
@@ -128,7 +130,10 @@ serve(async (req) => {
     if (action === "create_user") {
       const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : ""
       const password = typeof body.password === "string" ? body.password : ""
-      const displayName = typeof body.displayName === "string" ? body.displayName.trim() : ""
+      const firstName = typeof body.firstName === "string" ? body.firstName.trim() : ""
+      const lastName = typeof body.lastName === "string" ? body.lastName.trim() : ""
+      const displayName = typeof body.displayName === "string" ? body.displayName.trim()
+        : `${firstName} ${lastName}`.trim()
 
       if (!email || !email.includes("@")) {
         return jsonResponse(400, { success: false, error: "Valid email is required" })
@@ -138,14 +143,15 @@ serve(async (req) => {
         return jsonResponse(400, { success: false, error: "Password must be at least 6 characters" })
       }
 
-      if (displayName.length < 2) {
-        return jsonResponse(400, { success: false, error: "Display name must be at least 2 characters" })
+      if (firstName.length < 2) {
+        return jsonResponse(400, { success: false, error: "First name must be at least 2 characters" })
       }
 
       const { data: createdData, error: createError } = await serviceClient.auth.admin.createUser({
         email,
         password,
         email_confirm: true,
+        user_metadata: { first_name: firstName, last_name: lastName, display_name: displayName },
       })
 
       if (createError || !createdData.user) {
@@ -157,6 +163,8 @@ serve(async (req) => {
       const { error: updateProfileError } = await serviceClient
         .from("user_profiles")
         .update({
+          first_name: firstName,
+          last_name: lastName,
           display_name: displayName,
           role: "student",
         })

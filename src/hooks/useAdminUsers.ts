@@ -17,7 +17,8 @@ export interface AdminUserProfile {
 }
 
 interface AdminCreateUserInput {
-  displayName: string
+  firstName: string
+  lastName: string
   email: string
   password: string
 }
@@ -94,7 +95,8 @@ export function useCreateAdminUser() {
           action: "create_user",
           email: input.email,
           password: input.password,
-          displayName: input.displayName,
+          firstName: input.firstName,
+          lastName: input.lastName,
         },
       })
 
