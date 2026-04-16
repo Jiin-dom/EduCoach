@@ -1,0 +1,183 @@
+﻿{
+    "config":  {
+                   "difficulty":  "easy",
+                   "questionCount":  10,
+                   "runs":  5
+               },
+    "baseline":  {
+                     "name":  "baseline",
+                     "documentId":  "a5a90a6c-a0c8-4a71-9740-89588c2e1a11",
+                     "conceptMetrics":  {
+                                            "totalConcepts":  12,
+                                            "shortDescPct":  16.67,
+                                            "noVerbPct":  33.33,
+                                            "nearDupPct":  0
+                                        },
+                     "runs":  [
+                                  {
+                                      "run":  1,
+                                      "quizId":  "0c3c16e6-7f66-4097-b766-2d5d4b0d7f39",
+                                      "total":  10,
+                                      "shortStemPct":  0,
+                                      "labelOnlyPct":  0,
+                                      "badTfFormPct":  0,
+                                      "mcqPct":  30,
+                                      "tfPct":  30,
+                                      "fibPct":  10,
+                                      "idPct":  30
+                                  },
+                                  {
+                                      "run":  2,
+                                      "quizId":  "ebfdb4e8-c60e-4307-ac65-7ab23f053e8b",
+                                      "total":  10,
+                                      "shortStemPct":  0,
+                                      "labelOnlyPct":  0,
+                                      "badTfFormPct":  0,
+                                      "mcqPct":  20,
+                                      "tfPct":  50,
+                                      "fibPct":  0,
+                                      "idPct":  30
+                                  },
+                                  {
+                                      "run":  3,
+                                      "quizId":  "a420784b-aea3-4e37-bf1d-a420e87bbdb5",
+                                      "total":  10,
+                                      "shortStemPct":  0,
+                                      "labelOnlyPct":  0,
+                                      "badTfFormPct":  0,
+                                      "mcqPct":  40,
+                                      "tfPct":  30,
+                                      "fibPct":  10,
+                                      "idPct":  20
+                                  },
+                                  {
+                                      "run":  4,
+                                      "quizId":  "d5c912fe-c183-4120-8b5a-b5782ab6eac5",
+                                      "total":  10,
+                                      "shortStemPct":  0,
+                                      "labelOnlyPct":  0,
+                                      "badTfFormPct":  0,
+                                      "mcqPct":  40,
+                                      "tfPct":  20,
+                                      "fibPct":  10,
+                                      "idPct":  30
+                                  },
+                                  {
+                                      "run":  5,
+                                      "quizId":  "e61011d1-56d3-431f-bd9c-8e81ffc86aff",
+                                      "total":  10,
+                                      "shortStemPct":  0,
+                                      "labelOnlyPct":  0,
+                                      "badTfFormPct":  0,
+                                      "mcqPct":  40,
+                                      "tfPct":  30,
+                                      "fibPct":  0,
+                                      "idPct":  30
+                                  }
+                              ],
+                     "average":  {
+                                     "scenario":  "baseline",
+                                     "runs":  5,
+                                     "avgQuestions":  10,
+                                     "avgShortStemPct":  0,
+                                     "avgLabelOnlyPct":  0,
+                                     "avgBadTfFormPct":  0,
+                                     "avgMcqPct":  34,
+                                     "avgTfPct":  32,
+                                     "avgFibPct":  6,
+                                     "avgIdPct":  28,
+                                     "conceptTotal":  12,
+                                     "conceptShortDescPct":  16.67,
+                                     "conceptNoVerbPct":  33.33,
+                                     "conceptNearDupPct":  0
+                                 }
+                 },
+    "candidate":  {
+                      "name":  "candidate",
+                      "documentId":  "cfcd011a-e6aa-4fdd-910f-fe741ac9fe18",
+                      "conceptMetrics":  {
+                                             "totalConcepts":  9,
+                                             "shortDescPct":  0,
+                                             "noVerbPct":  44.44,
+                                             "nearDupPct":  0
+                                         },
+                      "runs":  [
+                                   {
+                                       "run":  1,
+                                       "quizId":  "11ed05e8-7e1c-4eae-b9a8-9e7c58dcaa25",
+                                       "total":  10,
+                                       "shortStemPct":  0,
+                                       "labelOnlyPct":  0,
+                                       "badTfFormPct":  0,
+                                       "mcqPct":  40,
+                                       "tfPct":  20,
+                                       "fibPct":  20,
+                                       "idPct":  20
+                                   },
+                                   {
+                                       "run":  2,
+                                       "quizId":  "8d3fbb1c-f4e8-43e7-bb15-95288d9f15dc",
+                                       "total":  10,
+                                       "shortStemPct":  0,
+                                       "labelOnlyPct":  0,
+                                       "badTfFormPct":  0,
+                                       "mcqPct":  30,
+                                       "tfPct":  20,
+                                       "fibPct":  30,
+                                       "idPct":  20
+                                   },
+                                   {
+                                       "run":  3,
+                                       "quizId":  "3d23035c-6a6f-4d37-9dda-a26e4d674119",
+                                       "total":  10,
+                                       "shortStemPct":  0,
+                                       "labelOnlyPct":  0,
+                                       "badTfFormPct":  0,
+                                       "mcqPct":  40,
+                                       "tfPct":  20,
+                                       "fibPct":  20,
+                                       "idPct":  20
+                                   },
+                                   {
+                                       "run":  4,
+                                       "quizId":  "ddce7ed1-8f4c-4d1e-9775-b76c240a41a6",
+                                       "total":  10,
+                                       "shortStemPct":  0,
+                                       "labelOnlyPct":  0,
+                                       "badTfFormPct":  0,
+                                       "mcqPct":  30,
+                                       "tfPct":  20,
+                                       "fibPct":  20,
+                                       "idPct":  30
+                                   },
+                                   {
+                                       "run":  5,
+                                       "quizId":  "8a1e4a29-f2c2-4444-b998-5db4e42ad70b",
+                                       "total":  10,
+                                       "shortStemPct":  0,
+                                       "labelOnlyPct":  0,
+                                       "badTfFormPct":  0,
+                                       "mcqPct":  30,
+                                       "tfPct":  20,
+                                       "fibPct":  20,
+                                       "idPct":  30
+                                   }
+                               ],
+                      "average":  {
+                                      "scenario":  "candidate",
+                                      "runs":  5,
+                                      "avgQuestions":  10,
+                                      "avgShortStemPct":  0,
+                                      "avgLabelOnlyPct":  0,
+                                      "avgBadTfFormPct":  0,
+                                      "avgMcqPct":  34,
+                                      "avgTfPct":  20,
+                                      "avgFibPct":  22,
+                                      "avgIdPct":  24,
+                                      "conceptTotal":  9,
+                                      "conceptShortDescPct":  0,
+                                      "conceptNoVerbPct":  44.44,
+                                      "conceptNearDupPct":  0
+                                  }
+                  }
+}

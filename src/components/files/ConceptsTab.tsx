@@ -120,7 +120,7 @@ export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, o
                             onClick={() => setSelectedConcept(concept)}
                             className="w-full text-left p-3 rounded-lg border hover:bg-accent/50 transition-colors group"
                         >
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-start gap-3">
                                 <div className={`w-2 h-2 rounded-full flex-shrink-0 ${getImportanceColor(concept.importance)}`} />
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2 flex-wrap">
@@ -134,24 +134,24 @@ export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, o
                                     {firstSentence && (
                                         <p className="text-xs text-muted-foreground mt-0.5 truncate">{firstSentence}</p>
                                     )}
+                                    <div className="flex flex-wrap gap-1 mt-2 min-w-0">
+                                        {(concept.keywords || []).slice(0, 3).map((kw) => (
+                                            <Badge key={kw} variant="secondary" className="text-[10px] hidden sm:inline-flex">{kw}</Badge>
+                                        ))}
+                                        {concept.source_pages?.map((p) => (
+                                            <Badge
+                                                key={p}
+                                                variant="outline"
+                                                className="text-[10px] gap-0.5 cursor-pointer hover:bg-primary/10 hidden sm:inline-flex"
+                                                onClick={(e) => { e.stopPropagation(); onPageJump?.(p) }}
+                                            >
+                                                <FileText className="w-2.5 h-2.5" />p.{p}
+                                            </Badge>
+                                        ))}
+                                    </div>
                                 </div>
-                                <div className="w-16 flex-shrink-0">
+                                <div className="w-16 flex-shrink-0 pt-1">
                                     <Progress value={concept.importance * 10} className="h-1.5" />
-                                </div>
-                                <div className="flex gap-1 flex-shrink-0">
-                                    {(concept.keywords || []).slice(0, 3).map((kw) => (
-                                        <Badge key={kw} variant="secondary" className="text-[10px] hidden sm:inline-flex">{kw}</Badge>
-                                    ))}
-                                    {concept.source_pages?.map((p) => (
-                                        <Badge
-                                            key={p}
-                                            variant="outline"
-                                            className="text-[10px] gap-0.5 cursor-pointer hover:bg-primary/10 hidden sm:inline-flex"
-                                            onClick={(e) => { e.stopPropagation(); onPageJump?.(p) }}
-                                        >
-                                            <FileText className="w-2.5 h-2.5" />p.{p}
-                                        </Badge>
-                                    ))}
                                 </div>
                             </div>
                         </button>

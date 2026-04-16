@@ -20,6 +20,7 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+const VALID_QUESTION_TYPES = new Set(['multiple_choice', 'identification', 'true_false', 'fill_in_blank'])
 const BASE_DELAY_MS = 2000
 const QUIZ_PRIORITY_PREMIUM = 2
 const QUIZ_PRIORITY_FREE = 1
@@ -104,6 +105,34 @@ function parseTimeoutMs(value: string | null, fallbackMs: number): number {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackMs
 }
 
+function isGeminiCapacityPressure(message: string): boolean {
+    const msg = (message || '').toUpperCase()
+    return msg.includes('429')
+        || msg.includes('RESOURCE_EXHAUSTED')
+        || msg.includes('503')
+        || msg.includes('UNAVAILABLE')
+        || msg.includes('AI_BUSY')
+}
+
+function extractJsonPayload(raw: string): string {
+    let jsonStr = raw || ''
+    if (jsonStr.includes('```json')) {
+        jsonStr = jsonStr.split('```json')[1].split('```')[0]
+    } else if (jsonStr.includes('```')) {
+        jsonStr = jsonStr.split('```')[1].split('```')[0]
+    }
+    jsonStr = jsonStr.trim()
+
+    // Fallback: isolate the main JSON object if extra text leaked in.
+    const firstBrace = jsonStr.indexOf('{')
+    const lastBrace = jsonStr.lastIndexOf('}')
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+        jsonStr = jsonStr.slice(firstBrace, lastBrace + 1)
+    }
+
+    return jsonStr
+}
+
 function dedupByText(qs: NlpQuestion[]): NlpQuestion[] {
     const normalizeKey = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
     const seen = new Set<string>()
@@ -120,6 +149,10 @@ function dedupByText(qs: NlpQuestion[]): NlpQuestion[] {
 function validateAndFilter(questions: NlpQuestion[]): NlpQuestion[] {
     let filtered = filterInvalidIdentificationQuestions(questions)
     filtered = filtered.filter((q) => {
+        if (!VALID_QUESTION_TYPES.has(q.question_type)) {
+            console.warn(`⚠️ Dropping question with invalid type "${q.question_type}": ${q.question_text?.substring(0, 60)}`)
+            return false
+        }
         if (q.question_type === 'true_false') {
             const text = q.question_text.trim()
             if (text.endsWith('?')) return false
@@ -197,6 +230,7 @@ serve(async (req) => {
             computeBalancedQuizTypeTargets({
                 totalCount: questionCount,
                 selectedTypes: questionTypes,
+                difficulty,
             })
 
         if (!documentId) {
@@ -645,7 +679,7 @@ serve(async (req) => {
                 questions = enhanced
             } catch (err) {
                 const msg = (err as Error).message
-                if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED')) {
+                if (isGeminiCapacityPressure(msg)) {
                     console.warn('⚠️ Enhancement hit quota limit, degrading to yellow tier')
                     quotaTier = 'yellow'
                 } else {
@@ -666,7 +700,7 @@ serve(async (req) => {
                 questions = validationResult.questions
             } catch (err) {
                 const msg = (err as Error).message
-                if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED')) {
+                if (isGeminiCapacityPressure(msg)) {
                     console.warn('⚠️ Validation hit quota limit, proceeding without validation')
                     quotaTier = 'yellow'
                 } else {
@@ -742,7 +776,7 @@ serve(async (req) => {
                 }
             } catch (err) {
                 const msg = (err as Error).message
-                if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED')) {
+                if (isGeminiCapacityPressure(msg)) {
                     console.warn(`⚠️ Catch-up #${catchUpAttempts} hit quota pressure; degrading to red tier`)
                     quotaTier = 'red'
                     break
@@ -1020,29 +1054,28 @@ Rules:
 - Fill-in-the-blank: use __________ for the blank
 - True/False: correct_answer must be "true" or "false"
 - True/False: question_text MUST be a declarative statement, NEVER a question ending with "?" or starting with "How", "What", etc.
+- NEVER generate a question whose stem is just a topic name or noun phrase with no explanatory context.
+- For identification: the stem must contain a meaningful description or definition passage, not just a topic label.
+- Every question_text must be at least 20 characters and self-contained enough for a student to answer without seeing the original document.
 ${IDENTIFICATION_PROMPT_RULES}`
 
     const content = await callGemini(prompt, apiKey, 4096)
     try {
-        let jsonStr = content
-        if (jsonStr.includes('```json')) {
-            jsonStr = jsonStr.split('```json')[1].split('```')[0]
-        } else if (jsonStr.includes('```')) {
-            jsonStr = jsonStr.split('```')[1].split('```')[0]
-        }
-        const parsed = JSON.parse(jsonStr.trim())
-        const questions: NlpQuestion[] = (parsed.questions || []).map((q: Record<string, unknown>) => ({
-            chunk_id: '',
-            question_type: q.question_type as string,
-            question_text: q.question_text as string,
-            options: q.options as string[] | null,
-            correct_answer: q.correct_answer as string,
-            difficulty_label: (q.difficulty_label as string) || 'intermediate',
-            explanation: q.explanation as string,
-        }))
+        const parsed = JSON.parse(extractJsonPayload(content))
+        const questions: NlpQuestion[] = (parsed.questions || [])
+            .filter((q: Record<string, unknown>) => VALID_QUESTION_TYPES.has(q.question_type as string))
+            .map((q: Record<string, unknown>) => ({
+                chunk_id: '',
+                question_type: q.question_type as string,
+                question_text: q.question_text as string,
+                options: q.options as string[] | null,
+                correct_answer: q.correct_answer as string,
+                difficulty_label: (q.difficulty_label as string) || 'intermediate',
+                explanation: q.explanation as string,
+            }))
         return questions
-    } catch {
-        console.error('⚠️ Failed to parse Gemini quiz response')
+    } catch (err) {
+        console.error('⚠️ Failed to parse Gemini quiz response:', (err as Error).message)
         return []
     }
 }
@@ -1094,6 +1127,12 @@ STRICT RULES:
 - If question_type is "fill_in_blank": question_text MUST contain __________ for the blank.
 - MCQ options MUST have exactly 4 items, all distinct.
 
+REJECTION RULES (set question_text to "" to reject):
+- If a question stem is ONLY a topic name, term, or noun phrase (e.g., "Recurrent Neural Networks") with no explanatory context, REJECT it by setting question_text to empty string "".
+- For identification questions: the quoted description in the stem MUST be a meaningful explanatory passage, not just a topic label, list of terms, or short fragment under 20 characters. If it is, REJECT it.
+- For true_false questions: if the statement is just a topic label or noun phrase with no verb, REJECT it.
+- For any question type: if the question_text is nonsensical, unanswerable, or trivially obvious from the question structure alone, REJECT it.
+
 TEXT QUALITY RULES:
 - Remove any bullet point characters (•, ·, ▶, ■, ○, etc.), list markers (-, *, 1.), or other formatting artifacts from question_text, options, correct_answer, and explanation fields.
 - Ensure proper sentence casing: question_text and explanation must start with an uppercase letter.
@@ -1111,19 +1150,23 @@ Return ONLY valid JSON:
 
     try {
         const content = await callGemini(prompt, apiKey, 4096)
-        let jsonStr = content
-        if (jsonStr.includes('```json')) {
-            jsonStr = jsonStr.split('```json')[1].split('```')[0]
-        } else if (jsonStr.includes('```')) {
-            jsonStr = jsonStr.split('```')[1].split('```')[0]
-        }
-        const parsed = JSON.parse(jsonStr.trim())
+        const parsed = JSON.parse(extractJsonPayload(content))
         if (parsed.questions?.length > 0) {
-            if (parsed.questions.length < questions.length) {
-                console.warn(`⚠️ Gemini enhancement returned ${parsed.questions.length} questions, but ${questions.length} were expected.`)
+            const validEnhanced = parsed.questions.filter(
+                (q: Record<string, unknown>) =>
+                    VALID_QUESTION_TYPES.has(q.question_type as string) &&
+                    typeof q.question_text === 'string' &&
+                    (q.question_text as string).trim().length >= 20
+            )
+            const rejected = parsed.questions.length - validEnhanced.length
+            if (rejected > 0) {
+                console.log(`🗑️ Enhancement filter: rejected ${rejected} questions (empty/too-short stems)`)
             }
-            console.log(`✅ Gemini enhanced ${parsed.questions.length}/${questions.length} questions`)
-            return parsed.questions.map((q: Record<string, unknown>) => ({
+            if (validEnhanced.length < questions.length) {
+                console.warn(`⚠️ Gemini enhancement returned ${validEnhanced.length} valid questions (${parsed.questions.length} total), but ${questions.length} were expected.`)
+            }
+            console.log(`✅ Gemini enhanced ${validEnhanced.length}/${questions.length} questions`)
+            return validEnhanced.map((q: Record<string, unknown>) => ({
                 chunk_id: (q.chunk_id as string) || '',
                 question_type: q.question_type as string,
                 question_text: q.question_text as string,
@@ -1134,7 +1177,12 @@ Return ONLY valid JSON:
             }))
         }
     } catch (err) {
-        console.warn('⚠️ Gemini enhancement failed, keeping original questions:', (err as Error).message)
+        const msg = (err as Error).message || ''
+        // Bubble up transient API capacity errors so caller can degrade quota tier.
+        if (isGeminiCapacityPressure(msg) || msg.includes('AI_ERROR') || msg.includes('QUOTA_429')) {
+            throw err
+        }
+        console.warn('⚠️ Gemini enhancement failed, keeping original questions:', msg)
     }
     return questions
 }
@@ -1203,14 +1251,7 @@ Return ONLY valid JSON:
 }`
 
     const content = await callGemini(prompt, apiKey, 4096)
-    let jsonStr = content
-    if (jsonStr.includes('```json')) {
-        jsonStr = jsonStr.split('```json')[1].split('```')[0]
-    } else if (jsonStr.includes('```')) {
-        jsonStr = jsonStr.split('```')[1].split('```')[0]
-    }
-
-    const parsed = JSON.parse(jsonStr.trim())
+    const parsed = JSON.parse(extractJsonPayload(content))
     const results: Array<{
         index: number
         action: string
