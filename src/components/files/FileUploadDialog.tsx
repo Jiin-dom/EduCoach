@@ -82,6 +82,8 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
         () => getUploadProcessingMode(items.length),
         [items.length],
     )
+    const batchExceedsLimit = !hasPremium && uploadableItems.length > remainingSlots && remainingSlots >= 0
+    const allowedInBatch = hasPremium ? uploadableItems.length : Math.min(uploadableItems.length, remainingSlots)
 
     useEffect(() => {
         if (!isSingleSelection) {
@@ -172,11 +174,28 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
         setPhase("uploading")
 
         let anyUploaded = false
+        let uploadedInBatch = 0
         let lastDocumentId: string | null = null
         const shouldProcessImmediately =
             getUploadProcessingMode(items.length) === "process_immediately" && uploadableItems.length === 1
+        const maxAllowed = hasPremium ? Infinity : FREE_DOCUMENT_LIMIT - documentCount
 
         for (const item of uploadableItems) {
+            if (!hasPremium && uploadedInBatch >= maxAllowed) {
+                setItems((current) =>
+                    current.map((candidate) =>
+                        candidate.id === item.id
+                            ? {
+                                ...candidate,
+                                status: "error",
+                                errorMessage: `Free plan limit reached (${FREE_DOCUMENT_LIMIT} files). Upgrade to Premium for unlimited uploads.`,
+                            }
+                            : candidate,
+                    ),
+                )
+                continue
+            }
+
             setItems((current) =>
                 current.map((candidate) =>
                     candidate.id === item.id
@@ -219,7 +238,11 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
 
                 if (dbError || !insertedDoc) {
                     await deleteFile(uploadData.path)
-                    throw new Error(dbError?.message || "Database insert failed")
+                    const rawMsg = dbError?.message || "Database insert failed"
+                    const friendlyMsg = rawMsg.includes("row-level security")
+                        ? `Free plan limit reached (${FREE_DOCUMENT_LIMIT} files). Upgrade to Premium for unlimited uploads.`
+                        : rawMsg
+                    throw new Error(friendlyMsg)
                 }
 
                 if (shouldProcessImmediately) {
@@ -252,6 +275,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                 }
 
                 anyUploaded = true
+                uploadedInBatch += 1
 
                 setItems((current) =>
                     current.map((candidate) =>
@@ -421,6 +445,21 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                                     />
                                 </div>
 
+                                {batchExceedsLimit && phase === "idle" && (
+                                    <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50/60 p-3">
+                                        <Crown className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+                                        <div className="space-y-1">
+                                            <p className="text-sm font-semibold text-amber-800">
+                                                Too many files for the Free plan
+                                            </p>
+                                            <p className="text-xs text-amber-700">
+                                                You selected {uploadableItems.length} file{uploadableItems.length === 1 ? "" : "s"} but only have {remainingSlots} upload slot{remainingSlots === 1 ? "" : "s"} remaining ({documentCount}/{FREE_DOCUMENT_LIMIT} used).
+                                                Only the first {allowedInBatch} file{allowedInBatch === 1 ? "" : "s"} will be uploaded. Remove extras or upgrade to Premium for unlimited uploads.
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {isSingleSelection && (
                                     <div className="space-y-4 rounded-lg border bg-card p-4">
                                         <div className="space-y-2">
@@ -557,13 +596,13 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                             </Button>
                             <Button
                                 onClick={handleUpload}
-                                disabled={isBusy || uploadableItems.length === 0}
+                                disabled={isBusy || uploadableItems.length === 0 || (!hasPremium && remainingSlots <= 0)}
                                 className="gap-2"
                             >
                                 <Upload className="w-4 h-4" />
                                 {isBusy
                                     ? "Uploading..."
-                                    : `Upload ${uploadableItems.length} File${uploadableItems.length === 1 ? "" : "s"}`}
+                                    : `Upload ${allowedInBatch} File${allowedInBatch === 1 ? "" : "s"}`}
                             </Button>
                         </div>
                     )}
