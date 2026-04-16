@@ -116,7 +116,7 @@ export function SubscriptionCheckoutContent() {
                 <div>
                   <Badge className="mb-3">Premium</Badge>
                   <p className="text-lg font-bold">EduCoach Premium</p>
-                  <p className="text-sm text-muted-foreground">Unlimited EduBuddy, full analytics, and priority quiz generation</p>
+                  <p className="text-sm text-muted-foreground">Unlimited study materials, unlimited EduBuddy, full analytics, and priority quiz generation</p>
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-3xl font-extrabold text-primary">{totalDue}</p>
@@ -235,6 +235,7 @@ export function SubscriptionCheckoutContent() {
         <div>
           <h4 className="text-xl font-bold mb-4">Why go Premium?</h4>
           <ul className="space-y-3 text-sm text-muted-foreground">
+            <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-primary mt-0.5" /> Unlimited study material uploads.</li>
             <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-primary mt-0.5" /> 500+ premium study paths and guided plans.</li>
             <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-primary mt-0.5" /> Ad-free experience across supported devices.</li>
             <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-primary mt-0.5" /> Priority support for account and learning issues.</li>

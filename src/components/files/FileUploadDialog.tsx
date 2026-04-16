@@ -10,13 +10,16 @@ import { supabase, ensureFreshSession } from "@/lib/supabase"
 import { useProcessDocument } from "@/hooks/useDocuments"
 import { useScheduleDocumentGoalWindow } from "@/hooks/useGoalWindowScheduling"
 import { getDefaultDocumentTitle, getUploadItemStatusLabel, getUploadProcessingMode, type UploadItemStatus } from "@/lib/documentBatchProcessing"
-import { AlertCircle, CheckCircle2, FileText, Loader2, Upload, X } from "lucide-react"
+import { FREE_DOCUMENT_LIMIT, canUploadMoreDocuments, getRemainingUploadSlots } from "@/lib/subscription"
+import { AlertCircle, CheckCircle2, Crown, FileText, Loader2, Upload, X } from "lucide-react"
 
 interface FileUploadDialogProps {
     open: boolean
     onOpenChange: (open: boolean) => void
     onUpload?: (file: File) => void
     onUploadComplete?: () => void
+    documentCount: number
+    hasPremiumEntitlement: boolean
 }
 
 type UploadPhase = "idle" | "uploading" | "complete"
@@ -44,11 +47,14 @@ function makeUploadBatchItems(files: File[]): UploadBatchItem[] {
     })
 }
 
-export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplete }: FileUploadDialogProps) {
+export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplete, documentCount, hasPremiumEntitlement: hasPremium }: FileUploadDialogProps) {
     const { user } = useAuth()
     const navigate = useNavigate()
     const processDocument = useProcessDocument()
     const scheduleGoalWindow = useScheduleDocumentGoalWindow()
+
+    const canUpload = canUploadMoreDocuments(documentCount, hasPremium)
+    const remainingSlots = getRemainingUploadSlots(documentCount, hasPremium)
 
     const [items, setItems] = useState<UploadBatchItem[]>([])
     const [dragActive, setDragActive] = useState(false)
@@ -331,7 +337,24 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                     </DialogHeader>
 
                     <div className="space-y-4 py-4 min-w-0 w-full">
-                        {items.length === 0 && phase === "idle" && (
+                        {!canUpload && phase === "idle" && (
+                            <div className="rounded-lg border-2 border-dashed border-amber-300 bg-amber-50/50 p-8 text-center space-y-3">
+                                <Crown className="w-10 h-10 mx-auto text-amber-500" />
+                                <p className="text-sm font-semibold">
+                                    Free plan limit reached
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                    You have uploaded {documentCount} of {FREE_DOCUMENT_LIMIT} study materials on the Free plan.
+                                    Upgrade to Premium for unlimited uploads, or delete existing files to free up space.
+                                </p>
+                                <Button onClick={() => { onOpenChange(false); navigate("/subscription") }} className="gap-2">
+                                    <Crown className="w-4 h-4" />
+                                    Upgrade to Premium
+                                </Button>
+                            </div>
+                        )}
+
+                        {canUpload && items.length === 0 && phase === "idle" && (
                             <div
                                 className={`
                                     border-2 border-dashed rounded-lg p-8 text-center cursor-pointer
@@ -361,6 +384,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                                 </p>
                                 <p className="text-xs text-muted-foreground">
                                     Supported: {allowedTypesText} (max 10MB each)
+                                    {!hasPremium && ` • ${remainingSlots} upload${remainingSlots === 1 ? "" : "s"} remaining on Free plan`}
                                 </p>
                             </div>
                         )}

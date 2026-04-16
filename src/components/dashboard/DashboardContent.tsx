@@ -532,6 +532,8 @@ export function DashboardContent() {
                 open={showUploadDialog}
                 onOpenChange={setShowUploadDialog}
                 onUploadComplete={handleUploadComplete}
+                documentCount={documents?.length ?? 0}
+                hasPremiumEntitlement={hasPremiumEntitlement}
             />
 
             {selectedDocForQuiz && (

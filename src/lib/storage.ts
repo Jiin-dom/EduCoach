@@ -420,6 +420,24 @@ export function getFileTypeFromMime(mimeType: string): string {
 }
 
 /**
+ * Returns the number of documents the current user owns.
+ * Used together with canUploadMoreDocuments() to enforce free-tier limits.
+ */
+export async function getUserDocumentCount(userId: string): Promise<number> {
+    const { count, error } = await supabase
+        .from('documents')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+
+    if (error) {
+        console.error('[Storage] Failed to fetch document count:', error.message)
+        return 0
+    }
+
+    return count ?? 0
+}
+
+/**
  * Formats file size for display
  */
 export function formatFileSize(bytes: number): string {
