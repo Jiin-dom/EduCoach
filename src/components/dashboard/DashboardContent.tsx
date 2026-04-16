@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Upload, FileText, Brain, Clock, TrendingUp, Eye, Trash2, Sparkles, Loader2, RefreshCw } from "lucide-react"
+import { Upload, FileText, Brain, Clock, TrendingUp, Eye, Trash2, Sparkles, Loader2, RefreshCw, Zap } from "lucide-react"
 import { FileUploadDialog } from "@/components/files/FileUploadDialog"
 import { GenerateQuizDialog } from "@/components/files/GenerateQuizDialog"
 import { QuizCard } from "@/components/dashboard/QuizCard"
-import { ReadinessScoreCard } from "@/components/dashboard/ReadinessScoreCard"
 import { TodaysStudyPlan } from "@/components/dashboard/TodaysStudyPlan"
 import { WeakTopicsPanel } from "@/components/dashboard/WeakTopicsPanel"
 import { MotivationalCard } from "@/components/dashboard/MotivationalCard"
@@ -17,7 +16,7 @@ import { useDocuments, useDeleteDocument, useProcessDocument, type Document } fr
 import { formatFileSize } from "@/lib/storage"
 import { Badge } from "@/components/ui/badge"
 import { useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
-import { useLearningStats } from "@/hooks/useLearning"
+import { useLearningStats, useStudyTimeLastTwoWeeks } from "@/hooks/useLearning"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useMarkTrialWelcomeSeen } from "@/hooks/useStudentSubscription"
@@ -40,6 +39,7 @@ export function DashboardContent() {
     const { data: quizzes } = useQuizzes()
     const { data: attempts } = useUserAttempts()
     const { data: learningStats } = useLearningStats()
+    const { data: studyTimeWeeks, isLoading: studyTimeLoading } = useStudyTimeLastTwoWeeks()
 
     const recentQuizzes = useMemo(() => {
         return (quizzes || []).filter((q) => q.status === 'ready' || q.status === 'generating').slice(0, 3)
@@ -239,10 +239,10 @@ export function DashboardContent() {
             </Dialog>
 
             {/* Welcome Section */}
-            <div className="bg-gradient-to-r from-primary to-accent rounded-2xl p-8 text-primary-foreground">
+            {/* <div className="bg-gradient-to-r from-primary to-accent rounded-2xl p-8 text-primary-foreground">
                 <h1 className="text-3xl font-bold mb-2">{getGreeting()}, {displayName}!</h1>
                 <p className="text-primary-foreground/90 text-lg">Ready to continue your learning journey?</p>
-            </div>
+            </div> */}
 
             {isTrialActive && (
                 <Card className="border-primary/30 bg-primary/5">
@@ -282,42 +282,79 @@ export function DashboardContent() {
                 </Card>
             )}
 
-            {/* Stats Grid with Readiness Score */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium">Study Streak</CardTitle>
-                        <Clock className="w-4 h-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{learningStats?.studyStreak ?? 0} days</div>
-                        <p className="text-xs text-muted-foreground">Consecutive days</p>
-                    </CardContent>
-                </Card>
+            {/* Stats grid — gradient metric cards */}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                {/* Study time this week */}
+                <div className="group rounded-2xl border border-chart-1/20 bg-gradient-to-br from-chart-1/10 to-chart-1/5 p-5 shadow-sm transition-shadow hover:shadow-md sm:p-6">
+                    <div className="flex flex-row items-center justify-between gap-3">
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                                <Clock className="h-5 w-5" aria-hidden />
+                            </div>
+                            <p className="text-left text-xs font-medium leading-snug text-foreground/80">
+                                Study time this week
+                            </p>
+                        </div>
+                        <div className="flex shrink-0 items-center justify-end text-right text-2xl font-bold tabular-nums text-foreground sm:text-3xl">
+                            {studyTimeLoading ? (
+                                <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" aria-label="Loading study time" />
+                            ) : (
+                                `${((studyTimeWeeks?.thisWeekMinutes ?? 0) / 60).toFixed(1)} hrs`
+                            )}
+                        </div>
+                    </div>
+                </div>
 
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium">Quizzes Completed</CardTitle>
-                        <Brain className="w-4 h-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{learningStats?.quizzesCompleted ?? 0}</div>
-                        <p className="text-xs text-muted-foreground">Total attempts</p>
-                    </CardContent>
-                </Card>
+                {/* Quizzes completed */}
+                <div className="group rounded-2xl border border-chart-2/20 bg-gradient-to-br from-chart-2/10 to-chart-2/5 p-5 shadow-sm transition-shadow hover:shadow-md sm:p-6">
+                    <div className="flex flex-row items-center justify-between gap-3">
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-chart-2/15 text-chart-2">
+                                <Brain className="h-5 w-5" aria-hidden />
+                            </div>
+                            <p className="text-left text-xs font-medium leading-snug text-foreground/80">
+                                Quizzes completed
+                            </p>
+                        </div>
+                        <div className="shrink-0 text-right text-2xl font-bold tabular-nums text-foreground sm:text-3xl">
+                            {learningStats?.quizzesCompleted ?? 0}
+                        </div>
+                    </div>
+                </div>
 
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium">Average Score</CardTitle>
-                        <TrendingUp className="w-4 h-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{learningStats?.averageScore ?? 0}%</div>
-                        <p className="text-xs text-muted-foreground">Across all quizzes</p>
-                    </CardContent>
-                </Card>
+                {/* Average score */}
+                <div className="group rounded-2xl border border-chart-3/20 bg-gradient-to-br from-chart-3/10 to-chart-3/5 p-5 shadow-sm transition-shadow hover:shadow-md sm:p-6">
+                    <div className="flex flex-row items-center justify-between gap-3">
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-chart-4/15 text-chart-4">
+                                <TrendingUp className="h-5 w-5" aria-hidden />
+                            </div>
+                            <p className="text-left text-xs font-medium leading-snug text-foreground/80">
+                                Average score
+                            </p>
+                        </div>
+                        <div className="shrink-0 text-right text-2xl font-bold tabular-nums text-foreground sm:text-3xl">
+                            {learningStats?.averageScore ?? 0}%
+                        </div>
+                    </div>
+                </div>
 
-                <ReadinessScoreCard />
+                {/* Day streak */}
+                <div className="group rounded-2xl border border-orange-400/25 bg-gradient-to-br from-orange-400/10 to-orange-400/5 p-5 shadow-sm transition-shadow hover:shadow-md sm:p-6">
+                    <div className="flex flex-row items-center justify-between gap-3">
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-400/15 text-orange-500 dark:text-orange-400">
+                                <Zap className="h-5 w-5" aria-hidden />
+                            </div>
+                            <p className="text-left text-xs font-medium leading-snug text-foreground/80">
+                                Day streak
+                            </p>
+                        </div>
+                        <div className="shrink-0 text-right text-2xl font-bold tabular-nums text-foreground sm:text-3xl">
+                            {learningStats?.studyStreak ?? 0}
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <TodaysStudyPlan />
@@ -325,27 +362,35 @@ export function DashboardContent() {
             {/* Main Content Grid with Weak Topics Panel */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Uploaded Files Section */}
-                <Card className="lg:col-span-1">
+                <Card className="lg:col-span-1 max-h-[620px] flex flex-col">
                     <CardHeader>
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-2">
                             <div>
                                 <CardTitle>Study Materials</CardTitle>
-                                <CardDescription>Upload and manage your study files</CardDescription>
                             </div>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={(event) => {
-                                    event.stopPropagation()
-                                    refetch()
-                                }}
-                                disabled={isLoading}
-                            >
-                                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                            </Button>
+                            <div className="flex shrink-0 items-center gap-0.5">
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={(event) => {
+                                        event.stopPropagation()
+                                        setShowUploadDialog(true)
+                                    }}
+                                    title="Upload file"
+                                >
+                                    <Upload className="h-4 w-4" />
+                                    <span className="sr-only">Upload file</span>
+                                </Button>
+                                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs sm:px-3 sm:text-sm" asChild>
+                                    <Link to="/files" onClick={(event) => event.stopPropagation()}>
+                                        View all
+                                    </Link>
+                                </Button>
+                            </div>
                         </div>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="flex-1 overflow-y-auto">
                         {isLoading ? (
                             <div className="flex items-center justify-center py-12">
                                 <Loader2 className="w-6 h-6 text-primary animate-spin" />
@@ -429,7 +474,7 @@ export function DashboardContent() {
                                                         <RefreshCw className={`w-4 h-4 ${processDocument.isPending ? 'animate-spin' : ''}`} />
                                                     </Button>
                                                 )}
-                                                {file.status === 'ready' && (
+                                                {/* {file.status === 'ready' && (
                                                     <TooltipProvider>
                                                         <Tooltip>
                                                             <TooltipTrigger asChild>
@@ -462,12 +507,12 @@ export function DashboardContent() {
                                                     disabled={deleteDocument.isPending}
                                                 >
                                                     <Trash2 className="w-4 h-4" />
-                                                </Button>
+                                                </Button> */}
                                             </div>
                                         </div>
                                     ))}
                                 </div>
-                                <div className="flex gap-2">
+                                {/* <div className="flex gap-2">
                                     <Button onClick={(event) => {
                                         event.stopPropagation()
                                         setShowUploadDialog(true)
@@ -480,18 +525,18 @@ export function DashboardContent() {
                                             View All
                                         </Button>
                                     </Link>
-                                </div>
+                                </div> */}
                             </div>
                         )}
                     </CardContent>
                 </Card>
 
                 {/* Quizzes Section */}
-                <Card className="lg:col-span-1">
+                <Card className="lg:col-span-1 max-h-[620px] flex flex-col">
                     <CardHeader className="flex flex-row items-center justify-between">
                         <div>
                             <CardTitle>Available Quizzes</CardTitle>
-                            <CardDescription>Test your knowledge with AI-generated assessments</CardDescription>
+                           
                         </div>
                         <Link to="/quizzes">
                             <Button variant="outline" size="sm">
@@ -499,7 +544,7 @@ export function DashboardContent() {
                             </Button>
                         </Link>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="flex-1 overflow-y-auto">
                         {recentQuizzes.length === 0 ? (
                             <div className="text-center py-8">
                                 <Brain className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
@@ -521,12 +566,14 @@ export function DashboardContent() {
                     </CardContent>
                 </Card>
 
-                <WeakTopicsPanel />
+                <div className="max-h-[620px]">
+                    <WeakTopicsPanel />
+                </div>
             </div>
 
             <ProgressInsightsSection hasPremiumEntitlement={hasPremiumEntitlement} />
 
-            <MotivationalCard />
+            {/* <MotivationalCard /> */}
 
             <FileUploadDialog
                 open={showUploadDialog}

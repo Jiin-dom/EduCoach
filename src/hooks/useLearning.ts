@@ -475,6 +475,60 @@ export function useLearningStats() {
     })
 }
 
+export interface StudyTimeWeekSplit {
+    /** Rolling last 7 days (UTC calendar split from now). */
+    thisWeekMinutes: number
+    /** The 7 days immediately before `thisWeek` window. */
+    prevWeekMinutes: number
+}
+
+/**
+ * Sums `question_attempt_log.time_spent_seconds` for the last 14 days and splits
+ * into this week vs previous week for dashboard trend badges.
+ */
+export function useStudyTimeLastTwoWeeks() {
+    const { user } = useAuth()
+
+    return useQuery({
+        queryKey: [...learningKeys.all, 'study-time-2w'] as const,
+        queryFn: async ({ signal }): Promise<StudyTimeWeekSplit> => {
+            if (!user) return { thisWeekMinutes: 0, prevWeekMinutes: 0 }
+
+            const since = new Date()
+            since.setUTCDate(since.getUTCDate() - 14)
+
+            const { data, error } = await supabase
+                .from('question_attempt_log')
+                .select('time_spent_seconds, attempted_at')
+                .eq('user_id', user.id)
+                .gte('attempted_at', since.toISOString())
+                .abortSignal(signal)
+
+            if (error) throw new Error(error.message)
+
+            const boundary = new Date()
+            boundary.setUTCDate(boundary.getUTCDate() - 7)
+            const boundaryMs = boundary.getTime()
+
+            let thisWeekSec = 0
+            let prevWeekSec = 0
+            for (const row of data ?? []) {
+                const t = new Date(row.attempted_at).getTime()
+                const sec = Number(row.time_spent_seconds) || 0
+                if (t >= boundaryMs) thisWeekSec += sec
+                else prevWeekSec += sec
+            }
+
+            return {
+                thisWeekMinutes: Math.round(thisWeekSec / 60),
+                prevWeekMinutes: Math.round(prevWeekSec / 60),
+            }
+        },
+        enabled: !!user,
+        staleTime: 1000 * 60 * 2,
+    })
+}
+
 // ─── Analytics: Score Trend ──────────────────────────────────────────────────
 
 export interface ScoreTrendPoint {
