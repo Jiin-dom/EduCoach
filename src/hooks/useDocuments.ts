@@ -48,7 +48,7 @@ export interface Document {
     summary: string | null
     structured_summary?: StructuredSummary | null
     concept_count: number
-    processed_by?: 'pure_nlp' | 'gemini' | null
+    processed_by?: 'pure_nlp' | 'gemini' | 'gemini_multimodal' | null
     processing_quality?: number | null
     deadline?: string | null
     exam_date?: string | null
