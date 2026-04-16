@@ -1093,6 +1093,12 @@ STRICT RULES:
 - If a true_false question is actually interrogative, rephrase it into a declarative statement. If that is impossible, change question_type to "identification" and set options to null.
 - If question_type is "fill_in_blank": question_text MUST contain __________ for the blank.
 - MCQ options MUST have exactly 4 items, all distinct.
+
+TEXT QUALITY RULES:
+- Remove any bullet point characters (•, ·, ▶, ■, ○, etc.), list markers (-, *, 1.), or other formatting artifacts from question_text, options, correct_answer, and explanation fields.
+- Ensure proper sentence casing: question_text and explanation must start with an uppercase letter.
+- Ensure proper punctuation: question_text must end with a period, question mark, or colon. No double periods.
+- For multiple_choice: ALL options must be the same category of thing — if the correct_answer is a concept name, all distractors must also be concept names. If the correct_answer is a description, all distractors must also be descriptions. NEVER mix concept names with descriptions in the same option list.
 ${IDENTIFICATION_PROMPT_RULES}
 
 QUESTIONS TO ENHANCE:
