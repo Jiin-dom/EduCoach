@@ -84,6 +84,23 @@ Expected user-facing result:
 - the student should stop seeing outdated adaptive study tasks for that document
 - the Learning Path should reflect that the student has caught up on that document's targeted follow-up work
 
+### D. Document deleted
+
+Condition:
+- the student deletes a study material (document) from the library, or the document row is removed as part of a cascade
+
+Expected system behavior:
+- database triggers on mastery, flashcards, or quizzes may still call `sync_adaptive_study_tasks_for_document` **after** the `documents` row is gone in the same transaction
+- sync helpers **must not** insert or update `adaptive_study_tasks` rows that reference a missing `document_id` (foreign key to `documents`)
+- when the document no longer exists, the implementation should **delete** adaptive task rows for that `(user_id, document_id)` and exit; `archive_adaptive_study_task` must apply the same rule before any insert
+
+Implementation note:
+- guards for this behavior were added in migration `025`, dropped when `028` replaced the functions, and restored in migration `030` (`supabase/migrations/030_restore_adaptive_sync_guards_on_document_delete.sql`).
+
+Expected user-facing result:
+- document delete completes without a database error toast
+- adaptive and learning-path caches refresh so deleted material disappears from active views
+
 ## State Handling Requirements
 
 The following state must be handled correctly:
@@ -149,7 +166,7 @@ This spec is satisfied if:
 6. The student is not left with stale adaptive tasks that no longer match current mastery state.
 7. The final Learning Path and calendar views reflect the currently persisted adaptive task state after session checkpoint application.
 8. While an assessment session is active, the student is not force-exited due to adaptive task recomputation.
-9. Deleting a file removes related adaptive/quiz artifacts from active views without requiring a full page refresh.
+9. Deleting a file removes related adaptive/quiz artifacts from active views without requiring a full page refresh; the database must not attempt to recreate adaptive tasks for a document id that was just removed (see **Document deletion** / migration `030` above).
 
 ## Open Questions
 

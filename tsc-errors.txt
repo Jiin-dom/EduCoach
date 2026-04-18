@@ -1,0 +1,107 @@
+﻿src/components/analytics/AnalyticsCard.tsx(4,24): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/analytics/AnalyticsCard.tsx(4,32): error TS2305: Module '"../../theme/theme"' has no exported member 'shadows'.
+src/components/analytics/AnalyticsCharts.tsx(5,24): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/analytics/AnalyticsConceptDetailModal.tsx(7,24): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/analytics/AnalyticsConceptDetailModal.tsx(7,32): error TS2305: Module '"../../theme/theme"' has no exported member 'shadows'.
+src/components/analytics/AnalyticsConceptDetailModal.tsx(44,33): error TS2322: Type '({ alignSelf: "flex-start"; paddingHorizontal: number; paddingVertical: number; } | { backgroundColor: string; })[]' is not assignable to type 'ViewStyle'.
+  Types of property 'filter' are incompatible.
+    Type '{ <S extends { alignSelf: "flex-start"; paddingHorizontal: number; paddingVertical: number; } | { backgroundColor: string; }>(predicate: (value: { alignSelf: "flex-start"; paddingHorizontal: number; paddingVertical: number; } | { ...; }, index: number, array: ({ ...; } | { ...; })[]) => value is S, thisArg?: any): S...' is not assignable to type 'string | readonly FilterFunction[] | undefined'.
+src/components/analytics/AnalyticsFeedback.tsx(5,24): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/analytics/AnalyticsFeedback.tsx(5,32): error TS2305: Module '"../../theme/theme"' has no exported member 'shadows'.
+src/components/analytics/AnalyticsHeader.tsx(5,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/analytics/AnalyticsInsightCards.tsx(6,24): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/analytics/AnalyticsListItems.tsx(9,24): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/analytics/AnalyticsListItems.tsx(9,32): error TS2305: Module '"../../theme/theme"' has no exported member 'shadows'.
+src/components/analytics/AnalyticsListItems.tsx(37,29): error TS2322: Type '({ paddingHorizontal: number; paddingVertical: number; } | { backgroundColor: string; })[]' is not assignable to type 'ViewStyle'.
+  Types of property 'filter' are incompatible.
+    Type '{ <S extends { paddingHorizontal: number; paddingVertical: number; } | { backgroundColor: string; }>(predicate: (value: { paddingHorizontal: number; paddingVertical: number; } | { backgroundColor: string; }, index: number, array: ({ ...; } | { ...; })[]) => value is S, thisArg?: any): S[]; (predicate: (value: { ...;...' is not assignable to type 'string | readonly FilterFunction[] | undefined'.
+src/components/analytics/AnalyticsListItems.tsx(64,25): error TS2322: Type '({ alignSelf: "flex-start"; paddingHorizontal: number; paddingVertical: number; } | { backgroundColor: string; })[]' is not assignable to type 'ViewStyle'.
+  Types of property 'filter' are incompatible.
+    Type '{ <S extends { alignSelf: "flex-start"; paddingHorizontal: number; paddingVertical: number; } | { backgroundColor: string; }>(predicate: (value: { alignSelf: "flex-start"; paddingHorizontal: number; paddingVertical: number; } | { ...; }, index: number, array: ({ ...; } | { ...; })[]) => value is S, thisArg?: any): S...' is not assignable to type 'string | readonly FilterFunction[] | undefined'.
+src/components/analytics/AnalyticsPremiumGate.tsx(7,24): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/analytics/AnalyticsPremiumGate.tsx(7,32): error TS2305: Module '"../../theme/theme"' has no exported member 'shadows'.
+src/components/analytics/AnalyticsSkeletons.tsx(4,24): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/analytics/AnalyticsSkeletons.tsx(17,18): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: ViewProps): View', gave the following error.
+    Type '{ width: string | number; height: number; borderRadius: number; backgroundColor: any; }' is not assignable to type 'StyleProp<ViewStyle>'.
+      Types of property 'width' are incompatible.
+        Type 'string | number' is not assignable to type 'DimensionValue | undefined'.
+          Type 'string' is not assignable to type 'DimensionValue | undefined'.
+  Overload 2 of 2, '(props: ViewProps, context: any): View', gave the following error.
+    Type '{ width: string | number; height: number; borderRadius: number; backgroundColor: any; }' is not assignable to type 'StyleProp<ViewStyle>'.
+      Types of property 'width' are incompatible.
+        Type 'string | number' is not assignable to type 'DimensionValue | undefined'.
+          Type 'string' is not assignable to type 'DimensionValue | undefined'.
+src/components/analytics/AnalyticsTabSwitcher.tsx(5,24): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/analytics/AnalyticsTabSwitcher.tsx(5,32): error TS2305: Module '"../../theme/theme"' has no exported member 'shadows'.
+src/components/analytics/KpiCard.tsx(5,24): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/analytics/KpiCard.tsx(5,32): error TS2305: Module '"../../theme/theme"' has no exported member 'shadows'.
+src/components/auth/AuthButtons.tsx(17,24): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/dashboard/MotivationalCard.tsx(6,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/dashboard/MotivationalCard.tsx(6,53): error TS2305: Module '"../../theme/theme"' has no exported member 'shadows'.
+src/components/dashboard/QuizCard.tsx(6,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/dashboard/ReadinessScoreCard.tsx(6,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/dashboard/TodaysStudyPlan.tsx(7,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/dashboard/WeakTopicsPanel.tsx(7,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/files/FileUploadModal.tsx(39,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/files/FileUploadModal.tsx(39,53): error TS2305: Module '"../../theme/theme"' has no exported member 'shadows'.
+src/components/files/FlashcardsPanel.tsx(20,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/files/FlashcardsPanel.tsx(20,53): error TS2305: Module '"../../theme/theme"' has no exported member 'shadows'.
+src/components/files/NotesPanel.tsx(8,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/files/NotesPanel.tsx(8,53): error TS2305: Module '"../../theme/theme"' has no exported member 'shadows'.
+src/components/navigation/EduBuddyFloatingButton.tsx(6,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/navigation/EduBuddyFloatingButton.tsx(6,27): error TS2305: Module '"../../theme/theme"' has no exported member 'shadows'.
+src/components/navigation/EduCoachTopBar.tsx(5,24): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/navigation/SideMenu.tsx(6,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/navigation/SideMenu.tsx(6,53): error TS2305: Module '"../../theme/theme"' has no exported member 'shadows'.
+src/components/quiz/CompletedQuizCard.tsx(5,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/quiz/CompletedQuizCard.tsx(5,53): error TS2305: Module '"../../theme/theme"' has no exported member 'shadows'.
+src/components/quiz/PerformanceRow.tsx(11,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/quiz/QuizCard.tsx(5,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/quiz/QuizCard.tsx(5,53): error TS2305: Module '"../../theme/theme"' has no exported member 'shadows'.
+src/components/quiz/QuizOptionRow.tsx(12,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/quiz/QuizTopBar.tsx(14,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/quiz/ScoreRing.tsx(20,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/quiz/SegmentedTabs.tsx(9,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/quiz/SegmentedTabs.tsx(9,53): error TS2305: Module '"../../theme/theme"' has no exported member 'shadows'.
+src/components/quiz/StatCard.tsx(11,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/subscription/FeatureListItem.tsx(5,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/subscription/PaymentOptionItem.tsx(5,24): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/subscription/PlanCard.tsx(4,24): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/subscription/PlanCard.tsx(4,32): error TS2305: Module '"../../theme/theme"' has no exported member 'shadows'.
+src/components/subscription/StickyCTA.tsx(5,24): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/subscription/SubscriptionSkeletonBlock.tsx(4,24): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/components/subscription/SubscriptionSkeletonBlock.tsx(36,17): error TS2322: Type '{ width: string | number; height: number; opacity: Animated.Value; borderRadius: number; backgroundColor: any; }' is not assignable to type 'false | "" | RegisteredStyle<ViewStyle> | Value | WithAnimatedObject<ViewStyle> | AnimatedInterpolation<string | number> | WithAnimatedArray<...> | readonly (false | ... 6 more ... | undefined)[] | null | undefined'.
+  Types of property 'width' are incompatible.
+    Type 'string | number' is not assignable to type 'number | "auto" | `${number}%` | Value | AnimatedInterpolation<string | number> | WithAnimatedObject<AnimatedNode> | null | undefined'.
+      Type 'string' is not assignable to type 'number | "auto" | `${number}%` | Value | AnimatedInterpolation<string | number> | WithAnimatedObject<AnimatedNode> | null | undefined'.
+src/components/subscription/SummaryRow.tsx(4,10): error TS2305: Module '"../../theme/theme"' has no exported member 'colors'.
+src/screens/AiTutorChatScreen.tsx(30,10): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/AnalyticsScreen.tsx(77,10): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/ChangePasswordScreen.tsx(11,10): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/DashboardScreen.tsx(45,10): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/DashboardScreen.tsx(45,53): error TS2305: Module '"../theme/theme"' has no exported member 'shadows'.
+src/screens/FileDetailScreen.tsx(41,10): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/FileDetailScreen.tsx(41,53): error TS2305: Module '"../theme/theme"' has no exported member 'shadows'.
+src/screens/FilesScreen.tsx(39,10): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/FilesScreen.tsx(39,53): error TS2305: Module '"../theme/theme"' has no exported member 'shadows'.
+src/screens/LandingScreen.tsx(38,10): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/LandingScreen.tsx(38,53): error TS2305: Module '"../theme/theme"' has no exported member 'shadows'.
+src/screens/LoginScreen.tsx(22,10): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/NotificationsScreen.tsx(9,10): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/PlaceholderScreen.tsx(9,10): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/ProfileScreen.tsx(22,10): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/ProfileScreen.tsx(22,53): error TS2305: Module '"../theme/theme"' has no exported member 'shadows'.
+src/screens/QuizResultScreen.tsx(23,10): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/QuizReviewScreen.tsx(11,10): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/QuizReviewScreen.tsx(11,53): error TS2305: Module '"../theme/theme"' has no exported member 'shadows'.
+src/screens/QuizScreen.tsx(26,10): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/QuizScreen.tsx(26,53): error TS2305: Module '"../theme/theme"' has no exported member 'shadows'.
+src/screens/QuizzesTabsScreen.tsx(24,10): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/QuizzesTabsScreen.tsx(24,53): error TS2305: Module '"../theme/theme"' has no exported member 'shadows'.
+src/screens/RegisterScreen.tsx(22,10): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/SubscriptionCheckoutScreen.tsx(22,24): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/SubscriptionCheckoutScreen.tsx(22,32): error TS2305: Module '"../theme/theme"' has no exported member 'shadows'.
+src/screens/SubscriptionScreen.tsx(21,24): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.
+src/screens/SubscriptionScreen.tsx(21,32): error TS2305: Module '"../theme/theme"' has no exported member 'shadows'.
+src/screens/TemporaryFeatureScreen.tsx(8,10): error TS2305: Module '"../theme/theme"' has no exported member 'colors'.

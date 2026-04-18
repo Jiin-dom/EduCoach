@@ -1,6 +1,6 @@
 # Phase 3 Document Processing & Study Materials Dependency Map
 
-Last cross-checked: 2026-04-02
+Last cross-checked: 2026-04-18
 
 **Source docs checked**
 - `educoach/docs/completed/phase-3-document-processing-pipeline.md`
@@ -55,6 +55,7 @@ pages/FileDetailPage.tsx
 - `public.document_embeddings`
 - `public.study_notes`
 - `public.flashcards`
+- `public.adaptive_study_tasks` (Learning Path / adaptive queue; `document_id` FK to `documents`. Sync functions `sync_adaptive_study_tasks_for_document` and `archive_adaptive_study_task` run from triggers on mastery, flashcards, and quizzes. Migration `030_restore_adaptive_sync_guards_on_document_delete.sql` ensures deletes do not insert rows for a removed document—see `docs/completed/2026-04-18/2026-04-18-library-document-delete-db-and-mobile.md`.)
 - `supabase/functions/process-document`
 - `public.match_documents()` RPC for downstream AI tutor retrieval compatibility
 - `nlp-service/main.py` and `supabase/functions/process-document/index.ts` remain the main backend owners of most phase 3.x quality changes

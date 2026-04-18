@@ -273,3 +273,11 @@ Priority order:
 - [ ] Both platforms present comparable schedule scope defaults (global vs selected-goal context decision finalized).
 - [ ] Any intentional divergence is documented in product spec.
 
+---
+
+## 12) Related: Library / file delete and adaptive tasks
+
+Deleting study materials affects adaptive tasks and cached Learning Path inputs. Web vs mobile client behavior and the database migration that fixes delete-time FK errors on `adaptive_study_tasks` are documented in:
+
+- `docs/completed/2026-04-18/2026-04-18-library-document-delete-db-and-mobile.md`
+
