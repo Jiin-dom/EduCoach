@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Learning Insights - Trends Tab</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "inverse-primary": "#d3bbff",
+                    "on-secondary": "#ffffff",
+                    "surface-container-highest": "#e2e2e7",
+                    "surface-container-low": "#f3f3f8",
+                    "primary-container": "#6f42c1",
+                    "tertiary-fixed-dim": "#ffb957",
+                    "tertiary": "#633f00",
+                    "on-primary-container": "#e2d0ff",
+                    "on-background": "#1a1c1f",
+                    "inverse-surface": "#2e3034",
+                    "secondary-fixed-dim": "#c7c6c6",
+                    "surface": "#f9f9fe",
+                    "primary-fixed-dim": "#d3bbff",
+                    "on-tertiary-container": "#ffd095",
+                    "on-surface": "#1a1c1f",
+                    "on-error-container": "#93000a",
+                    "primary-fixed": "#ebddff",
+                    "on-primary": "#ffffff",
+                    "on-tertiary": "#ffffff",
+                    "surface-dim": "#d9dade",
+                    "on-primary-fixed-variant": "#5726a8",
+                    "surface-tint": "#7043c2",
+                    "on-primary-fixed": "#250059",
+                    "tertiary-fixed": "#ffddb5",
+                    "inverse-on-surface": "#f0f0f5",
+                    "on-secondary-container": "#636262",
+                    "on-error": "#ffffff",
+                    "on-surface-variant": "#4a4453",
+                    "on-tertiary-fixed-variant": "#643f00",
+                    "outline": "#7b7484",
+                    "surface-container": "#ededf2",
+                    "error": "#ba1a1a",
+                    "secondary-container": "#e1dfdf",
+                    "secondary-fixed": "#e4e2e2",
+                    "primary": "#5625a8",
+                    "on-tertiary-fixed": "#2a1800",
+                    "tertiary-container": "#835400",
+                    "surface-container-lowest": "#ffffff",
+                    "surface-container-high": "#e8e8ed",
+                    "surface-bright": "#f9f9fe",
+                    "on-secondary-fixed-variant": "#464747",
+                    "outline-variant": "#ccc3d5",
+                    "on-secondary-fixed": "#1b1c1c",
+                    "background": "#f9f9fe",
+                    "error-container": "#ffdad6",
+                    "secondary": "#5e5e5e",
+                    "surface-variant": "#e2e2e7"
+            },
+            "borderRadius": {
+                    "DEFAULT": "1rem",
+                    "lg": "2rem",
+                    "xl": "3rem",
+                    "full": "9999px"
+            },
+            "fontFamily": {
+                    "headline": ["Plus Jakarta Sans"],
+                    "body": ["Manrope"],
+                    "label": ["Manrope"]
+            }
+          },
+        }
+      }
+    </script>
+<style>
+        body { font-family: 'Manrope', sans-serif; background-color: #f9f9fe; color: #1a1c1f; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .glass-panel { background: rgba(255, 255, 255, 0.6); backdrop-filter: blur(24px); }
+        .curated-shadow { shadow: 0px 20px 40px rgba(26, 28, 31, 0.06); }
+        .signature-gradient { background: linear-gradient(135deg, #5625a8 0%, #6f42c1 100%); }
+        .glow-accent { background: radial-gradient(circle at top right, rgba(255, 185, 87, 0.1) 0%, transparent 70%); }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface mb-24 md:mb-0">
+<!-- TopAppBar Shell -->
+<header class="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-6 py-4 bg-white/60 backdrop-blur-md dark:bg-zinc-950/60 shadow-[0px_10px_30px_rgba(26,28,31,0.04)] rounded-b-[2rem]">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-primary-fixed overflow-hidden flex items-center justify-center">
+<img class="w-full h-full object-cover" data-alt="close-up portrait of a young male student with a kind smile and soft studio lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCY95cU40aOe0SLGOfSkNCbeD4xvJI1zxK0pCLAbX4kt2SUAh13jqJNhrcQ5EDSTKqZix7bAvAFpzaeTdmZUfpVnmB4mQftJuK6mWsX8Ew8BoN88bxCriusUjU0ZPU0aW_ljhKFHgNVFzCN-8E1Qle0KJiniNzCd9-6Rn5h44fHfJnz_-Qj_AY6IpgMoHbXPMZ71YYaugJxhbZ--zdcK0JREMMqbSzZPQF5WrQsCV6qmm4IC8xk5D2fGsAXPx7MRZ8sGkwqU-bSj28"/>
+</div>
+<span class="font-['Plus_Jakarta_Sans'] font-extrabold tracking-tight text-lg text-violet-900 dark:text-violet-100">Learning Insights</span>
+</div>
+<button class="w-10 h-10 flex items-center justify-center text-violet-700 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all rounded-full active:scale-95 duration-200">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+</header>
+<main class="max-w-7xl mx-auto px-6 pt-28 pb-12">
+<!-- Hero Header -->
+<section class="mb-12 relative overflow-hidden rounded-lg p-12 signature-gradient text-on-primary">
+<div class="absolute top-0 right-0 w-1/2 h-full opacity-20 pointer-events-none">
+<img class="w-full h-full object-cover mix-blend-overlay" data-alt="abstract flowing 3D ribbons of purple and gold light on a dark silk background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCq6FVpEVGckgAOxOrjrSCIiHZ6DD5wYcsP-Qr8vRv-iOU0HxroStsQiiEwaBJ_3zDCWG6XhkZmSeLxfmX4uoQUPbaPr5fZ5anZeTLYWDStpVTJ7Vw-Xf0Yd41zNVyNOF81mod_1wZVgU9qNhRbGYFvcbzIGSjHbFnVTccfIzurYZELNILg-wFIB_fvJbMkbWStzRAwlVm6mmuEomVvONSCGusfepumYduH5jCLq1kvdXfUtyUCZMsDGafBdw1xBgoWKqCFSHqBzBc"/>
+</div>
+<div class="relative z-10 max-w-2xl">
+<span class="text-primary-fixed-dim font-headline font-bold uppercase tracking-widest text-xs mb-4 block">Knowledge Trajectory</span>
+<h1 class="text-4xl md:text-5xl font-headline font-extrabold tracking-tight mb-4">Deep Analytics</h1>
+<p class="text-on-primary-container text-lg max-w-lg opacity-90">Analyzing your cognitive growth across 12 distinct subjects to predict your next learning peak.</p>
+</div>
+</section>
+<!-- KPI Cards -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+<div class="bg-surface-container-lowest rounded-lg p-8 glow-accent shadow-[0px_20px_40px_rgba(26,28,31,0.06)] flex flex-col justify-between h-full relative overflow-hidden">
+<div>
+<p class="text-on-surface-variant font-headline font-semibold text-sm mb-1 uppercase tracking-wide">Avg. Mastery</p>
+<h3 class="text-4xl font-headline font-extrabold text-primary mb-2">78.4%</h3>
+</div>
+<div class="flex items-center gap-2 mt-4 text-tertiary">
+<span class="material-symbols-outlined text-sm" data-icon="trending_up">trending_up</span>
+<span class="text-sm font-bold">+12% vs last month</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-lg p-8 glow-accent shadow-[0px_20px_40px_rgba(26,28,31,0.06)] flex flex-col justify-between h-full relative overflow-hidden">
+<div>
+<p class="text-on-surface-variant font-headline font-semibold text-sm mb-1 uppercase tracking-wide">Quiz Score</p>
+<h3 class="text-4xl font-headline font-extrabold text-primary mb-2">92/100</h3>
+</div>
+<div class="flex items-center gap-2 mt-4 text-tertiary">
+<span class="material-symbols-outlined text-sm" data-icon="auto_awesome">auto_awesome</span>
+<span class="text-sm font-bold">Top 5% in Academy</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-lg p-8 glow-accent shadow-[0px_20px_40px_rgba(26,28,31,0.06)] flex flex-col justify-between h-full relative overflow-hidden">
+<div>
+<p class="text-on-surface-variant font-headline font-semibold text-sm mb-1 uppercase tracking-wide">Study Time</p>
+<h3 class="text-4xl font-headline font-extrabold text-primary mb-2">14.5 hrs</h3>
+</div>
+<div class="flex items-center gap-2 mt-4 text-on-surface-variant">
+<span class="material-symbols-outlined text-sm" data-icon="schedule">schedule</span>
+<span class="text-sm font-semibold">2.4 hrs daily average</span>
+</div>
+</div>
+</div>
+<!-- Navigation Tabs -->
+<nav class="flex flex-wrap gap-4 mb-12 items-center">
+<button class="px-6 py-3 rounded-full text-zinc-500 font-headline font-bold hover:bg-surface-container-low transition-all">Performance</button>
+<button class="px-8 py-3 rounded-full bg-primary text-on-primary font-headline font-bold shadow-lg shadow-primary/20 scale-105">Trends</button>
+<button class="px-6 py-3 rounded-full text-zinc-500 font-headline font-bold hover:bg-surface-container-low transition-all">Weak Topics</button>
+<button class="px-6 py-3 rounded-full text-zinc-500 font-headline font-bold hover:bg-surface-container-low transition-all">Quiz History</button>
+</nav>
+<!-- Content: Trends Tab (Asymmetric Bento Grid) -->
+<div class="grid grid-cols-12 gap-8">
+<!-- Mastery Over Time: 8-column wide card -->
+<div class="col-span-12 lg:col-span-8 bg-surface-container-lowest rounded-xl p-8 glow-accent shadow-[0px_20px_40px_rgba(26,28,31,0.06)]">
+<div class="flex justify-between items-start mb-8">
+<div>
+<h4 class="text-xl font-headline font-extrabold text-on-surface tracking-tight">Mastery Over Time</h4>
+<p class="text-on-surface-variant text-sm mt-1">Consistency in cognitive retention across modules.</p>
+</div>
+<div class="flex items-center bg-primary-fixed px-4 py-2 rounded-full">
+<span class="material-symbols-outlined text-on-primary-fixed-variant mr-1 text-sm" data-icon="trending_up">trending_up</span>
+<span class="text-on-primary-fixed-variant font-bold text-xs">+4% Growth</span>
+</div>
+</div>
+<!-- Line Chart Visualization (Simplified SVG) -->
+<div class="w-full h-64 flex items-end justify-between gap-4 relative">
+<div class="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-5 border-y border-outline">
+<div class="h-px bg-on-surface w-full"></div>
+<div class="h-px bg-on-surface w-full"></div>
+<div class="h-px bg-on-surface w-full"></div>
+</div>
+<svg class="w-full h-full" preserveaspectratio="none" viewbox="0 0 800 250">
+<defs>
+<lineargradient id="line-grad" x1="0%" x2="0%" y1="0%" y2="100%">
+<stop offset="0%" stop-color="#5625a8"></stop>
+<stop offset="100%" stop-color="#ebddff"></stop>
+</lineargradient>
+</defs>
+<path d="M0 200 Q 100 180, 200 190 T 400 120 T 600 100 T 800 80" fill="none" stroke="url(#line-grad)" stroke-linecap="round" stroke-width="4"></path>
+<path d="M0 200 Q 100 180, 200 190 T 400 120 T 600 100 T 800 80 V 250 H 0 Z" fill="url(#line-grad)" opacity="0.1"></path>
+<!-- Floating points -->
+<circle cx="200" cy="190" fill="#5625a8" r="4"></circle>
+<circle cx="400" cy="120" fill="#5625a8" r="4"></circle>
+<circle cx="600" cy="100" fill="#5625a8" r="4"></circle>
+<circle cx="800" cy="80" fill="#5625a8" r="6"></circle>
+</svg>
+</div>
+<div class="mt-6 flex justify-between text-xs font-bold text-on-surface-variant/40 uppercase tracking-widest">
+<span>Week 1</span>
+<span>Week 2</span>
+<span>Week 3</span>
+<span>Week 4</span>
+</div>
+</div>
+<!-- Score Trend: 4-column side card -->
+<div class="col-span-12 lg:col-span-4 flex flex-col gap-8">
+<div class="bg-surface-container-lowest rounded-xl p-8 glow-accent shadow-[0px_20px_40px_rgba(26,28,31,0.06)] h-full">
+<h4 class="text-xl font-headline font-extrabold text-on-surface tracking-tight mb-1">Score Trend</h4>
+<p class="text-on-surface-variant text-sm mb-6">Last 30 days assessment average.</p>
+<div class="flex items-end gap-3 h-32 mb-6">
+<div class="flex-1 bg-surface-container rounded-t-lg h-[40%]"></div>
+<div class="flex-1 bg-surface-container rounded-t-lg h-[65%]"></div>
+<div class="flex-1 bg-surface-container rounded-t-lg h-[55%]"></div>
+<div class="flex-1 bg-primary-container rounded-t-lg h-[85%] relative">
+<div class="absolute -top-8 left-1/2 -translate-x-1/2 text-primary font-bold text-xs">+7%</div>
+</div>
+</div>
+<div class="bg-tertiary-fixed rounded-xl p-4 flex items-center gap-4">
+<div class="w-12 h-12 rounded-full bg-white flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined" data-icon="bolt">bolt</span>
+</div>
+<div>
+<span class="block text-on-tertiary-fixed font-bold text-sm">Momentum High</span>
+<span class="block text-on-tertiary-fixed-variant text-xs opacity-75">Keep it up!</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Study Efficiency: Empty state card -->
+<div class="col-span-12 md:col-span-6 bg-surface-container-low rounded-xl p-12 flex flex-col items-center justify-center text-center">
+<div class="w-20 h-20 rounded-full bg-surface-container-highest flex items-center justify-center mb-6">
+<span class="material-symbols-outlined text-4xl text-outline-variant" data-icon="timer_off">timer_off</span>
+</div>
+<h4 class="text-lg font-headline font-extrabold text-on-surface mb-2">Study Efficiency</h4>
+<p class="text-on-surface-variant max-w-xs mb-6">Insufficient session data to calculate your optimal focus window. Log 3 more hours to unlock.</p>
+<button class="px-6 py-2 bg-surface-container-lowest text-primary font-bold rounded-full text-sm hover:bg-white shadow-sm border border-outline-variant/10">No data yet</button>
+</div>
+<!-- Concept Velocity: Empty state card -->
+<div class="col-span-12 md:col-span-6 bg-surface-container-low rounded-xl p-12 flex flex-col items-center justify-center text-center">
+<div class="w-20 h-20 rounded-full bg-surface-container-highest flex items-center justify-center mb-6">
+<span class="material-symbols-outlined text-4xl text-outline-variant" data-icon="rocket">rocket</span>
+</div>
+<h4 class="text-lg font-headline font-extrabold text-on-surface mb-2">Concept Velocity</h4>
+<p class="text-on-surface-variant max-w-xs mb-6">Velocity tracking begins after your first subject module completion. Start your next lesson to activate.</p>
+<button class="px-6 py-2 bg-surface-container-lowest text-primary font-bold rounded-full text-sm hover:bg-white shadow-sm border border-outline-variant/10">No data yet</button>
+</div>
+</div>
+</main>
+<!-- BottomNavBar Shell -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-6 pt-3 bg-white/80 backdrop-blur-2xl dark:bg-zinc-950/80 rounded-t-[2.5rem] shadow-[0px_-10px_40px_rgba(111,66,193,0.08)] md:hidden">
+<div class="flex flex-col items-center justify-center text-zinc-400 dark:text-zinc-500 px-5 py-2 hover:text-violet-600 transition-colors">
+<span class="material-symbols-outlined" data-icon="explore">explore</span>
+<span class="font-['Manrope'] font-semibold text-[11px] uppercase tracking-wider mt-1">Explore</span>
+</div>
+<div class="flex flex-col items-center justify-center text-zinc-400 dark:text-zinc-500 px-5 py-2 hover:text-violet-600 transition-colors">
+<span class="material-symbols-outlined" data-icon="school">school</span>
+<span class="font-['Manrope'] font-semibold text-[11px] uppercase tracking-wider mt-1">Academy</span>
+</div>
+<div class="flex flex-col items-center justify-center bg-violet-100 dark:bg-violet-900/40 text-violet-800 dark:text-violet-200 rounded-[1.5rem] px-5 py-2 scale-110 active:scale-90 transition-transform duration-300">
+<span class="material-symbols-outlined" data-icon="equalizer" style="font-variation-settings: 'FILL' 1;">equalizer</span>
+<span class="font-['Manrope'] font-semibold text-[11px] uppercase tracking-wider mt-1">Insights</span>
+</div>
+<div class="flex flex-col items-center justify-center text-zinc-400 dark:text-zinc-500 px-5 py-2 hover:text-violet-600 transition-colors">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span class="font-['Manrope'] font-semibold text-[11px] uppercase tracking-wider mt-1">Profile</span>
+</div>
+</nav>
+</body></html>

@@ -24,6 +24,7 @@ import { useNavigate } from "react-router-dom"
 import { useLearningPathPlan } from "@/hooks/useLearningPathPlan"
 import { useRescheduleAdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { getLearningPathItemsForDate, type LearningPathPlanItem, type PlannedReviewPlanItem } from "@/lib/learningPathPlan"
+import type { LearningPathPlanScopeFilter } from "@/lib/learningPathScope"
 import { useReplanLearningPath } from "@/hooks/useGoalWindowScheduling"
 import { useAuth } from "@/contexts/AuthContext"
 import { toast } from "sonner"
@@ -42,7 +43,17 @@ function formatStudyWindow(start: string | null | undefined, end: string | null 
     return `${start} - ${end}`
 }
 
-export function LearningPathCalendar() {
+interface LearningPathCalendarProps {
+    scopeFilter?: LearningPathPlanScopeFilter
+    title?: string
+    description?: string
+}
+
+export function LearningPathCalendar({
+    scopeFilter,
+    title = "My Learning Path",
+    description = "View your adaptive study schedule based on your preferred time.",
+}: LearningPathCalendarProps) {
     const navigate = useNavigate()
     const [viewMode, setViewMode] = useState<"week" | "month">("week")
     const [anchorDate, setAnchorDate] = useState(() => new Date())
@@ -55,11 +66,15 @@ export function LearningPathCalendar() {
     const { data: stats } = useLearningStats();
     const { data: weeklyProgress } = useWeeklyProgress();
     const { data: efficiency } = useStudyEfficiency();
-    const plan = useLearningPathPlan()
+    const plan = useLearningPathPlan(scopeFilter)
     const rescheduleDueDate = useRescheduleConceptDueDate()
     const rescheduleAdaptiveTask = useRescheduleAdaptiveStudyTask()
     const replanLearningPath = useReplanLearningPath()
     const { profile } = useAuth()
+    const scopedStats = {
+        masteredCount: plan.performancePlannedReviews.filter((item) => item.mastery.display_mastery_level === "mastered").length,
+        needsReviewCount: plan.performancePlannedReviews.filter((item) => item.mastery.display_mastery_level === "needs_review").length,
+    }
 
     // Compute Dates
     const now = anchorDate
@@ -377,8 +392,8 @@ export function LearningPathCalendar() {
         <div className="space-y-6">
             {/* Header Area */}
             <div>
-                <h1 className="text-3xl font-bold mb-1">My Learning Path</h1>
-                <p className="text-muted-foreground">View your adaptive study schedule based on your preferred time.</p>
+                <h1 className="text-3xl font-bold mb-1">{title}</h1>
+                <p className="text-muted-foreground">{description}</p>
             </div>
 
             <div className="flex flex-col lg:flex-row gap-6 items-start">
@@ -562,7 +577,7 @@ export function LearningPathCalendar() {
                                 {weeklyProgress && weeklyProgress.questionsAnswered > 0
                                     ? `You've completed ${weeklyProgress.questionsAnswered} tasks this week! Keep up the great work.`
                                     : `You don't have any reviews yet this week. Remember, spaced repetition is the key to mastery!`}
-                                {(stats?.needsReviewCount ?? 0) > 0 && ` Consider adding a review session for some weak topics.`}
+                                {scopedStats.needsReviewCount > 0 && ` Consider adding a review session for some weak topics.`}
                             </p>
                             <Button
                                 className="bg-purple-500 hover:bg-purple-600 text-white border-0 shadow-sm"
@@ -636,7 +651,7 @@ export function LearningPathCalendar() {
                         <CardContent className="pt-4 space-y-4 bg-muted/20 border-t-0">
                             <div>
                                 <p className="text-xs text-muted-foreground mb-1">Concepts Mastered (All Time)</p>
-                                <p className="text-xl font-bold text-purple-600">{stats?.masteredCount ?? 0}</p>
+                                <p className="text-xl font-bold text-purple-600">{scopedStats.masteredCount}</p>
                             </div>
                             <div>
                                 <p className="text-xs text-muted-foreground mb-1">Total Study Hours (30d)</p>

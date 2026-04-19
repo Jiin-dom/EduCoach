@@ -16,6 +16,7 @@ import {
     Layers,
     Sparkles,
     FileText,
+    BarChart3,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -28,7 +29,6 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import { useLearningStats } from "@/hooks/useLearning"
 import type { ConceptMasteryWithDetails } from "@/hooks/useLearning"
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
 import { useGenerateReviewQuiz, useQuizzes } from "@/hooks/useQuizzes"
@@ -39,6 +39,7 @@ import type {
     GoalMarkerPlanItem,
     PlannedReviewPlanItem,
 } from "@/lib/learningPathPlan"
+import { matchesQuizScope, type LearningPathPlanScopeFilter } from "@/lib/learningPathScope"
 import { Link, useNavigate } from "react-router-dom"
 import { toast } from 'sonner'
 
@@ -171,12 +172,20 @@ function GeneratedPlanCard({ item }: { item: PlannedReviewPlanItem }) {
                     </div>
                 </div>
                 {item.documentId ? (
-                    <Link to={`/files/${item.documentId}`}>
-                        <Button variant="outline" size="sm">
-                            <ArrowUpRight className="w-3 h-3 mr-1" />
-                            Open
-                        </Button>
-                    </Link>
+                    <div className="flex flex-col gap-1 shrink-0">
+                        <Link to={`/files/${item.documentId}`}>
+                            <Button variant="outline" size="sm">
+                                <ArrowUpRight className="w-3 h-3 mr-1" />
+                                Open
+                            </Button>
+                        </Link>
+                        <Link to={`/analytics/document/${item.documentId}`}>
+                            <Button variant="ghost" size="sm" className="text-xs">
+                                <BarChart3 className="w-3 h-3 mr-1" />
+                                Analytics
+                            </Button>
+                        </Link>
+                    </div>
                 ) : null}
             </CardContent>
         </Card>
@@ -211,12 +220,20 @@ function GoalMarkerCard({ marker }: { marker: GoalMarkerPlanItem }) {
                         </Button>
                     </Link>
                 ) : marker.documentId ? (
-                    <Link to={`/files/${marker.documentId}`}>
-                        <Button variant="outline" size="sm">
-                            <ArrowUpRight className="w-3 h-3 mr-1" />
-                            Open
-                        </Button>
-                    </Link>
+                    <div className="flex flex-col gap-1 shrink-0">
+                        <Link to={`/files/${marker.documentId}`}>
+                            <Button variant="outline" size="sm">
+                                <ArrowUpRight className="w-3 h-3 mr-1" />
+                                Open
+                            </Button>
+                        </Link>
+                        <Link to={`/analytics/document/${marker.documentId}`}>
+                            <Button variant="ghost" size="sm" className="text-xs">
+                                <BarChart3 className="w-3 h-3 mr-1" />
+                                Analytics
+                            </Button>
+                        </Link>
+                    </div>
                 ) : null}
             </CardContent>
         </Card>
@@ -263,14 +280,22 @@ function TopicCard({ topic, onSelect }: { topic: ConceptMasteryWithDetails; onSe
                     )}
                 </div>
             </div>
-            <div className="flex gap-1 shrink-0">
+            <div className="flex flex-col gap-1 shrink-0">
                 {topic.document_id && (
-                    <Link to={`/files/${topic.document_id}`} onClick={(e) => e.stopPropagation()}>
-                        <Button variant="ghost" size="sm" className="text-xs">
-                            <ArrowUpRight className="w-3 h-3 mr-1" />
-                            Review
-                        </Button>
-                    </Link>
+                    <>
+                        <Link to={`/files/${topic.document_id}`} onClick={(e) => e.stopPropagation()}>
+                            <Button variant="ghost" size="sm" className="text-xs">
+                                <ArrowUpRight className="w-3 h-3 mr-1" />
+                                Review
+                            </Button>
+                        </Link>
+                        <Link to={`/analytics/document/${topic.document_id}`} onClick={(e) => e.stopPropagation()}>
+                            <Button variant="ghost" size="sm" className="text-xs">
+                                <BarChart3 className="w-3 h-3 mr-1" />
+                                Analytics
+                            </Button>
+                        </Link>
+                    </>
                 )}
             </div>
         </button>
@@ -410,12 +435,20 @@ function ConceptDetailDialog({
                     )}
 
                     {concept.document_id && (
-                        <Link to={`/files/${concept.document_id}`} onClick={onClose}>
-                            <Button className="w-full" variant="outline">
-                                <ArrowUpRight className="w-4 h-4 mr-2" />
-                                Open Document
-                            </Button>
-                        </Link>
+                        <div className="flex flex-col gap-2">
+                            <Link to={`/files/${concept.document_id}`} onClick={onClose}>
+                                <Button className="w-full" variant="outline">
+                                    <ArrowUpRight className="w-4 h-4 mr-2" />
+                                    Open Document
+                                </Button>
+                            </Link>
+                            <Link to={`/analytics/document/${concept.document_id}`} onClick={onClose}>
+                                <Button className="w-full" variant="outline">
+                                    <BarChart3 className="w-4 h-4 mr-2" />
+                                    File analytics
+                                </Button>
+                            </Link>
+                        </div>
                     )}
                 </div>
             </DialogContent>
@@ -423,9 +456,18 @@ function ConceptDetailDialog({
     )
 }
 
-export function LearningPathContent() {
-    const plan = useLearningPathPlan()
-    const { data: stats, isLoading: statsLoading, isError: statsError } = useLearningStats()
+interface LearningPathContentProps {
+    scopeFilter?: LearningPathPlanScopeFilter
+    title?: string
+    description?: string
+}
+
+export function LearningPathContent({
+    scopeFilter,
+    title = "Learning Path",
+    description = "Your generated study plan, adaptive tasks, and live mastery priorities",
+}: LearningPathContentProps) {
+    const plan = useLearningPathPlan(scopeFilter)
     const { data: weeklyProgress } = useWeeklyProgress()
     const { data: documents } = useDocuments()
     const { data: quizzes } = useQuizzes()
@@ -434,6 +476,10 @@ export function LearningPathContent() {
 
     const [selectedConcept, setSelectedConcept] = useState<ConceptMasteryWithDetails | null>(null)
     const autoGeneratedTaskIds = useRef<Set<string>>(new Set())
+    const scopedQuizzes = useMemo(
+        () => (quizzes || []).filter((quiz) => matchesQuizScope(quiz, scopeFilter)),
+        [quizzes, scopeFilter],
+    )
 
     const performanceMasteryList = useMemo(
         () => plan.performancePlannedReviews.map((item) => item.mastery as ConceptMasteryWithDetails),
@@ -442,6 +488,25 @@ export function LearningPathContent() {
     const baselineReviews = plan.baselinePlannedReviews
     const adaptiveTasks = useMemo(() => plan.adaptiveTasks.map((item) => item.task), [plan.adaptiveTasks])
     const upcomingGoals = useMemo(() => plan.goalMarkers.slice(0, 4), [plan.goalMarkers])
+    const stats = useMemo(() => {
+        const totalConcepts = performanceMasteryList.length
+        const masteredCount = performanceMasteryList.filter((item) => item.display_mastery_level === "mastered").length
+        const developingCount = performanceMasteryList.filter((item) => item.display_mastery_level === "developing").length
+        const needsReviewCount = performanceMasteryList.filter((item) => item.display_mastery_level === "needs_review").length
+        const averageMastery = totalConcepts > 0
+            ? Math.round(
+                performanceMasteryList.reduce((sum, item) => sum + item.display_mastery_score, 0) / totalConcepts,
+            )
+            : 0
+
+        return {
+            totalConcepts,
+            masteredCount,
+            developingCount,
+            needsReviewCount,
+            averageMastery,
+        }
+    }, [performanceMasteryList])
 
     const sections: TopicSections = useMemo(() => {
         // Only include concepts with real student attempts in performance-derived sections.
@@ -592,7 +657,7 @@ export function LearningPathContent() {
         )
     }, [adaptiveTasks, generateReview])
 
-    const isLoading = plan.isLoading || statsLoading
+    const isLoading = plan.isLoading
 
     return (
         <main className="container mx-auto px-4 py-8">
@@ -603,8 +668,8 @@ export function LearningPathContent() {
                             <Calendar className="w-6 h-6 text-primary" />
                         </div>
                         <div>
-                            <h1 className="text-2xl sm:text-3xl font-bold">Learning Path</h1>
-                            <p className="text-sm sm:text-base text-muted-foreground">Your generated study plan, adaptive tasks, and live mastery priorities</p>
+                            <h1 className="text-2xl sm:text-3xl font-bold">{title}</h1>
+                            <p className="text-sm sm:text-base text-muted-foreground">{description}</p>
                         </div>
                     </div>
                     {!isLoading && performanceMasteryList.length > 0 && (
@@ -627,7 +692,7 @@ export function LearningPathContent() {
                     <div className="flex items-center justify-center py-16">
                         <Loader2 className="w-8 h-8 animate-spin text-primary" />
                     </div>
-                ) : (plan.isError || statsError) ? (
+                ) : plan.isError ? (
                     <Card>
                         <CardContent className="text-center py-16">
                             <AlertTriangle className="w-16 h-16 mx-auto text-amber-500 mb-4" />
@@ -643,10 +708,13 @@ export function LearningPathContent() {
                 ) : plan.items.length === 0 ? (
                     (() => {
                         const docs = documents || []
-                        const hasUploaded = docs.length > 0
-                        const hasProcessed = docs.some(d => d.status === 'ready')
+                        const scopedDocs = scopeFilter?.documentId
+                            ? docs.filter((doc) => doc.id === scopeFilter.documentId)
+                            : docs
+                        const hasUploaded = scopedDocs.length > 0
+                        const hasProcessed = scopedDocs.some(d => d.status === 'ready')
                         const hasAttempted = plan.performancePlannedReviews.length > 0
-                        const hasTarget = docs.some(d => d.exam_date != null)
+                        const hasTarget = scopedDocs.some(d => d.exam_date != null || d.deadline != null)
                         const steps = [
                             { label: "Upload study materials", done: hasUploaded, link: "/files" },
                             { label: "Process your documents", done: hasProcessed, link: "/files" },
@@ -792,7 +860,7 @@ export function LearningPathContent() {
                                     <AlertTriangle className="w-4 h-4 text-orange-500" />
                                 </CardHeader>
                                 <CardContent>
-                                    <div className="text-2xl font-bold">{stats?.needsReviewCount ?? 0}</div>
+                                    <div className="text-2xl font-bold">{stats.needsReviewCount}</div>
                                     <p className="text-xs text-muted-foreground">Weak concepts</p>
                                 </CardContent>
                             </Card>
@@ -803,7 +871,7 @@ export function LearningPathContent() {
                                     <BookOpen className="w-4 h-4 text-yellow-500" />
                                 </CardHeader>
                                 <CardContent>
-                                    <div className="text-2xl font-bold">{stats?.developingCount ?? 0}</div>
+                                    <div className="text-2xl font-bold">{stats.developingCount}</div>
                                     <p className="text-xs text-muted-foreground">Getting there</p>
                                 </CardContent>
                             </Card>
@@ -814,7 +882,7 @@ export function LearningPathContent() {
                                     <CheckCircle2 className="w-4 h-4 text-green-500" />
                                 </CardHeader>
                                 <CardContent>
-                                    <div className="text-2xl font-bold">{stats?.masteredCount ?? 0}</div>
+                                    <div className="text-2xl font-bold">{stats.masteredCount}</div>
                                     <p className="text-xs text-muted-foreground">Solid knowledge</p>
                                 </CardContent>
                             </Card>
@@ -822,9 +890,9 @@ export function LearningPathContent() {
 
                         {/* Overall Preparation Estimate */}
                         {(() => {
-                            const totalTracked = stats?.totalConcepts ?? 0
+                            const totalTracked = stats.totalConcepts
                             const attempted = plan.performancePlannedReviews.length
-                            const performance = stats?.averageMastery ?? 0
+                            const performance = stats.averageMastery
                             const coverage = totalTracked > 0 ? attempted / totalTracked : 0
                             const coveragePct = Math.round(coverage * 100)
 
@@ -878,7 +946,7 @@ export function LearningPathContent() {
                         {/* Milestones */}
                         {(() => {
                             const milestones: { label: string; achieved: boolean }[] = []
-                            const hasFirstQuiz = (quizzes || []).length > 0 && plan.performancePlannedReviews.length > 0
+                            const hasFirstQuiz = scopedQuizzes.length > 0 && plan.performancePlannedReviews.length > 0
                             milestones.push({ label: "First quiz taken", achieved: hasFirstQuiz })
                             const hasMastered = performanceMasteryList.some(m => m.display_mastery_level === 'mastered')
                             milestones.push({ label: "First concept mastered", achieved: hasMastered })
