@@ -31,13 +31,18 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { useDocuments, useUpdateDocument, type Document } from "@/hooks/useDocuments"
-import { useQuizzes, type Quiz } from "@/hooks/useQuizzes"
+import { useQuizzes, useUpdateQuizDeadline, type Quiz } from "@/hooks/useQuizzes"
 import { useStudyGoals } from "@/hooks/useStudyGoals"
 import { toast } from "sonner"
 import { ExamManager } from "./ExamManager"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useScheduleDocumentGoalWindow, useDeactivateDocumentGoalWindowPlaceholders } from '@/hooks/useGoalWindowScheduling'
 import { useConceptMasteryList } from "@/hooks/useLearning"
+import {
+    buildDocumentsWithExplicitQuizDeadlines,
+    buildLatestQuizIdByDocument,
+    getEffectiveQuizDeadline,
+} from "@/lib/quizDeadlines"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -174,16 +179,18 @@ function DocumentGoalCard({
 function QuizGoalCard({
     quiz,
     doc,
+    deadline,
     preparationScore,
     onEdit,
 }: {
     quiz: Quiz
     doc: Document | undefined
+    deadline: string | null
     preparationScore: number | null
     onEdit: (quiz: Quiz) => void
 }) {
-    const updateDocument = useUpdateDocument()
-    const goalStatus = daysRemaining(doc?.deadline || null)
+    const updateQuizDeadline = useUpdateQuizDeadline()
+    const goalStatus = daysRemaining(deadline)
     const isOverdue = goalStatus?.includes("overdue")
     
     const preparation = getPreparationLevel(preparationScore)
@@ -191,10 +198,10 @@ function QuizGoalCard({
     const isMastered = preparation === 'Strong'
 
     const handleRemoveGoal = () => {
-        if (!doc) return
-        updateDocument.mutate({
-            documentId: doc.id,
-            updates: { deadline: null }
+        updateQuizDeadline.mutate({
+            quizId: quiz.id,
+            documentId: quiz.document_id,
+            deadline: null,
         }, {
             onSuccess: () => toast.info("Deadline removed."),
             onError: () => toast.error("Failed to remove deadline."),
@@ -251,7 +258,7 @@ function QuizGoalCard({
                         </div>
 
                         <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-                            {doc?.deadline && (
+                            {deadline && (
                                 <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ring-1 ${
                                     isOverdue 
                                         ? 'bg-red-100 text-red-700 ring-red-200' 
@@ -300,7 +307,13 @@ function SetGoalDialog({
     const { data: quizzes } = useQuizzes()
     const { data: documents } = useDocuments()
     const updateDocument = useUpdateDocument()
+    const updateQuizDeadline = useUpdateQuizDeadline()
     const scheduleGoalWindow = useScheduleDocumentGoalWindow()
+    const latestQuizIdByDocument = useMemo(() => buildLatestQuizIdByDocument(quizzes || []), [quizzes])
+    const documentsWithExplicitQuizDeadlines = useMemo(
+        () => buildDocumentsWithExplicitQuizDeadlines(quizzes || []),
+        [quizzes],
+    )
     
     const [selectedId, setSelectedId] = useState<string>("")
     const [deadline, setDeadline] = useState<string>("")
@@ -312,7 +325,13 @@ function SetGoalDialog({
             setGoalType("quiz")
             setSelectedId(quizToEdit.id)
             const parentDoc = documents?.find(d => d.id === quizToEdit.document_id)
-            setDeadline(parentDoc?.deadline ? parentDoc.deadline.split('T')[0] : "")
+            const quizDeadline = getEffectiveQuizDeadline({
+                quiz: quizToEdit,
+                latestQuizIdByDocument,
+                documentDeadline: parentDoc?.deadline ?? null,
+                documentsWithExplicitQuizDeadlines,
+            })
+            setDeadline(quizDeadline ? quizDeadline.split('T')[0] : "")
             setGoalLabel(parentDoc?.quiz_deadline_label || "")
         } else if (docToEdit) {
             setGoalType("file")
@@ -324,7 +343,7 @@ function SetGoalDialog({
             setDeadline("")
             setGoalLabel("")
         }
-    }, [quizToEdit, docToEdit, open])
+    }, [documents, docToEdit, documentsWithExplicitQuizDeadlines, latestQuizIdByDocument, open, quizToEdit])
 
     const handleSubmit = () => {
         if (!selectedId || !deadline) {
@@ -336,9 +355,11 @@ function SetGoalDialog({
             const quiz = quizzes?.find(q => q.id === selectedId)
             if (!quiz) return
 
-            updateDocument.mutate({
+            updateQuizDeadline.mutate({
+                quizId: quiz.id,
                 documentId: quiz.document_id,
-                updates: { deadline, quiz_deadline_label: goalLabel.trim() ? goalLabel.trim() : null },
+                deadline,
+                quizDeadlineLabel: goalLabel.trim() ? goalLabel.trim() : null,
             }, {
                 onSuccess: () => {
                     toast.success("Quiz deadline set!")
@@ -445,6 +466,24 @@ export function StudyGoalsPanel() {
     const { data: quizzes, isLoading: quizzesLoading, isError: quizzesError } = useQuizzes()
     const { data: allMastery } = useConceptMasteryList()
     const { data: studyGoals } = useStudyGoals()
+    const docsById = useMemo(
+        () => new Map((documents || []).map((doc) => [doc.id, doc])),
+        [documents],
+    )
+    const latestQuizIdByDocument = useMemo(
+        () => buildLatestQuizIdByDocument(quizzes || []),
+        [quizzes],
+    )
+    const documentsWithExplicitQuizDeadlines = useMemo(
+        () => buildDocumentsWithExplicitQuizDeadlines(quizzes || []),
+        [quizzes],
+    )
+    const getQuizDeadline = (quiz: Quiz) => getEffectiveQuizDeadline({
+        quiz,
+        latestQuizIdByDocument,
+        documentDeadline: docsById.get(quiz.document_id)?.deadline ?? null,
+        documentsWithExplicitQuizDeadlines,
+    })
     
     const [showAddDialog, setShowAddDialog] = useState(false)
     const [quizToEdit, setQuizToEdit] = useState<Quiz | undefined>(undefined)
@@ -470,16 +509,14 @@ export function StudyGoalsPanel() {
     }, [documents])
 
     const quizzesWithDeadlines = useMemo(() => {
-        if (!quizzes || !documents) return []
-        return quizzes.filter(q => {
-            const doc = documents.find(d => d.id === q.document_id)
-            return !!doc?.deadline
-        }).sort((a, b) => {
-            const docA = documents.find(d => d.id === a.document_id)
-            const docB = documents.find(d => d.id === b.document_id)
-            return new Date(docA!.deadline!).getTime() - new Date(docB!.deadline!).getTime()
-        })
-    }, [quizzes, documents])
+        return (quizzes || [])
+            .filter((quiz) => !!getQuizDeadline(quiz))
+            .sort((a, b) => {
+                const aDeadline = getQuizDeadline(a) ?? ""
+                const bDeadline = getQuizDeadline(b) ?? ""
+                return new Date(aDeadline).getTime() - new Date(bDeadline).getTime()
+            })
+    }, [getQuizDeadline, quizzes])
 
     const handleEditQuiz = (quiz: Quiz) => {
         setQuizToEdit(quiz)
@@ -574,7 +611,8 @@ export function StudyGoalsPanel() {
                                 <QuizGoalCard 
                                     key={quiz.id} 
                                     quiz={quiz} 
-                                    doc={documents?.find(d => d.id === quiz.document_id)}
+                                    doc={docsById.get(quiz.document_id)}
+                                    deadline={getQuizDeadline(quiz)}
                                     preparationScore={getDocPreparation(quiz.document_id)}
                                     onEdit={handleEditQuiz}
                                 />

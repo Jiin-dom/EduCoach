@@ -10,6 +10,7 @@ import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { adaptiveStudyKeys } from '@/hooks/useAdaptiveStudy'
 import { ALL_QUIZ_TYPES, type QuizTypeId } from '@/types/quiz'
+import { buildLatestQuizIdByDocument, getEffectiveQuizDeadline } from '@/lib/quizDeadlines'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,7 @@ export interface Quiz {
     time_limit_minutes: number | null
     status: 'generating' | 'ready' | 'error'
     error_message: string | null
+    deadline?: string | null
     created_at: string
     updated_at: string
 }
@@ -87,6 +89,59 @@ export interface SubmitAttemptInput {
     score: number
     timeTakenSeconds?: number
     startedAt: string
+}
+
+type QuizSummaryRow = Pick<Quiz, 'id' | 'document_id' | 'deadline' | 'created_at'>
+
+async function syncDocumentQuizDeadlineSummary(params: {
+    userId: string
+    documentId: string
+    quizDeadlineLabel?: string | null
+}) {
+    const { data: documentQuizzes, error: quizFetchError } = await supabase
+        .from('quizzes')
+        .select('id, document_id, deadline, created_at')
+        .eq('user_id', params.userId)
+        .eq('document_id', params.documentId)
+
+    if (quizFetchError) {
+        throw new Error(quizFetchError.message)
+    }
+
+    const quizRows = (documentQuizzes || []) as QuizSummaryRow[]
+    const latestQuizIdByDocument = buildLatestQuizIdByDocument(quizRows)
+    const latestExplicitQuiz = quizRows
+        .filter((quiz) => !!quiz.deadline)
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] ?? null
+
+    const documentDeadline = latestExplicitQuiz
+        ? getEffectiveQuizDeadline({
+            quiz: latestExplicitQuiz,
+            latestQuizIdByDocument,
+            documentDeadline: latestExplicitQuiz.deadline,
+        })
+        : null
+
+    const updates: {
+        deadline: string | null
+        quiz_deadline_label?: string | null
+    } = {
+        deadline: documentDeadline,
+    }
+
+    if (typeof params.quizDeadlineLabel !== 'undefined') {
+        updates.quiz_deadline_label = params.quizDeadlineLabel
+    }
+
+    const { error: documentError } = await supabase
+        .from('documents')
+        .update(updates)
+        .eq('id', params.documentId)
+        .eq('user_id', params.userId)
+
+    if (documentError) {
+        throw new Error(documentError.message)
+    }
 }
 
 // ─── Query keys ──────────────────────────────────────────────────────────────
@@ -299,12 +354,21 @@ export function useGenerateQuiz() {
                 console.log('[Quiz] Generation successful:', data)
                 const result = data as { success: boolean; quizId: string; questionCount: number }
 
-                // If a deadline was provided, update the parent document's deadline field
                 if (input.deadline && result.quizId) {
-                    await supabase
-                        .from('documents')
+                    const { error: deadlineError } = await supabase
+                        .from('quizzes')
                         .update({ deadline: input.deadline })
-                        .eq('id', input.documentId)
+                        .eq('id', result.quizId)
+                        .eq('user_id', session.user.id)
+
+                    if (deadlineError) {
+                        throw new Error(deadlineError.message)
+                    }
+
+                    await syncDocumentQuizDeadlineSummary({
+                        userId: session.user.id,
+                        documentId: input.documentId,
+                    })
                 }
 
                 return result
@@ -333,9 +397,53 @@ export function useGenerateQuiz() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: quizKeys.all })
+            queryClient.invalidateQueries({ queryKey: ['documents'] })
         },
         onError: (error) => {
             console.error('[Quiz] Generation mutation error:', error)
+        },
+    })
+}
+
+export function useUpdateQuizDeadline() {
+    const queryClient = useQueryClient()
+    const { user } = useAuth()
+
+    return useMutation({
+        mutationFn: async (input: {
+            quizId: string
+            documentId: string
+            deadline: string | null
+            quizDeadlineLabel?: string | null
+        }) => {
+            if (!user) {
+                throw new Error('Not authenticated')
+            }
+
+            const { data, error } = await supabase
+                .from('quizzes')
+                .update({ deadline: input.deadline })
+                .eq('id', input.quizId)
+                .eq('user_id', user.id)
+                .select('*')
+                .single()
+
+            if (error) {
+                throw new Error(error.message)
+            }
+
+            await syncDocumentQuizDeadlineSummary({
+                userId: user.id,
+                documentId: input.documentId,
+                quizDeadlineLabel: input.quizDeadlineLabel,
+            })
+
+            return data as Quiz
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: quizKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
+            queryClient.invalidateQueries({ queryKey: ['documents'] })
         },
     })
 }

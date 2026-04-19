@@ -134,6 +134,94 @@ describe("buildLearningPathPlan", () => {
         )
     })
 
+    it("keeps quiz deadline markers scoped to quizzes that actually own a deadline", () => {
+        const plan = buildLearningPathPlan({
+            masteryRows: [],
+            adaptiveTasks: [],
+            documents: [
+                makeDocument({
+                    exam_date: "2026-04-12T00:00:00.000Z",
+                    deadline: "2026-04-15T00:00:00.000Z",
+                }),
+            ],
+            quizzes: [
+                {
+                    ...makeQuiz({
+                        id: "q-legacy",
+                        title: "Legacy Quiz",
+                    }),
+                    deadline: null,
+                    created_at: "2026-04-09T00:00:00.000Z",
+                } as LearningPathQuizInput & { deadline: string | null; created_at: string },
+                {
+                    ...makeQuiz({
+                        id: "q-deadline",
+                        title: "Deadline Quiz",
+                    }),
+                    deadline: "2026-04-11T00:00:00.000Z",
+                    created_at: "2026-04-10T00:00:00.000Z",
+                } as LearningPathQuizInput & { deadline: string | null; created_at: string },
+            ],
+        })
+
+        expect(plan.goalMarkers).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    kind: "goal_marker",
+                    markerType: "file_goal",
+                    date: "2026-04-12",
+                }),
+                expect.objectContaining({
+                    kind: "goal_marker",
+                    markerType: "quiz_deadline",
+                    quizId: "q-deadline",
+                    date: "2026-04-11",
+                    title: "Deadline Quiz",
+                }),
+            ]),
+        )
+        expect(plan.goalMarkers.filter((item) => item.markerType === "quiz_deadline")).toHaveLength(1)
+    })
+
+    it("uses document deadline fallback only for legacy documents with no explicit quiz deadlines", () => {
+        const plan = buildLearningPathPlan({
+            masteryRows: [],
+            adaptiveTasks: [],
+            documents: [
+                makeDocument({
+                    deadline: "2026-04-15T00:00:00.000Z",
+                }),
+            ],
+            quizzes: [
+                {
+                    ...makeQuiz({
+                        id: "q-with-deadline",
+                        title: "Older Explicit Quiz",
+                    }),
+                    deadline: "2026-04-11T00:00:00.000Z",
+                    created_at: "2026-04-09T00:00:00.000Z",
+                } as LearningPathQuizInput & { deadline: string | null; created_at: string },
+                {
+                    ...makeQuiz({
+                        id: "q-latest-no-deadline",
+                        title: "Latest Legacy Quiz",
+                    }),
+                    deadline: null,
+                    created_at: "2026-04-10T00:00:00.000Z",
+                } as LearningPathQuizInput & { deadline: string | null; created_at: string },
+            ],
+        })
+
+        expect(
+            plan.goalMarkers.filter((item) => item.markerType === "quiz_deadline"),
+        ).toEqual([
+            expect.objectContaining({
+                quizId: "q-with-deadline",
+                date: "2026-04-11",
+            }),
+        ])
+    })
+
     it("returns date-sorted calendar items that include planned reviews, adaptive tasks, and goals", () => {
         const plan = buildLearningPathPlan({
             masteryRows: [makeMastery({ due_date: "2026-04-10" })],

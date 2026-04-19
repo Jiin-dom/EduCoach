@@ -1,3 +1,9 @@
+import {
+    buildDocumentsWithExplicitQuizDeadlines,
+    buildLatestQuizIdByDocument,
+    getEffectiveQuizDeadline,
+} from "./quizDeadlines"
+
 export type LearningPathMasterySource = "baseline" | "performance"
 
 export interface LearningPathMasteryInput {
@@ -46,6 +52,8 @@ export interface LearningPathQuizInput {
     id: string
     title: string
     document_id: string
+    deadline?: string | null
+    created_at?: string | null
 }
 
 export interface PlannedReviewPlanItem {
@@ -175,9 +183,19 @@ export function buildLearningPathPlan(input: {
         }
     }
 
+    const latestQuizIdByDocument = buildLatestQuizIdByDocument(input.quizzes)
+    const documentsWithExplicitQuizDeadlines = buildDocumentsWithExplicitQuizDeadlines(input.quizzes)
+
     for (const quiz of input.quizzes) {
         const parentDocument = docsById.get(quiz.document_id)
-        const deadline = toDateOnly(parentDocument?.deadline)
+        const deadline = toDateOnly(
+            getEffectiveQuizDeadline({
+                quiz,
+                latestQuizIdByDocument,
+                documentDeadline: parentDocument?.deadline,
+                documentsWithExplicitQuizDeadlines,
+            }),
+        )
         if (!parentDocument || !deadline) continue
 
         goalMarkers.push({

@@ -9,6 +9,11 @@ import { useDocuments } from "@/hooks/useDocuments"
 import { Target, ArrowUpRight } from "lucide-react"
 import { Link } from "react-router-dom"
 import { useMemo } from "react"
+import {
+    buildDocumentsWithExplicitQuizDeadlines,
+    buildLatestQuizIdByDocument,
+    getEffectiveQuizDeadline,
+} from "@/lib/quizDeadlines"
 
 export default function LearningPathPage() {
     const { data: quizzes = [] } = useQuizzes()
@@ -18,12 +23,19 @@ export default function LearningPathPage() {
         const today = new Date()
         const todayLocal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
         const docsById = new Map(documents.map((d) => [d.id, d]))
+        const latestQuizIdByDocument = buildLatestQuizIdByDocument(quizzes)
+        const documentsWithExplicitQuizDeadlines = buildDocumentsWithExplicitQuizDeadlines(quizzes)
 
         return quizzes
             .filter((quiz) => quiz.status === "ready")
             .map((quiz) => {
                 const doc = docsById.get(quiz.document_id)
-                const dueDate = doc?.deadline?.split("T")[0] ?? null
+                const dueDate = getEffectiveQuizDeadline({
+                    quiz,
+                    latestQuizIdByDocument,
+                    documentDeadline: doc?.deadline ?? null,
+                    documentsWithExplicitQuizDeadlines,
+                })?.split("T")[0] ?? null
                 return {
                     id: quiz.id,
                     title: quiz.title,

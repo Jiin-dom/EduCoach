@@ -2,14 +2,32 @@ import { useMemo } from "react"
 import { Calendar, Target, Trash2, BookOpen } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { useQuizzes } from "@/hooks/useQuizzes"
+import { useQuizzes, useUpdateQuizDeadline } from "@/hooks/useQuizzes"
 import { useDocuments, useUpdateDocument } from "@/hooks/useDocuments"
 import { toast } from "sonner"
+import {
+    buildDocumentsWithExplicitQuizDeadlines,
+    buildLatestQuizIdByDocument,
+    getEffectiveQuizDeadline,
+} from "@/lib/quizDeadlines"
 
 export function ExamManager() {
     const { data: documents } = useDocuments()
     const { data: quizzes } = useQuizzes()
     const updateDocument = useUpdateDocument()
+    const updateQuizDeadline = useUpdateQuizDeadline()
+    const docsById = useMemo(
+        () => new Map((documents || []).map((doc) => [doc.id, doc])),
+        [documents],
+    )
+    const latestQuizIdByDocument = useMemo(
+        () => buildLatestQuizIdByDocument(quizzes || []),
+        [quizzes],
+    )
+    const documentsWithExplicitQuizDeadlines = useMemo(
+        () => buildDocumentsWithExplicitQuizDeadlines(quizzes || []),
+        [quizzes],
+    )
     
     // Combine quizzes and documents that have deadlines/goals
     const allGoals = useMemo(() => {
@@ -18,9 +36,15 @@ export function ExamManager() {
         // Quizzes get their deadline from their parent document
         if (quizzes && documents) {
             quizzes.forEach(q => {
-                const doc = documents.find(d => d.id === q.document_id)
-                if (doc?.deadline) {
-                    goals.push({ id: q.id, title: q.title, date: doc.deadline, type: 'quiz' })
+                const doc = docsById.get(q.document_id)
+                const deadline = getEffectiveQuizDeadline({
+                    quiz: q,
+                    latestQuizIdByDocument,
+                    documentDeadline: doc?.deadline ?? null,
+                    documentsWithExplicitQuizDeadlines,
+                })
+                if (deadline) {
+                    goals.push({ id: q.id, title: q.title, date: deadline, type: 'quiz' })
                 }
             })
         }
@@ -32,13 +56,16 @@ export function ExamManager() {
         }
 
         return goals.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-    }, [quizzes, documents])
+    }, [docsById, documents, documentsWithExplicitQuizDeadlines, latestQuizIdByDocument, quizzes])
 
     const handleRemoveGoal = (id: string, type: 'quiz' | 'file') => {
         if (type === 'quiz') {
             const quiz = quizzes?.find(q => q.id === id)
             if (quiz) {
-                updateDocument.mutate({ documentId: quiz.document_id, updates: { deadline: null } }, { onSuccess: () => toast.success("Deadline removed") })
+                updateQuizDeadline.mutate(
+                    { quizId: quiz.id, documentId: quiz.document_id, deadline: null },
+                    { onSuccess: () => toast.success("Deadline removed") },
+                )
             }
         } else {
             updateDocument.mutate({ documentId: id, updates: { exam_date: null } }, { onSuccess: () => toast.success("Goal removed") })
