@@ -4,7 +4,7 @@ import { Link } from "react-router-dom"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import type { Document } from "@/hooks/useDocuments"
 import type { ConceptMasteryWithDetails } from "@/hooks/useLearning"
@@ -163,28 +163,28 @@ export function LearningPathSelector({
     return (
         <main className="container mx-auto px-4 py-8">
             <div className="space-y-8">
-                <Card className="border-primary/15 bg-gradient-to-br from-primary/10 via-background to-background">
-                    <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="space-y-2">
-                            <Badge variant="secondary" className="w-fit">Learning Path</Badge>
-                            <CardTitle className="text-2xl sm:text-3xl">Choose a file or study goal</CardTitle>
-                            <CardDescription className="max-w-2xl text-sm sm:text-base">
-                                Start from a specific document or goal, then view the schedule and mastery plan scoped to that target.
-                            </CardDescription>
-                        </div>
-                        <Button asChild variant="outline" className="gap-2">
-                            <Link to="/learning-path?scope=all">
-                                Open Combined Plan
-                                <ArrowRight className="w-4 h-4" />
-                            </Link>
-                        </Button>
-                    </CardHeader>
-                </Card>
+                {/* Header section */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-border/40">
+                    <div>
+                        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-1">Learning Path</h1>
+                        <p className="text-sm text-muted-foreground">
+                            Select a document or goal to focus your study plan.
+                        </p>
+                    </div>
+                    <Button asChild className="gap-1.5 shadow-sm transition-all hover:scale-105 active:scale-95" size="sm">
+                        <Link to="/learning-path?scope=all">
+                            Start Combined Plan
+                            <ArrowRight className="w-3.5 h-3.5" />
+                        </Link>
+                    </Button>
+                </div>
 
-                <section className="space-y-4">
-                    <div className="flex items-center gap-2">
-                        <FileText className="w-5 h-5 text-primary" />
-                        <h2 className="text-xl font-semibold">Files</h2>
+                <section className="space-y-3 pt-2">
+                    <div className="flex items-center gap-2 px-1">
+                        <div className="p-1.5 bg-blue-100 text-blue-700 rounded-lg">
+                            <FileText className="w-5 h-5" />
+                        </div>
+                        <h2 className="text-xl font-bold tracking-tight">Files</h2>
                     </div>
                     {fileCards.length === 0 ? (
                         <Card>
@@ -193,54 +193,42 @@ export function LearningPathSelector({
                             </CardContent>
                         </Card>
                     ) : (
-                        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                             {fileCards.map(({ document, estimate, linkedGoalsCount, progress, targetDate }) => (
-                                <Card key={document.id} className="overflow-hidden">
-                                    <div className="h-1.5 bg-gradient-to-r from-primary via-primary/70 to-blue-500" />
-                                    <CardHeader className="space-y-3">
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="space-y-2">
-                                                <Badge variant="outline">{formatStatusLabel(document.status)}</Badge>
-                                                <CardTitle className="line-clamp-2 text-lg">{document.title}</CardTitle>
-                                            </div>
-                                            <div className="rounded-xl bg-primary/10 p-2 text-primary">
+                                <Card key={document.id} className="overflow-hidden group transition-all duration-300 hover:-translate-y-1 hover:shadow-xl border-muted/60 hover:border-blue-500/30 flex flex-col">
+                                    <div className="h-1 bg-gradient-to-r from-blue-400 to-indigo-500 w-0 group-hover:w-full transition-all duration-500" />
+                                    <CardHeader className="p-4 pb-2 space-y-0 relative text-left">
+                                        <div className="flex items-start justify-between gap-3 mb-3">
+                                            <div className="bg-blue-50 text-blue-600 p-2.5 rounded-xl shadow-sm ring-1 ring-blue-100/50 group-hover:scale-110 transition-transform duration-300">
                                                 <FileText className="w-5 h-5" />
                                             </div>
+                                            <Badge variant="secondary" className="text-[10px] uppercase font-bold tracking-wider">{formatStatusLabel(document.status)}</Badge>
                                         </div>
-                                        <div className="space-y-1 text-sm text-muted-foreground">
-                                            {cleanLabel(document.goal_label) ? (
-                                                <p className="line-clamp-1">{cleanLabel(document.goal_label)}</p>
-                                            ) : null}
-                                            <p>
-                                                {targetDate
-                                                    ? `Target ${formatDate(targetDate)}`
-                                                    : "No date target yet"}
-                                            </p>
-                                            <p>
-                                                {linkedGoalsCount > 0
-                                                    ? `${linkedGoalsCount} linked study goal${linkedGoalsCount === 1 ? "" : "s"}`
-                                                    : "No linked study goals"}
-                                            </p>
+                                        <CardTitle className="line-clamp-2 text-lg font-bold leading-tight">{document.title}</CardTitle>
+                                        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground mt-2.5">
+                                            {targetDate && <span className="font-medium text-foreground/80 flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> {formatDate(targetDate)}</span>}
+                                            {linkedGoalsCount > 0 && <span className="flex items-center gap-1"><Target className="w-3.5 h-3.5" /> {linkedGoalsCount} goal{linkedGoalsCount !== 1 && 's'}</span>}
+                                            {cleanLabel(document.goal_label) && <span className="truncate max-w-[120px] bg-muted px-1.5 py-0.5 rounded text-[10px]">{cleanLabel(document.goal_label)}</span>}
                                         </div>
                                     </CardHeader>
-                                    <CardContent className="space-y-4">
-                                        <div className="space-y-2">
-                                            <div className="flex items-center justify-between text-sm">
-                                                <span className="text-muted-foreground">Preparation Estimate</span>
-                                                <span className="font-medium">{estimate.label}</span>
+                                    <CardContent className="p-4 pt-2 mt-auto text-left">
+                                        <div className="bg-muted/30 rounded-lg p-3 space-y-2.5 mb-4">
+                                            <div className="flex items-center justify-between text-xs">
+                                                <span className="font-medium text-muted-foreground">Prep Estimate</span>
+                                                <Badge variant="outline" className="text-[10px] bg-background shadow-sm">{estimate.label}</Badge>
                                             </div>
-                                            <Progress value={progress.average} className="h-2" />
+                                            <div className="space-y-1.5">
+                                                <div className="flex justify-between text-[10px] font-bold">
+                                                    <span>Mastered</span>
+                                                    <span className="text-primary">{progress.mastered} / {Math.max(progress.total, document.concept_count || 0)}</span>
+                                                </div>
+                                                <Progress value={progress.average || 2} className="h-1.5" />
+                                            </div>
                                         </div>
-                                        <div className="flex items-center justify-between text-sm">
-                                            <span className="text-muted-foreground">Mastered concepts</span>
-                                            <span className="font-medium">
-                                                {progress.mastered}/{Math.max(progress.total, document.concept_count || 0)}
-                                            </span>
-                                        </div>
-                                        <Button asChild className="w-full gap-2">
+                                        <Button asChild variant="outline" className="w-full gap-2 group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600 transition-colors border-muted-foreground/20">
                                             <Link to={`/learning-path?scope=document&id=${document.id}`}>
-                                                Open Learning Path
-                                                <ArrowRight className="w-4 h-4" />
+                                                Open Path
+                                                <ArrowRight className="w-3.5 h-3.5" />
                                             </Link>
                                         </Button>
                                     </CardContent>
@@ -250,10 +238,12 @@ export function LearningPathSelector({
                     )}
                 </section>
 
-                <section className="space-y-4">
-                    <div className="flex items-center gap-2">
-                        <Target className="w-5 h-5 text-primary" />
-                        <h2 className="text-xl font-semibold">Study Goals</h2>
+                <section className="space-y-3 pt-2">
+                    <div className="flex items-center gap-2 px-1">
+                        <div className="p-1.5 bg-amber-100 text-amber-700 rounded-lg">
+                            <Target className="w-5 h-5" />
+                        </div>
+                        <h2 className="text-xl font-bold tracking-tight">Study Goals</h2>
                     </div>
                     {goalCards.length === 0 ? (
                         <Card>
@@ -262,42 +252,45 @@ export function LearningPathSelector({
                             </CardContent>
                         </Card>
                     ) : (
-                        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                             {goalCards.map(({ goal, document, progressViewModel }) => (
-                                <Card key={goal.id} className="overflow-hidden">
-                                    <div className="h-1.5 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500" />
-                                    <CardHeader className="space-y-3">
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="space-y-2">
-                                                <Badge variant="outline">{formatStudyGoalType(goal.goal_type)}</Badge>
-                                                <CardTitle className="line-clamp-2 text-lg">{goal.title}</CardTitle>
-                                            </div>
-                                            <div className="rounded-xl bg-amber-500/10 p-2 text-amber-600">
+                                <Card key={goal.id} className="overflow-hidden group transition-all duration-300 hover:-translate-y-1 hover:shadow-xl border-muted/60 hover:border-amber-500/30 flex flex-col">
+                                    <div className="h-1 bg-gradient-to-r from-amber-400 to-orange-500 w-0 group-hover:w-full transition-all duration-500" />
+                                    <CardHeader className="p-4 pb-2 space-y-0 relative text-left">
+                                        <div className="flex items-start justify-between gap-3 mb-3">
+                                            <div className="bg-amber-50 text-amber-600 p-2.5 rounded-xl shadow-sm ring-1 ring-amber-100/50 group-hover:scale-110 transition-transform duration-300">
                                                 <BookOpen className="w-5 h-5" />
                                             </div>
+                                            <Badge variant="secondary" className="text-[10px] uppercase font-bold tracking-wider bg-amber-100/50 text-amber-700 hover:bg-amber-100/80">{formatStudyGoalType(goal.goal_type)}</Badge>
                                         </div>
-                                        <div className="space-y-1 text-sm text-muted-foreground">
-                                            <p className="line-clamp-1">{document?.title ?? "Applies across your learning path"}</p>
-                                            <p>{goal.deadline ? `Due ${formatDate(goal.deadline)}` : "No deadline set"}</p>
-                                            <p>{progressViewModel.currentSummary}</p>
+                                        <CardTitle className="line-clamp-2 text-lg font-bold leading-tight">{goal.title}</CardTitle>
+                                        <div className="flex flex-col space-y-1 text-xs text-muted-foreground mt-2.5">
+                                            <span className="line-clamp-1 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" /> {document?.title ?? "Global Path"}</span>
+                                            <span className="font-medium text-foreground/80 flex items-center gap-1.5">
+                                                <Calendar className="w-3.5 h-3.5" />
+                                                {goal.deadline ? `Due ${formatDate(goal.deadline)}` : "Flexible timing"}
+                                            </span>
                                         </div>
                                     </CardHeader>
-                                    <CardContent className="space-y-4">
-                                        <div className="space-y-2">
-                                            <div className="flex items-center justify-between text-sm">
-                                                <span className="text-muted-foreground">Target</span>
-                                                <span className="font-medium">{progressViewModel.targetSummary}</span>
+                                    <CardContent className="p-4 pt-2 mt-auto text-left">
+                                        <div className="bg-orange-50/50 rounded-lg p-3 space-y-2.5 mb-4 border border-orange-100/50">
+                                            <div className="flex items-center justify-between text-xs">
+                                                <span className="font-bold text-amber-900/60">Target</span>
+                                                <span className="font-bold text-amber-700">{progressViewModel.targetSummary}</span>
                                             </div>
-                                            <Progress value={progressViewModel.percentComplete} className="h-2" />
+                                            <div className="space-y-1.5">
+                                                <div className="flex justify-between text-[10px] font-bold">
+                                                    <span className="text-amber-900/60">Current Progress</span>
+                                                    <span className="text-amber-600">{progressViewModel.percentComplete}%</span>
+                                                </div>
+                                                {/* Use default blue progress to avoid style bleeding issues, but wrap in opacity. */}
+                                                <Progress value={progressViewModel.percentComplete || 2} className="h-1.5" />
+                                            </div>
                                         </div>
-                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                            <Calendar className="w-4 h-4" />
-                                            <span>{progressViewModel.deadlineLabel ?? "Flexible timing"}</span>
-                                        </div>
-                                        <Button asChild className="w-full gap-2">
+                                        <Button asChild variant="outline" className="w-full gap-2 group-hover:bg-amber-500 group-hover:text-white group-hover:border-amber-500 transition-colors border-muted-foreground/20 text-amber-700">
                                             <Link to={`/learning-path?scope=study_goal&id=${goal.id}`}>
                                                 Open Goal Path
-                                                <ArrowRight className="w-4 h-4" />
+                                                <ArrowRight className="w-3.5 h-3.5" />
                                             </Link>
                                         </Button>
                                     </CardContent>
