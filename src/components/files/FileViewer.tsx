@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -15,13 +15,15 @@ import { QuizPrepTab } from './QuizPrepTab'
 import { NotesTab } from './NotesTab'
 import { FlashcardsTab } from './FlashcardsTab'
 import { DocumentPane } from './DocumentPane'
+import type { DocumentHighlight } from '@/hooks/useHighlights'
 
 export function FileViewer() {
     const { id } = useParams<{ id: string }>()
     const [searchParams, setSearchParams] = useSearchParams()
     const requestedTab = searchParams.get('tab')
-    const [activeTab, setActiveTab] = useState(requestedTab || 'guide')
+    const activeTab = requestedTab || 'guide'
     const [currentPage, setCurrentPage] = useState(1)
+    const [highlightTarget, setHighlightTarget] = useState<{ type: 'pdf'; page: number } | { type: 'docx'; id: string } | null>(null)
     const [tutorPrompt, setTutorPrompt] = useState<string | null>(null)
     const [showMobileDoc, setShowMobileDoc] = useState(false)
 
@@ -29,14 +31,22 @@ export function FileViewer() {
     const { data: concepts, isLoading: conceptsLoading } = useDocumentConcepts(id)
     const processDocument = useProcessDocument()
 
-    useEffect(() => {
-        if (requestedTab) {
-            setActiveTab(requestedTab)
-        }
-    }, [requestedTab])
-
     const handlePageJump = (page: number) => {
         setCurrentPage(page)
+    }
+
+    const handleHighlightPress = (highlight: DocumentHighlight) => {
+        if (highlight.selection_data?.type === 'pdf' && highlight.selection_data.page) {
+            setCurrentPage(highlight.selection_data.page)
+            setHighlightTarget({ type: 'pdf', page: highlight.selection_data.page })
+            setShowMobileDoc(true)
+            return
+        }
+
+        if (highlight.selection_data?.type === 'docx') {
+            setHighlightTarget({ type: 'docx', id: highlight.id })
+            setShowMobileDoc(true)
+        }
     }
 
     // Loading state
@@ -176,11 +186,17 @@ export function FileViewer() {
                 {/* Left pane: study content */}
                 <div className={`lg:col-span-3 space-y-4 ${showMobileDoc ? 'hidden lg:block' : 'block'}`}>
                     {document.status === 'ready' && (
-                        <StudyPath documentId={document.id} onSelectTab={setActiveTab} />
+                        <StudyPath
+                            documentId={document.id}
+                            onSelectTab={(tab) => {
+                                const nextParams = new URLSearchParams(searchParams)
+                                nextParams.set('tab', tab)
+                                setSearchParams(nextParams, { replace: true })
+                            }}
+                        />
                     )}
 
                     <Tabs value={activeTab} onValueChange={(value) => {
-                        setActiveTab(value)
                         const nextParams = new URLSearchParams(searchParams)
                         nextParams.set('tab', value)
                         setSearchParams(nextParams, { replace: true })
@@ -247,6 +263,7 @@ export function FileViewer() {
                             <NotesTab
                                 documentId={document.id}
                                 concepts={concepts || []}
+                                onHighlightPress={handleHighlightPress}
                             />
                         </TabsContent>
                     </Tabs>
@@ -258,6 +275,8 @@ export function FileViewer() {
                         document={document}
                         currentPage={currentPage}
                         onPageChange={setCurrentPage}
+                        highlightTarget={highlightTarget}
+                        onHighlightTargetHandled={() => setHighlightTarget(null)}
                     />
                 </div>
             </div>
