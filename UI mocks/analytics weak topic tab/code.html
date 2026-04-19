@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "inverse-primary": "#d3bbff",
+                    "on-secondary": "#ffffff",
+                    "surface-container-highest": "#e2e2e7",
+                    "surface-container-low": "#f3f3f8",
+                    "primary-container": "#6f42c1",
+                    "tertiary-fixed-dim": "#ffb957",
+                    "tertiary": "#633f00",
+                    "on-primary-container": "#e2d0ff",
+                    "on-background": "#1a1c1f",
+                    "inverse-surface": "#2e3034",
+                    "secondary-fixed-dim": "#c7c6c6",
+                    "surface": "#f9f9fe",
+                    "primary-fixed-dim": "#d3bbff",
+                    "on-tertiary-container": "#ffd095",
+                    "on-surface": "#1a1c1f",
+                    "on-error-container": "#93000a",
+                    "primary-fixed": "#ebddff",
+                    "on-primary": "#ffffff",
+                    "on-tertiary": "#ffffff",
+                    "surface-dim": "#d9dade",
+                    "on-primary-fixed-variant": "#5726a8",
+                    "surface-tint": "#7043c2",
+                    "on-primary-fixed": "#250059",
+                    "tertiary-fixed": "#ffddb5",
+                    "inverse-on-surface": "#f0f0f5",
+                    "on-secondary-container": "#636262",
+                    "on-error": "#ffffff",
+                    "on-surface-variant": "#4a4453",
+                    "on-tertiary-fixed-variant": "#643f00",
+                    "outline": "#7b7484",
+                    "surface-container": "#ededf2",
+                    "error": "#ba1a1a",
+                    "secondary-container": "#e1dfdf",
+                    "secondary-fixed": "#e4e2e2",
+                    "primary": "#5625a8",
+                    "on-tertiary-fixed": "#2a1800",
+                    "tertiary-container": "#835400",
+                    "surface-container-lowest": "#ffffff",
+                    "surface-container-high": "#e8e8ed",
+                    "surface-bright": "#f9f9fe",
+                    "on-secondary-fixed-variant": "#464747",
+                    "on-secondary-fixed": "#1b1c1c",
+                    "background": "#f9f9fe",
+                    "error-container": "#ffdad6",
+                    "secondary": "#5e5e5e",
+                    "surface-variant": "#e2e2e7"
+            },
+            "borderRadius": {
+                    "DEFAULT": "1rem",
+                    "lg": "2rem",
+                    "xl": "3rem",
+                    "full": "9999px"
+            },
+            "fontFamily": {
+                    "headline": ["Plus Jakarta Sans"],
+                    "body": ["Manrope"],
+                    "label": ["Manrope"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      .glass-card {
+        background: rgba(255, 255, 255, 0.6);
+        backdrop-filter: blur(24px);
+      }
+      .gradient-primary {
+        background: linear-gradient(135deg, #5625a8 0%, #6f42c1 100%);
+      }
+      .gradient-tertiary {
+        background: linear-gradient(90deg, #633f00 0%, #ffb957 100%);
+      }
+      .radial-accent {
+        background: radial-gradient(circle at top right, rgba(255, 221, 181, 0.15) 0%, transparent 50%);
+      }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface font-body text-on-surface selection:bg-primary-fixed">
+<!-- TopAppBar -->
+<header class="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-6 py-4 bg-white/60 backdrop-blur-md dark:bg-zinc-950/60 shadow-[0px_10px_30px_rgba(26,28,31,0.04)] rounded-b-[2rem]">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full overflow-hidden bg-primary-fixed border-2 border-white">
+<img alt="Avatar" data-alt="close-up portrait of a young student with a friendly expression in a stylized modern digital illustration style" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA9H3SqG1w2MBAiVa6nWL663S5MwmOqmoZJk1TO0sU45-8aEq-21xnTw4ikchqCCMBHUJbOLW0bs-xalFWDgU6fc1h8RJYEKN0F1HyivKIHhABvUsVfD3-4PFyj2eUL1LnBXto6n-8qytFZ03hhwnMEGkWKi1hdmfFUw2JNvcyMUPkEOxl7TuDr-kHFa0KlK6j3GmUAHB2c87P7ljGive4n0LRui4R_Vq78Bzxc3Cek0hDGJJ4nphUBX1lpZnNOd5orHdYkORqQTFs"/>
+</div>
+<span class="font-headline font-extrabold tracking-tight text-lg text-violet-700">Learning Insights</span>
+</div>
+<button class="w-10 h-10 flex items-center justify-center rounded-full text-zinc-500 hover:bg-violet-50 transition-all active:scale-95 duration-200">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+</header>
+<main class="pt-24 pb-32 px-6 max-w-7xl mx-auto space-y-8">
+<!-- Hero Header & KPI Cards Section -->
+<section class="relative space-y-8">
+<div class="space-y-2">
+<h1 class="text-4xl md:text-5xl font-headline font-extrabold text-on-surface tracking-tight">Analytics Dashboard</h1>
+<p class="text-on-surface-variant font-medium opacity-70">A deeper look into your academic trajectory.</p>
+</div>
+<!-- KPI Bento Grid -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<!-- Average Score Card -->
+<div class="surface-container-lowest radial-accent p-8 rounded-lg shadow-[0px_20px_40px_rgba(26,28,31,0.06)] flex flex-col justify-between overflow-hidden relative group">
+<div class="space-y-4">
+<div class="w-12 h-12 rounded-2xl bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" data-icon="auto_graph">auto_graph</span>
+</div>
+<div class="space-y-1">
+<h3 class="text-sm font-label uppercase tracking-widest text-on-surface-variant">Average Score</h3>
+<p class="text-4xl font-headline font-extrabold text-primary">84%</p>
+</div>
+</div>
+<div class="mt-6 flex items-center gap-2 text-sm text-tertiary font-bold">
+<span class="material-symbols-outlined text-[18px]" data-icon="trending_up">trending_up</span>
+<span>+12% from last month</span>
+</div>
+</div>
+<!-- Learning Time Card -->
+<div class="surface-container-lowest radial-accent p-8 rounded-lg shadow-[0px_20px_40px_rgba(26,28,31,0.06)] flex flex-col justify-between overflow-hidden relative">
+<div class="space-y-4">
+<div class="w-12 h-12 rounded-2xl bg-tertiary-fixed flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined" data-icon="schedule">schedule</span>
+</div>
+<div class="space-y-1">
+<h3 class="text-sm font-label uppercase tracking-widest text-on-surface-variant">Study Hours</h3>
+<p class="text-4xl font-headline font-extrabold text-on-surface">42.5h</p>
+</div>
+</div>
+<div class="mt-6 h-1 w-full bg-secondary-container rounded-full overflow-hidden">
+<div class="h-full w-2/3 gradient-tertiary"></div>
+</div>
+</div>
+<!-- Total Quizzes Card -->
+<div class="surface-container-lowest radial-accent p-8 rounded-lg shadow-[0px_20px_40px_rgba(26,28,31,0.06)] flex flex-col justify-between overflow-hidden relative">
+<div class="space-y-4">
+<div class="w-12 h-12 rounded-2xl bg-secondary-container flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined" data-icon="history_edu">history_edu</span>
+</div>
+<div class="space-y-1">
+<h3 class="text-sm font-label uppercase tracking-widest text-on-surface-variant">Quizzes Completed</h3>
+<p class="text-4xl font-headline font-extrabold text-on-surface">128</p>
+</div>
+</div>
+<div class="mt-6 flex -space-x-2">
+<div class="w-8 h-8 rounded-full border-2 border-white bg-surface-variant"></div>
+<div class="w-8 h-8 rounded-full border-2 border-white bg-primary-fixed"></div>
+<div class="w-8 h-8 rounded-full border-2 border-white bg-tertiary-fixed"></div>
+<div class="w-8 h-8 rounded-full border-2 border-white flex items-center justify-center bg-surface-container text-[10px] font-bold">+24</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Tabs Navigation -->
+<nav class="flex items-center gap-8 overflow-x-auto no-scrollbar py-2">
+<button class="text-on-surface-variant font-bold text-lg whitespace-nowrap hover:text-primary transition-colors">Performance</button>
+<button class="text-on-surface-variant font-bold text-lg whitespace-nowrap hover:text-primary transition-colors">Trends</button>
+<div class="relative">
+<button class="text-primary font-bold text-lg whitespace-nowrap">Weak Topics</button>
+<div class="absolute -bottom-2 left-0 w-8 h-1 bg-primary rounded-full"></div>
+</div>
+<button class="text-on-surface-variant font-bold text-lg whitespace-nowrap hover:text-primary transition-colors">Quiz History</button>
+</nav>
+<!-- Content: Weak Topics Tab -->
+<section class="space-y-6">
+<div class="flex items-center justify-between">
+<h2 class="text-2xl font-headline font-extrabold text-on-surface">Critical Review Needed</h2>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm font-medium">
+<span class="material-symbols-outlined text-[18px]" data-icon="filter_list">filter_list</span>
+<span>Sort by Mastery</span>
+</div>
+</div>
+<!-- Weak Topics Grid -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+<!-- Topic Card: Human Body -->
+<div class="surface-container-lowest p-8 rounded-lg shadow-[0px_10px_30px_rgba(26,28,31,0.04)] flex flex-col md:flex-row md:items-center justify-between gap-6 hover:shadow-[0px_20px_40px_rgba(26,28,31,0.08)] transition-all">
+<div class="flex items-center gap-6">
+<div class="w-20 h-20 rounded-2xl overflow-hidden shrink-0">
+<img alt="Human Anatomy" data-alt="detailed medical illustration of human skeleton and muscular system in soft blue and white tones, high-end editorial scientific aesthetic" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDGVEV91nQ6a6uzxoqdeR14DGKKGNrn6N3gULk7KlZBXL3VDwpLU5k8F--nLl10Gmxxk0q5Ukk3RjtxtOZ6PN94nanAVxcdRLIE568aTHSMt6bmalp3Gdep15M8IU6wshbM4C1OW11yaT67gr_ttrKkjL3VmItw7vJlWXh0pL_bLpLE_BUINe0uyrYmKuE5_k6meX93AwY9DHIorVxlwvO9T9LCt3fPP4enB9nxyHUkTt7wt8U3qfiX5l7-UGKbQOc8wQib8X685hI"/>
+</div>
+<div class="space-y-2">
+<div class="flex items-center gap-3">
+<span class="bg-error-container text-on-error-container px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest">Needs Review</span>
+<span class="text-on-surface-variant text-xs font-semibold">Science</span>
+</div>
+<h3 class="text-xl font-headline font-bold text-on-surface">Human Body</h3>
+<div class="flex items-center gap-2">
+<div class="w-32 h-1.5 bg-secondary-container rounded-full overflow-hidden">
+<div class="h-full w-[0%] bg-error"></div>
+</div>
+<span class="text-xs font-bold text-error">0% Mastery</span>
+</div>
+</div>
+</div>
+<button class="gradient-primary text-on-primary px-8 py-3 rounded-full font-bold text-sm shadow-lg shadow-primary/20 active:scale-95 transition-all">Review Concept</button>
+</div>
+<!-- Topic Card: States Of Matter -->
+<div class="surface-container-lowest p-8 rounded-lg shadow-[0px_10px_30px_rgba(26,28,31,0.04)] flex flex-col md:flex-row md:items-center justify-between gap-6 hover:shadow-[0px_20px_40px_rgba(26,28,31,0.08)] transition-all">
+<div class="flex items-center gap-6">
+<div class="w-20 h-20 rounded-2xl overflow-hidden shrink-0">
+<img alt="Chemistry" data-alt="macro photograph of water droplets and steam with soft violet backlighting, representing states of matter in an artistic way" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCpbkGXXse3f_uzece4iG8IBVw01ybL_1ofM_B3456oq9pVxC0cc9thbae6u6xsx3NGEJNbjpogq1igFTovffQFZcIQAuVDjnqw-dK_WaTqjl5Hq8dn-5na1erMejEXE8yAtIUiNTFwtFlq97lRpK28Bq7zM6B8e1VGWyeYcLkM0JjIinUKaZZyQp3qmmwqxRSC67AEA52wFGP-06FWpCMCkJSVUotsRMeHl9IJ_eCIBM-_ljNTYHluGJDM193j1lphH_YfFmWu-Sw"/>
+</div>
+<div class="space-y-2">
+<div class="flex items-center gap-3">
+<span class="bg-error-container text-on-error-container px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest">Needs Review</span>
+<span class="text-on-surface-variant text-xs font-semibold">Chemistry</span>
+</div>
+<h3 class="text-xl font-headline font-bold text-on-surface">States Of Matter</h3>
+<div class="flex items-center gap-2">
+<div class="w-32 h-1.5 bg-secondary-container rounded-full overflow-hidden">
+<div class="h-full w-[12%] bg-error"></div>
+</div>
+<span class="text-xs font-bold text-error">12% Mastery</span>
+</div>
+</div>
+</div>
+<button class="gradient-primary text-on-primary px-8 py-3 rounded-full font-bold text-sm shadow-lg shadow-primary/20 active:scale-95 transition-all">Review Concept</button>
+</div>
+<!-- Topic Card: World History -->
+<div class="surface-container-lowest p-8 rounded-lg shadow-[0px_10px_30px_rgba(26,28,31,0.04)] flex flex-col md:flex-row md:items-center justify-between gap-6 hover:shadow-[0px_20px_40px_rgba(26,28,31,0.08)] transition-all">
+<div class="flex items-center gap-6">
+<div class="w-20 h-20 rounded-2xl overflow-hidden shrink-0">
+<img alt="History" data-alt="close-up of an ancient stone carving with dramatic side lighting and deep shadows, highlighting historical textures" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB6panrmWcAu21w01C4m4RbBYPrHc8f5cJKihonTf3oCt8Le-nk7Rj2dY2-deC8jlKfVNO9z92IYQWvqXP5pC9oUrAPurYp_DDcv1ZrUM2feKUEPZvTtMAUyAq6GYeFy3PQStDwPHXZTw3M5OnWwsMluUHPy9Wc6MU95dWqBNXhf7LYYcDAUtt7_pGIbn4AAoPSxAxsrsHVIu6CIMKjmKIHBFoK0XKhKQ7EKQsGtB5piz-NkzMzByNYkvxuDjkdTCF8x9zBnVldEhg"/>
+</div>
+<div class="space-y-2">
+<div class="flex items-center gap-3">
+<span class="bg-error-container text-on-error-container px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest">Needs Review</span>
+<span class="text-on-surface-variant text-xs font-semibold">History</span>
+</div>
+<h3 class="text-xl font-headline font-bold text-on-surface">World History</h3>
+<div class="flex items-center gap-2">
+<div class="w-32 h-1.5 bg-secondary-container rounded-full overflow-hidden">
+<div class="h-full w-[8%] bg-error"></div>
+</div>
+<span class="text-xs font-bold text-error">8% Mastery</span>
+</div>
+</div>
+</div>
+<button class="gradient-primary text-on-primary px-8 py-3 rounded-full font-bold text-sm shadow-lg shadow-primary/20 active:scale-95 transition-all">Review Concept</button>
+</div>
+<!-- Topic Card: Energy -->
+<div class="surface-container-lowest p-8 rounded-lg shadow-[0px_10px_30px_rgba(26,28,31,0.04)] flex flex-col md:flex-row md:items-center justify-between gap-6 hover:shadow-[0px_20px_40px_rgba(26,28,31,0.08)] transition-all">
+<div class="flex items-center gap-6">
+<div class="w-20 h-20 rounded-2xl overflow-hidden shrink-0">
+<img alt="Physics" data-alt="abstract visualization of glowing purple light particles and energy waves against a dark background, high-end tech aesthetic" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBQXsgcA-Wa4M6Kh78IFEHq0-M8PVZd5cayQCAGCOcOReCrURWTga1bvBstIARWfyr5Lawq7cOjeFPWOOhaaWhzlsGg2sSYK8-TuAd5CKYpB1oEripLRtVPzrvlJE_-KrpvBXh8XMjAUxJg7CSnP6LT9ebQJ8tnwBA8aHZZ1uUAzRcLcRjqroCwFkXdDowLjmOYyP601eBBfH7sAnF53E0-D-GEhxvP80jEnxHJ6V8pGD1gnpr-XqJGN3FN2hRCE1s8QGWEj7zQDVw"/>
+</div>
+<div class="space-y-2">
+<div class="flex items-center gap-3">
+<span class="bg-error-container text-on-error-container px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest">Needs Review</span>
+<span class="text-on-surface-variant text-xs font-semibold">Physics</span>
+</div>
+<h3 class="text-xl font-headline font-bold text-on-surface">Energy</h3>
+<div class="flex items-center gap-2">
+<div class="w-32 h-1.5 bg-secondary-container rounded-full overflow-hidden">
+<div class="h-full w-[5%] bg-error"></div>
+</div>
+<span class="text-xs font-bold text-error">5% Mastery</span>
+</div>
+</div>
+</div>
+<button class="gradient-primary text-on-primary px-8 py-3 rounded-full font-bold text-sm shadow-lg shadow-primary/20 active:scale-95 transition-all">Review Concept</button>
+</div>
+</div>
+</section>
+<!-- Suggested Learning Path Card (Editorial style) -->
+<section class="mt-12 bg-primary-container text-on-primary-container p-12 rounded-[3rem] relative overflow-hidden group">
+<div class="absolute top-0 right-0 w-1/2 h-full opacity-20 pointer-events-none">
+<img alt="Focus" class="w-full h-full object-cover" data-alt="close-up of a person focusing on a digital screen with glowing interfaces reflecting in their eyes, cinematic lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCR0Bc_wmLq02YRK2QfwABOqWTWAWDOEpP7uG2YKlr0ebxfKi-Co4s3LNYu7_l7RQrnaQNugb74ZyMkSdRO_WTCSjJR0CoLMpB9CHvuLMvSHfipGKz8_QATP1_A7L6NO7Nn8WbeOpRPrTjzdlyQdlSWBMHDzL3f1585SStNmmOLD62AP59g7X0qUdeeMKVuf7wY3LF9n6b_Syea2JnX0Wzof8G09EI9-5PjtVuuKLnjeRLiAkfe5uYqp7K2JfeSROpIE4KtyQF7utA"/>
+</div>
+<div class="relative z-10 max-w-lg space-y-6">
+<h2 class="text-3xl font-headline font-extrabold leading-tight">Mastering Weak Areas Boosts Your GPA by 15%</h2>
+<p class="text-primary-fixed opacity-90 text-lg">Our AI has generated a custom 3-day recovery path focused on Science and History fundamentals.</p>
+<button class="bg-white text-primary px-10 py-4 rounded-full font-extrabold shadow-2xl active:scale-95 transition-all">Start Recovery Path</button>
+</div>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-6 pt-3 bg-white/80 backdrop-blur-2xl dark:bg-zinc-950/80 shadow-[0px_-10px_40px_rgba(111,66,193,0.08)] rounded-t-[2.5rem]">
+<div class="flex flex-col items-center justify-center text-zinc-400 dark:text-zinc-500 px-5 py-2 hover:text-violet-600 transition-colors">
+<span class="material-symbols-outlined" data-icon="explore">explore</span>
+<span class="font-['Manrope'] font-semibold text-[11px] uppercase tracking-wider mt-1">Explore</span>
+</div>
+<div class="flex flex-col items-center justify-center text-zinc-400 dark:text-zinc-500 px-5 py-2 hover:text-violet-600 transition-colors">
+<span class="material-symbols-outlined" data-icon="school">school</span>
+<span class="font-['Manrope'] font-semibold text-[11px] uppercase tracking-wider mt-1">Academy</span>
+</div>
+<div class="flex flex-col items-center justify-center bg-violet-100 dark:bg-violet-900/40 text-violet-800 dark:text-violet-200 rounded-[1.5rem] px-5 py-2 scale-110 active:scale-90 transition-transform duration-300">
+<span class="material-symbols-outlined" data-icon="equalizer" style="font-variation-settings: 'FILL' 1;">equalizer</span>
+<span class="font-['Manrope'] font-semibold text-[11px] uppercase tracking-wider mt-1">Insights</span>
+</div>
+<div class="flex flex-col items-center justify-center text-zinc-400 dark:text-zinc-500 px-5 py-2 hover:text-violet-600 transition-colors">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span class="font-['Manrope'] font-semibold text-[11px] uppercase tracking-wider mt-1">Profile</span>
+</div>
+</nav>
+</body></html>

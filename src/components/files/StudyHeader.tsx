@@ -16,6 +16,7 @@ import {
     Wand2,
     Gauge,
     Layers,
+    BarChart3,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { Document } from '@/hooks/useDocuments'
@@ -174,6 +175,14 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
                             disabled={updateDocument.isPending}
                         />
                     </div>
+                    {document.status === 'ready' && (
+                        <Button variant="outline" className="gap-2" asChild>
+                            <Link to={`/analytics/document/${document.id}`}>
+                                <BarChart3 className="w-4 h-4" />
+                                File analytics
+                            </Link>
+                        </Button>
+                    )}
                     <Button variant="outline" className="gap-2" onClick={handleDownload} disabled={downloadingUrl}>
                         {downloadingUrl ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                         Download
