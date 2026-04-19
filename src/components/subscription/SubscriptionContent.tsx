@@ -14,7 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { AI_TUTOR_FREE_DAILY_LIMIT, PREMIUM_MONTHLY_PRICE_PHP } from "@/lib/subscription"
+import { AI_TUTOR_FREE_DAILY_LIMIT, FREE_DOCUMENT_LIMIT, PREMIUM_MONTHLY_PRICE_PHP } from "@/lib/subscription"
 import { useStudentSubscription } from "@/hooks/useStudentSubscription"
 
 const PHP_CURRENCY_FORMATTER = new Intl.NumberFormat("en-PH", {
@@ -28,13 +28,16 @@ const DATE_FORMATTER = new Intl.DateTimeFormat("en-PH", {
 })
 
 const FREE_FEATURES: Array<{ label: string; included: boolean }> = [
+  { label: `Up to ${FREE_DOCUMENT_LIMIT} study materials`, included: true },
   { label: `${AI_TUTOR_FREE_DAILY_LIMIT} EduBuddy messages per day`, included: true },
   { label: "Basic dashboard summary", included: true },
   { label: "Standard quiz generation queue", included: true },
+  { label: "Unlimited study materials", included: false },
   { label: "Advanced analytics dashboard", included: false },
 ]
 
 const PREMIUM_FEATURES: string[] = [
+  "Unlimited study materials",
   "Unlimited EduBuddy messages",
   "Full analytics and trends dashboard",
   "Priority quiz generation queue",

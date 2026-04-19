@@ -26,6 +26,7 @@ export function DashboardContent() {
     const navigate = useNavigate()
     const [showUploadDialog, setShowUploadDialog] = useState(false)
     const [showTrialModal, setShowTrialModal] = useState(false)
+    const [showExpiredTrialModal, setShowExpiredTrialModal] = useState(false)
     const [quizDialogOpen, setQuizDialogOpen] = useState(false)
     const [selectedDocForQuiz, setSelectedDocForQuiz] = useState<Document | null>(null)
     const markTrialWelcomeSeen = useMarkTrialWelcomeSeen()
@@ -111,6 +112,10 @@ export function DashboardContent() {
     const trialEndLabel = trialEndsAt
         ? new Intl.DateTimeFormat(undefined, { month: "long", day: "numeric", year: "numeric" }).format(new Date(trialEndsAt))
         : "your trial end date"
+    const expiredTrialNoticeStorageKey = useMemo(
+        () => (user?.id && trialEndsAt ? `educoach:trial-expired-notice:${user.id}:${trialEndsAt}` : null),
+        [trialEndsAt, user?.id],
+    )
     const trialFeatures = [
         {
             title: "Unlimited EduBuddy",
@@ -137,6 +142,27 @@ export function DashboardContent() {
         setShowTrialModal(true)
     }, [hasSeenTrialWelcome, isTrialActive, user?.id])
 
+    useEffect(() => {
+        if (!hasTrialEndedOnFree || !expiredTrialNoticeStorageKey) {
+            setShowExpiredTrialModal(false)
+            return
+        }
+
+        try {
+            const hasSeenExpiredTrialNotice = window.localStorage.getItem(expiredTrialNoticeStorageKey)
+            if (hasSeenExpiredTrialNotice) {
+                setShowExpiredTrialModal(false)
+                return
+            }
+
+            setShowExpiredTrialModal(true)
+            window.localStorage.setItem(expiredTrialNoticeStorageKey, new Date().toISOString())
+        } catch (error) {
+            console.warn("[DashboardContent] Failed to persist expired trial notice state", error)
+            setShowExpiredTrialModal(true)
+        }
+    }, [expiredTrialNoticeStorageKey, hasTrialEndedOnFree])
+
     const handleCloseTrialModal = () => {
         if (isTrialActive && !hasSeenTrialWelcome && !markTrialWelcomeSeen.isPending) {
             markTrialWelcomeSeen.mutate()
@@ -144,8 +170,75 @@ export function DashboardContent() {
         setShowTrialModal(false)
     }
 
+    const handleCloseExpiredTrialModal = () => {
+        setShowExpiredTrialModal(false)
+    }
+
     return (
         <div className="space-y-8">
+            <Dialog open={showExpiredTrialModal} onOpenChange={(open) => !open && handleCloseExpiredTrialModal()}>
+                <DialogContent showCloseButton={false} className="max-w-xl overflow-hidden border border-primary/10 bg-white p-0 shadow-[0_30px_75px_-26px_rgba(55,39,77,0.4)]">
+                    <DialogHeader className="sr-only">
+                        <DialogTitle>Free trial expired</DialogTitle>
+                        <DialogDescription>
+                            Your premium trial ended on {trialEndLabel}. Upgrade to premium to keep using advanced study tools,
+                            premium analytics, and priority generation.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="relative">
+                        <div className="h-7 bg-gradient-to-r from-[#fce7f3] via-[#f3e8ff] to-[#e9d5ff]" />
+                        <div className="pointer-events-none absolute -left-16 top-8 h-44 w-44 rounded-full bg-[#f3d7ff]/60 blur-3xl" />
+                        <div className="pointer-events-none absolute -bottom-16 right-0 h-48 w-48 rounded-full bg-[#e4d0ff]/70 blur-3xl" />
+
+                        <div className="relative px-7 pb-7 pt-6 sm:px-8">
+                            <div className="inline-flex items-center rounded-full bg-[#fce7f3] px-3 py-1">
+                                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#9d174d]">
+                                    Trial Ended
+                                </span>
+                            </div>
+
+                            <h2 className="mt-4 text-3xl font-extrabold tracking-tight text-[#37274d]">
+                                Free trial expired
+                            </h2>
+                            <p className="mt-3 text-base leading-7 text-[#66547d]">
+                                Your premium trial ended on {trialEndLabel}. Upgrade to premium to keep using advanced
+                                study tools, premium analytics, and priority generation.
+                            </p>
+
+                            <div className="mt-6 rounded-2xl border border-primary/10 bg-[#f8f5ff] p-4">
+                                <div className="flex items-center gap-2 text-sm font-semibold text-[#4e27a6]">
+                                    <Clock className="h-4 w-4" />
+                                    <span>What happens now</span>
+                                </div>
+                                <p className="mt-2 text-sm leading-6 text-[#66547d]">
+                                    Your study materials stay in your library. Premium-only tools are now locked until you upgrade.
+                                </p>
+                            </div>
+
+                            <div className="mt-6 space-y-3">
+                                <Button
+                                    className="h-12 w-full rounded-xl bg-[#643ad5] text-base font-semibold text-[#f7f0ff] hover:bg-[#582ac9]"
+                                    onClick={() => {
+                                        handleCloseExpiredTrialModal()
+                                        navigate("/subscription")
+                                    }}
+                                >
+                                    Upgrade to premium
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    className="h-10 w-full rounded-xl text-sm font-semibold text-[#66547d] hover:bg-transparent hover:text-[#37274d]"
+                                    onClick={handleCloseExpiredTrialModal}
+                                >
+                                    Got it
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
             <Dialog open={showTrialModal} onOpenChange={(open) => !open && handleCloseTrialModal()}>
                 <DialogContent showCloseButton={false} className="max-w-5xl border-0 bg-transparent p-0 shadow-none sm:max-w-5xl">
                     <DialogHeader className="sr-only">
@@ -258,25 +351,6 @@ export function DashboardContent() {
                         </div>
                         <Button size="sm" onClick={() => navigate("/subscription")}>
                             Manage Subscription
-                        </Button>
-                    </CardContent>
-                </Card>
-            )}
-
-            {hasTrialEndedOnFree && (
-                <Card className="border-amber-300 bg-amber-50">
-                    <CardContent className="p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                        <div className="flex items-start gap-2">
-                            <Clock className="w-5 h-5 text-amber-700 mt-0.5" />
-                            <div>
-                                <p className="font-semibold text-amber-800">Your Premium Trial Has Ended</p>
-                                <p className="text-sm text-amber-700">
-                                    You’re now on Free limits. Upgrade to continue with unlimited EduBuddy and full analytics.
-                                </p>
-                            </div>
-                        </div>
-                        <Button size="sm" onClick={() => navigate("/subscription/checkout")}>
-                            Upgrade To Premium
                         </Button>
                     </CardContent>
                 </Card>
@@ -579,6 +653,8 @@ export function DashboardContent() {
                 open={showUploadDialog}
                 onOpenChange={setShowUploadDialog}
                 onUploadComplete={handleUploadComplete}
+                documentCount={documents?.length ?? 0}
+                hasPremiumEntitlement={hasPremiumEntitlement}
             />
 
             {selectedDocForQuiz && (

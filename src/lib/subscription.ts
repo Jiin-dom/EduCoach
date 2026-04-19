@@ -4,6 +4,7 @@ export type SubscriptionStatus = "active" | "cancelled" | "suspended"
 export const DEFAULT_SUBSCRIPTION_PLAN: SubscriptionPlan = "free"
 export const DEFAULT_SUBSCRIPTION_STATUS: SubscriptionStatus = "active"
 export const AI_TUTOR_FREE_DAILY_LIMIT = 20
+export const FREE_DOCUMENT_LIMIT = 5
 export const PREMIUM_MONTHLY_PRICE_PHP = 299
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -63,4 +64,14 @@ export function getQuizPriority(plan: SubscriptionPlan): number {
 
 export function getPlanDisplayName(plan: SubscriptionPlan): "Free" | "Premium" {
   return plan === "premium" ? "Premium" : "Free"
+}
+
+export function canUploadMoreDocuments(documentCount: number, hasPremium: boolean): boolean {
+  if (hasPremium) return true
+  return documentCount < FREE_DOCUMENT_LIMIT
+}
+
+export function getRemainingUploadSlots(documentCount: number, hasPremium: boolean): number {
+  if (hasPremium) return Infinity
+  return Math.max(FREE_DOCUMENT_LIMIT - documentCount, 0)
 }

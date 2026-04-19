@@ -1,5 +1,21 @@
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
+export interface PasswordRequirementCheck {
+    label: string
+    met: boolean
+}
+
+export const PASSWORD_REQUIREMENTS: ReadonlyArray<{
+    label: string
+    test: (password: string) => boolean
+}> = [
+    { label: "At least 8 characters", test: (password) => password.length >= 8 },
+    { label: "At least one uppercase letter", test: (password) => /[A-Z]/.test(password) },
+    { label: "At least one lowercase letter", test: (password) => /[a-z]/.test(password) },
+    { label: "At least one number", test: (password) => /[0-9]/.test(password) },
+    { label: "At least one special character", test: (password) => /[^A-Za-z0-9]/.test(password) },
+]
+
 export function validateEmail(email: string): string | null {
     if (!email.trim()) return "Email is required"
     if (!EMAIL_RE.test(email)) return "Please enter a valid email address"
@@ -7,13 +23,16 @@ export function validateEmail(email: string): string | null {
 }
 
 export function validatePassword(password: string): string[] {
-    const errors: string[] = []
-    if (password.length < 8) errors.push("At least 8 characters")
-    if (!/[A-Z]/.test(password)) errors.push("At least one uppercase letter")
-    if (!/[a-z]/.test(password)) errors.push("At least one lowercase letter")
-    if (!/[0-9]/.test(password)) errors.push("At least one number")
-    if (!/[^A-Za-z0-9]/.test(password)) errors.push("At least one special character")
-    return errors
+    return getPasswordRequirementChecks(password)
+        .filter((requirement) => !requirement.met)
+        .map((requirement) => requirement.label)
+}
+
+export function getPasswordRequirementChecks(password: string): PasswordRequirementCheck[] {
+    return PASSWORD_REQUIREMENTS.map((requirement) => ({
+        label: requirement.label,
+        met: requirement.test(password),
+    }))
 }
 
 export function validateName(name: string, label: string): string | null {

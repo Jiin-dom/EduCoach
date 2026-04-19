@@ -1,13 +1,15 @@
 import { useRef, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { FolderOpen, Upload, Trash2, Sparkles, FileText, File, Loader2, RefreshCw, AlertCircle, Clock, CheckCircle2 } from "lucide-react"
+import { Crown, FolderOpen, Upload, Trash2, Sparkles, FileText, File, Loader2, RefreshCw, AlertCircle, Clock, CheckCircle2 } from "lucide-react"
 import { FileUploadDialog } from "@/components/files/FileUploadDialog"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
+import { useAuth } from "@/contexts/AuthContext"
 import { useDocuments, useDeleteDocument, useProcessDocument, processDocumentRequest, type Document } from "@/hooks/useDocuments"
 import { formatFileSize } from "@/lib/storage"
+import { FREE_DOCUMENT_LIMIT, canUploadMoreDocuments } from "@/lib/subscription"
 import { GenerateQuizDialog } from "@/components/files/GenerateQuizDialog"
 import { supabase } from "@/lib/supabase"
 import { getClientDocumentStatus, selectNextPendingDocuments, type ClientDocumentStatus } from "@/lib/documentBatchProcessing"
@@ -37,6 +39,8 @@ function sleep(ms: number) {
 }
 
 export function FilesContent() {
+    const { profile } = useAuth()
+    const navigate = useNavigate()
     const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
     const [quizDialogOpen, setQuizDialogOpen] = useState(false)
     const [selectedDocForQuiz, setSelectedDocForQuiz] = useState<Document | null>(null)
@@ -55,6 +59,9 @@ export function FilesContent() {
     const processDocument = useProcessDocument()
 
     const files = documents || []
+    const hasPremium = Boolean(profile?.has_premium_entitlement)
+    const documentCount = files.length
+    const canUpload = canUploadMoreDocuments(documentCount, hasPremium)
     const pendingCount = files.filter((file) => file.status === "pending").length
     const isBatchRunning = batchSummary?.mode === "running"
     const queuedCount = Math.max(claimedIds.length - activeIds.length, 0)
@@ -342,17 +349,33 @@ export function FilesContent() {
                     </div>
                 </div>
                 <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                    {!hasPremium && (
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                            {documentCount}/{FREE_DOCUMENT_LIMIT} files
+                        </span>
+                    )}
                     <Button variant="outline" size="icon" onClick={() => refetch()} className="shrink-0">
                         <RefreshCw className="w-4 h-4" />
                     </Button>
-                    <Button
-                        onClick={() => setUploadDialogOpen(true)}
-                        className="gap-2 flex-1 sm:flex-none"
-                        disabled={isBatchRunning}
-                    >
-                        <Upload className="w-4 h-4" />
-                        Upload Files
-                    </Button>
+                    {canUpload ? (
+                        <Button
+                            onClick={() => setUploadDialogOpen(true)}
+                            className="gap-2 flex-1 sm:flex-none"
+                            disabled={isBatchRunning}
+                        >
+                            <Upload className="w-4 h-4" />
+                            Upload Files
+                        </Button>
+                    ) : (
+                        <Button
+                            onClick={() => navigate("/subscription")}
+                            className="gap-2 flex-1 sm:flex-none"
+                            variant="outline"
+                        >
+                            <Crown className="w-4 h-4" />
+                            Upgrade to Upload More
+                        </Button>
+                    )}
                 </div>
             </div>
 
@@ -559,6 +582,8 @@ export function FilesContent() {
                 open={uploadDialogOpen}
                 onOpenChange={setUploadDialogOpen}
                 onUploadComplete={handleUploadComplete}
+                documentCount={documentCount}
+                hasPremiumEntitlement={hasPremium}
             />
 
             {selectedDocForQuiz && (

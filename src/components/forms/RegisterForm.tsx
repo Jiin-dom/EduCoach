@@ -1,13 +1,14 @@
 import { useState } from "react"
 import { useNavigate, Link } from "react-router-dom"
 import { useAuth } from "@/contexts/AuthContext"
-import { validateEmail, validatePassword, validateName } from "@/lib/authValidation"
+import { getPasswordRequirementChecks, validateEmail, validatePassword, validateName } from "@/lib/authValidation"
 import { SocialAuthButtons } from "@/components/auth/SocialAuthButtons"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
-import { Eye, EyeOff, Loader2, ChevronLeft } from "lucide-react"
+import { Eye, EyeOff, Loader2, ChevronLeft, CheckCircle2, XCircle } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 export function RegisterForm() {
     const navigate = useNavigate()
@@ -24,6 +25,8 @@ export function RegisterForm() {
     const [error, setError] = useState<string | null>(null)
     const [fieldErrors, setFieldErrors] = useState<Record<string, string | null>>({})
     const [loading, setLoading] = useState(false)
+    const passwordRequirements = getPasswordRequirementChecks(formData.password)
+    const showPasswordChecklistFeedback = formData.password.length > 0 || Boolean(fieldErrors.password)
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -144,7 +147,10 @@ export function RegisterForm() {
                                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                                     disabled={loading}
                                     required
-                                    className="h-11 rounded-full px-4 border-muted-foreground/30 focus-visible:ring-primary/50 pr-11"
+                                    className={cn(
+                                        "h-11 rounded-full px-4 border-muted-foreground/30 focus-visible:ring-primary/50 pr-11",
+                                        fieldErrors.password && "border-destructive/60 focus-visible:ring-destructive/30",
+                                    )}
                                 />
                                 <button
                                     type="button"
@@ -154,7 +160,31 @@ export function RegisterForm() {
                                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                 </button>
                             </div>
-                            {fieldErrors.password && <p className="text-xs text-destructive">{fieldErrors.password}</p>}
+                            <div className="rounded-2xl border border-border bg-muted/45 px-4 py-3">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                                    Password must contain
+                                </p>
+                                <div className="mt-3 space-y-2">
+                                    {passwordRequirements.map((requirement) => {
+                                        const unmetClassName = showPasswordChecklistFeedback
+                                            ? "text-destructive"
+                                            : "text-muted-foreground"
+
+                                        return (
+                                            <div key={requirement.label} className="flex items-center gap-2.5 text-sm">
+                                                {requirement.met ? (
+                                                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                                                ) : (
+                                                    <XCircle className={cn("h-4 w-4 shrink-0", unmetClassName)} />
+                                                )}
+                                                <span className={cn("font-medium", requirement.met ? "text-foreground" : unmetClassName)}>
+                                                    {requirement.label}
+                                                </span>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
                         </div>
 
                         <div className="space-y-2">

@@ -1,6 +1,6 @@
 # Subscription, Trial & Premium Entitlement Dependency Map
 
-Last cross-checked: 2026-04-02
+Last cross-checked: 2026-04-16
 
 **Source docs checked**
 - `educoach/docs/completed/2026-03-27-subscription-system-free-premium.md`
@@ -41,10 +41,13 @@ contexts/AuthContext.tsx
 | `src/components/auth/ProtectedRoute.tsx` | Route-level premium gating for `/analytics` | `hasPremiumEntitlement()` |
 | `src/components/layout/DashboardHeader.tsx` | Shows analytics upgrade CTA and subscription nav | `hasPremiumEntitlement()` |
 | `src/components/dashboard/DashboardContent.tsx` | Trial welcome modal/banner behavior | `useMarkTrialWelcomeSeen` |
+| `src/components/files/FileUploadDialog.tsx` | Document upload limit gate for free users (5 docs) | `canUploadMoreDocuments()`, `FREE_DOCUMENT_LIMIT` |
+| `src/components/files/FilesContent.tsx` | Document count indicator and upgrade CTA for free users at limit | `canUploadMoreDocuments()`, `FREE_DOCUMENT_LIMIT`, `useAuth` |
 
 ## Supabase / Backend Touchpoints
 
 - `public.subscriptions`
+- `public.documents` — RLS INSERT policy enforces 5-document limit for free users (migration `030_free_user_document_limit.sql`)
 - `supabase/functions/student-subscription`
 - `supabase/functions/admin-user-management` for admin-side subscription control
 - premium-aware behavior in `supabase/functions/ai-tutor`
@@ -53,4 +56,5 @@ contexts/AuthContext.tsx
 ## Notes
 
 - The student subscription and admin subscription work now share the same backend concept but different frontend entry points.
-- Premium entitlement is a cross-cutting dependency, not a single page feature; route guards, header navigation, dashboard messaging, and AI tutor limits all consume it.
+- Premium entitlement is a cross-cutting dependency, not a single page feature; route guards, header navigation, dashboard messaging, AI tutor limits, and document upload limits all consume it.
+- Free-tier document upload limit (5 documents) is enforced at the RLS level as a hard backstop and at the UI level for smooth UX. Deleting a document frees a slot.
