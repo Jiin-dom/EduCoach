@@ -1,6 +1,6 @@
 import { useMemo } from "react"
 import { Link, useSearchParams } from "react-router-dom"
-import { AlertTriangle, ArrowLeft, ArrowUpRight, Target } from "lucide-react"
+import { AlertTriangle, ArrowLeft } from "lucide-react"
 
 import { LearningPathCalendar } from "@/components/learning-path/LearningPathCalendar"
 import { LearningPathContent } from "@/components/learning-path/LearningPathContent"
@@ -9,7 +9,7 @@ import { StudyGoalsPanel } from "@/components/learning-path/StudyGoalsPanel"
 import { DashboardHeader } from "@/components/layout/DashboardHeader"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useDocuments } from "@/hooks/useDocuments"
 import { useConceptMasteryList } from "@/hooks/useLearning"
@@ -76,14 +76,7 @@ export default function LearningPathPage() {
     const isSelectorView = !requestedScope
     const hasInvalidScope = isScopedRoute && !resolvedScope
 
-    const scheduleTitle = resolvedScope ? resolvedScope.title : "My Learning Path"
-    const scheduleDescription = resolvedScope
-        ? resolvedScope.subtitle
-        : "View your adaptive study schedule based on your preferred time."
-    const masteryTitle = resolvedScope ? resolvedScope.title : "Learning Path"
-    const masteryDescription = resolvedScope
-        ? `Scoped schedule, adaptive tasks, and mastery priorities for ${resolvedScope.title}.`
-        : "Your generated study plan, adaptive tasks, and live mastery priorities"
+
 
     return (
         <div className="min-h-screen bg-background">
@@ -117,89 +110,38 @@ export default function LearningPathPage() {
                 </main>
             ) : (
                 <>
-                    {resolvedScope ? (
-                        <div className="container mx-auto px-4 pt-6">
-                            <Card className="border-primary/15 bg-gradient-to-r from-primary/10 via-background to-background">
-                                <CardContent className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between">
-                                    <div className="space-y-2">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <Badge variant="secondary">
-                                                {resolvedScope.kind === "document" ? "File Path" : "Study Goal Path"}
-                                            </Badge>
-                                            {resolvedScope.documentTitle && resolvedScope.kind === "study_goal" ? (
-                                                <Badge variant="outline">{resolvedScope.documentTitle}</Badge>
-                                            ) : null}
-                                        </div>
-                                        <div>
-                                            <h1 className="text-2xl font-bold">{resolvedScope.title}</h1>
-                                            <p className="text-sm text-muted-foreground">{resolvedScope.subtitle}</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-wrap gap-2">
-                                        <Button asChild variant="outline">
-                                            <Link to="/learning-path">
-                                                <ArrowLeft className="mr-2 h-4 w-4" />
-                                                Change Target
-                                            </Link>
-                                        </Button>
-                                        <Button asChild variant="ghost">
-                                            <Link to="/learning-path?scope=all">
-                                                <Target className="mr-2 h-4 w-4" />
-                                                Combined Plan
-                                            </Link>
-                                        </Button>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        </div>
-                    ) : null}
-
                     <Tabs defaultValue="schedule" className="w-full">
-                        <div className="container mx-auto px-4 pt-6 pb-2">
-                            <TabsList className="bg-muted">
-                                <TabsTrigger value="schedule">Schedule View</TabsTrigger>
-                                <TabsTrigger value="mastery">Topics & Mastery</TabsTrigger>
-                                {isCombinedView ? <TabsTrigger value="planning">Goals & Planning</TabsTrigger> : null}
-                            </TabsList>
+                        <div className="container mx-auto px-4 pt-6 pb-4">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                {resolvedScope ? (
+                                    <div className="flex items-center gap-3">
+                                        <Badge variant="secondary" className="shrink-0 shadow-sm border-muted">
+                                            {resolvedScope.kind === "document" ? "File Path" : "Study Goal"}
+                                        </Badge>
+                                        <h1 className="text-2xl font-bold truncate max-w-[300px] lg:max-w-[500px]" title={resolvedScope.title}>
+                                            {resolvedScope.title}
+                                        </h1>
+                                        {resolvedScope.documentTitle && resolvedScope.kind === "study_goal" ? (
+                                            <Badge variant="outline" className="hidden sm:inline-flex">{resolvedScope.documentTitle}</Badge>
+                                        ) : null}
+                                    </div>
+                                ) : (
+                                    <h1 className="text-2xl font-bold truncate tracking-tight">My Learning Path</h1>
+                                )}
+                                
+                                <TabsList className="bg-muted/80 w-full md:w-auto h-auto p-1 justify-start overflow-x-auto hide-scrollbar shadow-sm">
+                                    <TabsTrigger value="schedule" className="py-2 px-4 rounded-md">Schedule View</TabsTrigger>
+                                    <TabsTrigger value="mastery" className="py-2 px-4 rounded-md">Topics & Mastery</TabsTrigger>
+                                    {isCombinedView ? <TabsTrigger value="planning" className="py-2 px-4 rounded-md">Goals & Planning</TabsTrigger> : null}
+                                </TabsList>
+                            </div>
                         </div>
 
                         <TabsContent value="schedule" className="m-0 border-0 p-0 outline-none">
                             <div className="container mx-auto px-4 py-2">
-                                <Card className="mb-4">
-                                    <CardHeader className="pb-3">
-                                        <CardTitle className="flex items-center gap-2 text-base">
-                                            <Target className="w-4 h-4 text-red-500" />
-                                            Due Today Quizzes
-                                        </CardTitle>
-                                    </CardHeader>
-                                    <CardContent>
-                                        {dueTodayQuizzes.length === 0 ? (
-                                            <p className="text-sm text-muted-foreground">No quizzes due today.</p>
-                                        ) : (
-                                            <div className="space-y-2">
-                                                {dueTodayQuizzes.map((quiz) => (
-                                                    <Link
-                                                        key={quiz.id}
-                                                        to={`/quizzes/${quiz.id}`}
-                                                        className="flex items-center justify-between rounded-lg border p-3 text-sm transition-colors hover:bg-accent/50"
-                                                    >
-                                                        <div className="min-w-0">
-                                                            <p className="truncate font-medium">{quiz.title}</p>
-                                                            {quiz.documentTitle ? (
-                                                                <p className="truncate text-xs text-muted-foreground">{quiz.documentTitle}</p>
-                                                            ) : null}
-                                                        </div>
-                                                        <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                                    </Link>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </CardContent>
-                                </Card>
                                 <LearningPathCalendar
                                     scopeFilter={scopeFilter}
-                                    title={scheduleTitle}
-                                    description={scheduleDescription}
+                                    dueTodayQuizzes={dueTodayQuizzes}
                                 />
                             </div>
                         </TabsContent>
@@ -207,8 +149,7 @@ export default function LearningPathPage() {
                         <TabsContent value="mastery" className="m-0 border-0 p-0 outline-none">
                             <LearningPathContent
                                 scopeFilter={scopeFilter}
-                                title={masteryTitle}
-                                description={masteryDescription}
+                                dueTodayQuizzes={dueTodayQuizzes}
                             />
                         </TabsContent>
 
