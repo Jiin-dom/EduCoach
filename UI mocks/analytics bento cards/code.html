@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-primary": "#d3bbff",
+                        "on-secondary": "#ffffff",
+                        "surface-container-highest": "#e2e2e7",
+                        "surface-container-low": "#f3f3f8",
+                        "primary-container": "#6f42c1",
+                        "tertiary-fixed-dim": "#ffb957",
+                        "tertiary": "#633f00",
+                        "on-primary-container": "#e2d0ff",
+                        "on-background": "#1a1c1f",
+                        "inverse-surface": "#2e3034",
+                        "secondary-fixed-dim": "#c7c6c6",
+                        "surface": "#f9f9fe",
+                        "primary-fixed-dim": "#d3bbff",
+                        "on-tertiary-container": "#ffd095",
+                        "on-surface": "#1a1c1f",
+                        "on-error-container": "#93000a",
+                        "primary-fixed": "#ebddff",
+                        "on-primary": "#ffffff",
+                        "on-tertiary": "#ffffff",
+                        "surface-dim": "#d9dade",
+                        "on-primary-fixed-variant": "#5726a8",
+                        "surface-tint": "#7043c2",
+                        "on-primary-fixed": "#250059",
+                        "tertiary-fixed": "#ffddb5",
+                        "inverse-on-surface": "#f0f0f5",
+                        "on-secondary-container": "#636262",
+                        "on-error": "#ffffff",
+                        "on-surface-variant": "#4a4453",
+                        "on-tertiary-fixed-variant": "#643f00",
+                        "outline": "#7b7484",
+                        "surface-container": "#ededf2",
+                        "error": "#ba1a1a",
+                        "secondary-container": "#e1dfdf",
+                        "secondary-fixed": "#e4e2e2",
+                        "primary": "#5625a8",
+                        "on-tertiary-fixed": "#2a1800",
+                        "tertiary-container": "#835400",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-container-high": "#e8e8ed",
+                        "surface-bright": "#f9f9fe",
+                        "on-secondary-fixed-variant": "#464747",
+                        "outline-variant": "#ccc3d5",
+                        "on-secondary-fixed": "#1b1c1c",
+                        "background": "#f9f9fe",
+                        "error-container": "#ffdad6",
+                        "secondary": "#5e5e5e",
+                        "surface-variant": "#e2e2e7"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "1rem",
+                        "lg": "2rem",
+                        "xl": "3rem",
+                        "full": "9999px"
+                    },
+                    "fontFamily": {
+                        "headline": ["Plus Jakarta Sans"],
+                        "body": ["Manrope"],
+                        "label": ["Manrope"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Manrope', sans-serif; }
+        .font-headline { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .text-shadow-sm { text-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface min-h-screen pb-32">
+<!-- TopAppBar -->
+<header class="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-6 py-4 bg-white/60 backdrop-blur-md dark:bg-zinc-950/60 shadow-[0px_10px_30px_rgba(26,28,31,0.04)] rounded-b-[2rem]">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full overflow-hidden bg-primary-fixed flex items-center justify-center">
+<img alt="student profile" data-alt="close-up portrait of a young student smiling in a brightly lit modern library environment" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDwZ07uCyaExkhFdpxQkZzSnhW-SZ_KPZHi3CnxHonJ98t9USGN-ANBAD0Teagmnqwynj2DH-FjksS8K3h2NCuLuE2T1GHjlVTXwYYYlzyxoIy3AECj3H50BV_6yipsWNVWN1TKMeT7j-J8odiXbV08T1QR46MVKD8nWvP6PBlgz00XJU-alcy93rjKZN2mNARy01rEj9XQ5j-BaCJi7nPbLLtakjyyGRZlvDwih8aoFVBzH2NvmTf0IgZU3pGiP317UetxB_EHeG8"/>
+</div>
+<span class="font-['Plus_Jakarta_Sans'] font-extrabold tracking-tight text-lg text-violet-900">Learning Insights</span>
+</div>
+<button class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-violet-50 transition-all active:scale-95 duration-200">
+<span class="material-symbols-outlined text-violet-700">notifications</span>
+</button>
+</header>
+<main class="pt-28 px-6 max-w-7xl mx-auto">
+<!-- Hero Header -->
+<section class="mb-12 relative">
+<div class="absolute -top-20 -left-20 w-64 h-64 bg-primary/10 rounded-full blur-[100px]"></div>
+<div class="absolute -top-10 -right-10 w-48 h-48 bg-tertiary-fixed-dim/20 rounded-full blur-[80px]"></div>
+<h1 class="font-headline text-5xl md:text-6xl font-extrabold text-on-surface tracking-tight mb-4">Analytics</h1>
+<p class="text-on-surface-variant text-lg max-w-xl">Track your learning progress and performance.</p>
+</section>
+<!-- KPI Grid -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12">
+<!-- Card 1 -->
+<div class="bg-surface-container-lowest p-6 rounded-lg shadow-[0px_20px_40px_rgba(26,28,31,0.04)] relative overflow-hidden group">
+<div class="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-bl-full transition-transform group-hover:scale-110"></div>
+<p class="text-on-surface-variant text-sm font-medium mb-1">Concepts Tracked</p>
+<div class="flex items-baseline gap-2">
+<span class="text-3xl font-headline font-bold text-primary">18</span>
+<span class="material-symbols-outlined text-primary text-sm" style="font-variation-settings: 'FILL' 1;">analytics</span>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="bg-surface-container-lowest p-6 rounded-lg shadow-[0px_20px_40px_rgba(26,28,31,0.04)] relative overflow-hidden group">
+<div class="absolute top-0 right-0 w-16 h-16 bg-tertiary-fixed-dim/10 rounded-bl-full transition-transform group-hover:scale-110"></div>
+<p class="text-on-surface-variant text-sm font-medium mb-1">Quizzes Completed</p>
+<div class="flex items-baseline gap-2">
+<span class="text-3xl font-headline font-bold text-on-surface">3</span>
+<span class="material-symbols-outlined text-tertiary text-sm">assignment_turned_in</span>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="bg-surface-container-lowest p-6 rounded-lg shadow-[0px_20px_40px_rgba(26,28,31,0.04)] relative overflow-hidden group">
+<p class="text-on-surface-variant text-sm font-medium mb-1">Average Score</p>
+<div class="flex items-baseline gap-2">
+<span class="text-3xl font-headline font-bold text-error">15%</span>
+<span class="material-symbols-outlined text-error text-sm">trending_down</span>
+</div>
+</div>
+<!-- Card 4 -->
+<div class="bg-surface-container-lowest p-6 rounded-lg shadow-[0px_20px_40px_rgba(26,28,31,0.04)] relative overflow-hidden group border-2 border-primary/5">
+<p class="text-on-surface-variant text-sm font-medium mb-1">Study Streak</p>
+<div class="flex items-baseline gap-2">
+<span class="text-3xl font-headline font-bold text-on-surface">0</span>
+<span class="material-symbols-outlined text-secondary-fixed-dim text-sm">local_fire_department</span>
+</div>
+</div>
+</div>
+<!-- Activity & Tabs Layout -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
+<!-- Study Activity Chart -->
+<div class="lg:col-span-2 bg-surface-container-lowest p-8 rounded-lg shadow-[0px_20px_40px_rgba(26,28,31,0.04)]">
+<div class="flex justify-between items-center mb-8">
+<h2 class="font-headline text-xl font-bold">Study Activity</h2>
+<span class="text-body-sm text-on-surface-variant">Last 30 Days</span>
+</div>
+<div class="h-48 flex items-end justify-between gap-2 px-2">
+<!-- Simple Bar Chart Visualization -->
+<div class="flex-1 bg-surface-container rounded-t-full h-1/4"></div>
+<div class="flex-1 bg-surface-container rounded-t-full h-1/2"></div>
+<div class="flex-1 bg-surface-container rounded-t-full h-1/3"></div>
+<div class="flex-1 bg-primary/20 rounded-t-full h-2/3"></div>
+<div class="flex-1 bg-surface-container rounded-t-full h-1/2"></div>
+<div class="flex-1 bg-primary rounded-t-full h-full"></div>
+<div class="flex-1 bg-surface-container rounded-t-full h-3/4"></div>
+<div class="flex-1 bg-surface-container rounded-t-full h-1/2"></div>
+<div class="flex-1 bg-tertiary-fixed-dim/40 rounded-t-full h-2/3"></div>
+<div class="flex-1 bg-surface-container rounded-t-full h-1/4"></div>
+<div class="flex-1 bg-primary/40 rounded-t-full h-5/6"></div>
+<div class="flex-1 bg-surface-container rounded-t-full h-1/2"></div>
+<div class="flex-1 bg-surface-container rounded-t-full h-1/3"></div>
+<div class="flex-1 bg-primary/60 rounded-t-full h-3/4"></div>
+</div>
+</div>
+<!-- Tabs Section -->
+<div class="space-y-4">
+<nav class="flex flex-col gap-2 p-2 bg-surface-container-low rounded-lg">
+<button class="flex items-center gap-3 px-4 py-3 rounded-DEFAULT bg-primary text-on-primary shadow-lg shadow-primary/20 transition-all">
+<span class="material-symbols-outlined text-sm">analytics</span>
+<span class="font-headline font-semibold text-sm">Performance</span>
+</button>
+<button class="flex items-center gap-3 px-4 py-3 rounded-DEFAULT text-on-surface-variant hover:bg-surface-container transition-all">
+<span class="material-symbols-outlined text-sm">trending_up</span>
+<span class="font-headline font-semibold text-sm">Trends</span>
+</button>
+<button class="flex items-center gap-3 px-4 py-3 rounded-DEFAULT text-on-surface-variant hover:bg-surface-container transition-all">
+<span class="material-symbols-outlined text-sm">warning</span>
+<span class="font-headline font-semibold text-sm">Weak Topics</span>
+</button>
+<button class="flex items-center gap-3 px-4 py-3 rounded-DEFAULT text-on-surface-variant hover:bg-surface-container transition-all">
+<span class="material-symbols-outlined text-sm">history</span>
+<span class="font-headline font-semibold text-sm">Quiz History</span>
+</button>
+</nav>
+</div>
+</div>
+<!-- Performance Tab Content -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+<!-- Mastery Distribution (Bento Style) -->
+<div class="space-y-8">
+<div class="bg-surface-container-lowest p-8 rounded-lg shadow-[0px_20px_40px_rgba(26,28,31,0.04)] border border-primary/5">
+<h3 class="font-headline text-lg font-bold mb-6">Mastery Distribution</h3>
+<div class="flex items-center justify-around gap-8">
+<div class="relative w-40 h-40">
+<!-- Circular Progress Simulation -->
+<svg class="w-full h-full transform -rotate-90">
+<circle class="text-surface-container" cx="80" cy="80" fill="transparent" r="70" stroke="currentColor" stroke-width="12"></circle>
+<circle class="text-primary" cx="80" cy="80" fill="transparent" r="70" stroke="currentColor" stroke-dasharray="440" stroke-dashoffset="440" stroke-width="12"></circle>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center">
+<span class="text-4xl font-headline font-bold">18</span>
+<span class="text-xs text-on-surface-variant font-medium">Concepts</span>
+</div>
+</div>
+<div class="space-y-4">
+<div class="flex items-center gap-3">
+<div class="w-3 h-3 rounded-full bg-primary/20"></div>
+<span class="text-sm font-medium text-on-surface-variant">Mastered (0%)</span>
+</div>
+<div class="flex items-center gap-3">
+<div class="w-3 h-3 rounded-full bg-tertiary-fixed-dim/20"></div>
+<span class="text-sm font-medium text-on-surface-variant">In Progress (0%)</span>
+</div>
+<div class="flex items-center gap-3">
+<div class="w-3 h-3 rounded-full bg-error/20"></div>
+<span class="text-sm font-medium text-on-surface-variant">Needs Review (100%)</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Mastery Bars -->
+<div class="bg-surface-container-lowest p-8 rounded-lg shadow-[0px_20px_40px_rgba(26,28,31,0.04)]">
+<h3 class="font-headline text-lg font-bold mb-6">Performance by Document</h3>
+<div class="space-y-6">
+<div>
+<div class="flex justify-between mb-2">
+<span class="text-sm font-semibold">Biology</span>
+<span class="text-sm font-bold text-primary">50%</span>
+</div>
+<div class="h-3 bg-secondary-container rounded-full overflow-hidden">
+<div class="h-full bg-gradient-to-r from-primary to-primary-container w-[50%] rounded-full"></div>
+</div>
+</div>
+<div>
+<div class="flex justify-between mb-2">
+<span class="text-sm font-semibold">Physics</span>
+<span class="text-sm font-bold text-primary">47%</span>
+</div>
+<div class="h-3 bg-secondary-container rounded-full overflow-hidden">
+<div class="h-full bg-gradient-to-r from-primary to-primary-container w-[47%] rounded-full"></div>
+</div>
+</div>
+<div>
+<div class="flex justify-between mb-2">
+<span class="text-sm font-semibold">History</span>
+<span class="text-sm font-bold text-primary">29%</span>
+</div>
+<div class="h-3 bg-secondary-container rounded-full overflow-hidden">
+<div class="h-full bg-gradient-to-r from-primary to-primary-container w-[29%] rounded-full"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Concepts List -->
+<div class="bg-surface-container-lowest rounded-lg shadow-[0px_20px_40px_rgba(26,28,31,0.04)] overflow-hidden flex flex-col h-[600px]">
+<div class="p-8 border-b border-surface-container">
+<h3 class="font-headline text-lg font-bold">All Concepts List</h3>
+</div>
+<div class="flex-1 overflow-y-auto p-4 space-y-4">
+<!-- List Item 1 -->
+<div class="p-4 rounded-DEFAULT bg-surface-container-low hover:bg-white hover:shadow-lg transition-all group border border-transparent hover:border-primary/10">
+<div class="flex justify-between items-start mb-4">
+<div>
+<h4 class="font-headline font-bold text-on-surface">Human Body</h4>
+<p class="text-xs text-on-surface-variant">Biology Fundamentals</p>
+</div>
+<span class="px-3 py-1 bg-error-container text-on-error-container text-[10px] font-bold rounded-full uppercase tracking-wider">Needs Review</span>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex-1 h-1.5 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-error w-0"></div>
+</div>
+<span class="text-xs font-bold">0%</span>
+</div>
+</div>
+<!-- List Item 2 -->
+<div class="p-4 rounded-DEFAULT bg-surface-container-low hover:bg-white hover:shadow-lg transition-all group border border-transparent hover:border-primary/10">
+<div class="flex justify-between items-start mb-4">
+<div>
+<h4 class="font-headline font-bold text-on-surface">States Of Matter</h4>
+<p class="text-xs text-on-surface-variant">Physics Essentials</p>
+</div>
+<span class="px-3 py-1 bg-error-container text-on-error-container text-[10px] font-bold rounded-full uppercase tracking-wider">Needs Review</span>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex-1 h-1.5 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-error w-0"></div>
+</div>
+<span class="text-xs font-bold">0%</span>
+</div>
+</div>
+<!-- List Item 3 -->
+<div class="p-4 rounded-DEFAULT bg-surface-container-low hover:bg-white hover:shadow-lg transition-all group border border-transparent hover:border-primary/10">
+<div class="flex justify-between items-start mb-4">
+<div>
+<h4 class="font-headline font-bold text-on-surface">World History</h4>
+<p class="text-xs text-on-surface-variant">Global Perspectives</p>
+</div>
+<span class="px-3 py-1 bg-error-container text-on-error-container text-[10px] font-bold rounded-full uppercase tracking-wider">Needs Review</span>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex-1 h-1.5 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-error w-0"></div>
+</div>
+<span class="text-xs font-bold">0%</span>
+</div>
+</div>
+<!-- Filler items to demonstrate scroll -->
+<div class="p-4 rounded-DEFAULT bg-surface-container-low opacity-60">
+<h4 class="font-headline font-bold text-on-surface">Cell Division</h4>
+<div class="flex items-center gap-4 mt-4">
+<div class="flex-1 h-1.5 bg-surface-container-highest rounded-full overflow-hidden"></div>
+<span class="text-xs font-bold">0%</span>
+</div>
+</div>
+<div class="p-4 rounded-DEFAULT bg-surface-container-low opacity-60">
+<h4 class="font-headline font-bold text-on-surface">Atomic Structure</h4>
+<div class="flex items-center gap-4 mt-4">
+<div class="flex-1 h-1.5 bg-surface-container-highest rounded-full overflow-hidden"></div>
+<span class="text-xs font-bold">0%</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-6 pt-3 bg-white/80 backdrop-blur-2xl dark:bg-zinc-950/80 shadow-[0px_-10px_40px_rgba(111,66,193,0.08)] rounded-t-[2.5rem]">
+<a class="flex flex-col items-center justify-center text-zinc-400 px-5 py-2 hover:text-violet-600 transition-colors" href="#">
+<span class="material-symbols-outlined mb-1">explore</span>
+<span class="font-['Manrope'] font-semibold text-[11px] uppercase tracking-wider">Explore</span>
+</a>
+<a class="flex flex-col items-center justify-center text-zinc-400 px-5 py-2 hover:text-violet-600 transition-colors" href="#">
+<span class="material-symbols-outlined mb-1">school</span>
+<span class="font-['Manrope'] font-semibold text-[11px] uppercase tracking-wider">Academy</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-violet-100 text-violet-800 rounded-[1.5rem] px-5 py-2 scale-110 active:scale-90 transition-transform duration-300" href="#">
+<span class="material-symbols-outlined mb-1" style="font-variation-settings: 'FILL' 1;">equalizer</span>
+<span class="font-['Manrope'] font-semibold text-[11px] uppercase tracking-wider">Insights</span>
+</a>
+<a class="flex flex-col items-center justify-center text-zinc-400 px-5 py-2 hover:text-violet-600 transition-colors" href="#">
+<span class="material-symbols-outlined mb-1">person</span>
+<span class="font-['Manrope'] font-semibold text-[11px] uppercase tracking-wider">Profile</span>
+</a>
+</nav>
+</body></html>

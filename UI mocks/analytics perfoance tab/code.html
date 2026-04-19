@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-surface": "#1a1c1f",
+                    "on-tertiary-fixed": "#2a1800",
+                    "on-error": "#ffffff",
+                    "inverse-surface": "#2e3034",
+                    "primary-fixed": "#ebddff",
+                    "error": "#ba1a1a",
+                    "background": "#f9f9fe",
+                    "surface-container-low": "#f3f3f8",
+                    "secondary-fixed": "#e4e2e2",
+                    "on-background": "#1a1c1f",
+                    "surface-variant": "#e2e2e7",
+                    "on-secondary-container": "#636262",
+                    "surface-container-highest": "#e2e2e7",
+                    "on-primary-container": "#e2d0ff",
+                    "error-container": "#ffdad6",
+                    "outline": "#7b7484",
+                    "on-tertiary-container": "#ffd095",
+                    "surface-dim": "#d9dade",
+                    "on-tertiary": "#ffffff",
+                    "on-primary-fixed-variant": "#5726a8",
+                    "on-primary": "#ffffff",
+                    "secondary-fixed-dim": "#c7c6c6",
+                    "surface-bright": "#f9f9fe",
+                    "surface-tint": "#7043c2",
+                    "tertiary-fixed-dim": "#ffb957",
+                    "on-tertiary-fixed-variant": "#643f00",
+                    "tertiary-fixed": "#ffddb5",
+                    "primary-container": "#6f42c1",
+                    "outline-variant": "#ccc3d5",
+                    "secondary-container": "#e1dfdf",
+                    "tertiary": "#633f00",
+                    "on-secondary": "#ffffff",
+                    "surface-container-high": "#e8e8ed",
+                    "primary-fixed-dim": "#d3bbff",
+                    "inverse-on-surface": "#f0f0f5",
+                    "surface-container": "#ededf2",
+                    "secondary": "#5e5e5e",
+                    "on-error-container": "#93000a",
+                    "on-secondary-fixed": "#1b1c1c",
+                    "on-primary-fixed": "#250059",
+                    "on-surface-variant": "#4a4453",
+                    "primary": "#5625a8",
+                    "on-secondary-fixed-variant": "#464747",
+                    "surface": "#f9f9fe",
+                    "inverse-primary": "#d3bbff",
+                    "surface-container-lowest": "#ffffff",
+                    "tertiary-container": "#835400"
+            },
+            "borderRadius": {
+                    "DEFAULT": "1rem",
+                    "lg": "2rem",
+                    "xl": "3rem",
+                    "full": "9999px"
+            },
+            "fontFamily": {
+                    "headline": ["Plus Jakarta Sans"],
+                    "body": ["Manrope"],
+                    "label": ["Manrope"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(24px);
+        }
+        .text-editorial-gradient {
+            background: linear-gradient(135deg, #5625a8 0%, #6f42c1 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background font-body text-on-surface antialiased">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-white/60 dark:bg-slate-950/60 backdrop-blur-xl shadow-[0px_20px_40px_rgba(26,28,31,0.06)]">
+<div class="flex justify-between items-center px-6 h-16 w-full max-w-7xl mx-auto">
+<div class="flex items-center gap-4">
+<button class="p-2 hover:bg-purple-50 transition-colors rounded-full active:scale-95">
+<span class="material-symbols-outlined text-purple-700">menu</span>
+</button>
+<h1 class="Plus Jakarta Sans text-xl font-extrabold text-purple-800 tracking-tight">Analytics</h1>
+</div>
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full overflow-hidden border-2 border-primary-fixed shadow-sm">
+<img alt="User profile photo" data-alt="Close up portrait of a professional woman with a friendly smile, soft natural studio lighting, blurred minimalist office background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDCsHBOpS48KgyNKpOOXrk-7OnQDKiMPTAVDysN60SoNTx-xTVERh2SoZIyLQvwkHLUQqMoCtn8VXSTzclKvb1f8EL-uWXS5W1azoCnoBuYIwMyNvyfgdeazwJzoseiT8SDD8euqpxqOqUs1tgTPfnZu2lU-5vg9aUfOb1lqMmotz3rekYMbSU8EkuHE7CyqSrmci6ZNNf2Dhu6uXVbmA6g-13y_iurK1B9iKfqhKw4R7PfujsBO1FwDNC7_QE1ThpCoHzarZ2dN98"/>
+</div>
+</div>
+</div>
+</header>
+<main class="pt-24 pb-32 px-6 max-w-7xl mx-auto">
+<!-- Hero Header -->
+<section class="mb-12">
+<h2 class="font-headline text-5xl font-extrabold tracking-tight text-editorial-gradient mb-2">Performance</h2>
+<p class="text-on-surface-variant font-medium text-lg opacity-80">Track your cognitive growth and subject mastery.</p>
+</section>
+<!-- Bento Grid Stats -->
+<section class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
+<!-- Concepts Tracked -->
+<div class="col-span-1 md:col-span-1 bg-surface-container-lowest rounded-lg p-6 relative overflow-hidden group shadow-[0px_20px_40px_rgba(26,28,31,0.04)]">
+<div class="absolute top-0 right-0 w-32 h-32 bg-tertiary-fixed opacity-10 rounded-full -mr-16 -mt-16 group-hover:scale-110 transition-transform"></div>
+<div class="relative z-10">
+<span class="material-symbols-outlined text-primary mb-4 text-3xl" style="font-variation-settings: 'FILL' 1;">psychology</span>
+<p class="text-on-surface-variant text-sm font-semibold mb-1 uppercase tracking-wider">Concepts Tracked</p>
+<h3 class="text-4xl font-headline font-bold text-on-surface">1,284</h3>
+<div class="mt-4 flex items-center gap-2">
+<span class="text-xs font-bold px-2 py-1 bg-primary-fixed text-on-primary-fixed-variant rounded-full">+12%</span>
+<span class="text-xs text-on-surface-variant">from last week</span>
+</div>
+</div>
+</div>
+<!-- Quizzes Completed -->
+<div class="col-span-1 md:col-span-1 bg-surface-container-lowest rounded-lg p-6 relative overflow-hidden group shadow-[0px_20px_40px_rgba(26,28,31,0.04)]">
+<div class="absolute top-0 right-0 w-32 h-32 bg-tertiary-fixed opacity-10 rounded-full -mr-16 -mt-16 group-hover:scale-110 transition-transform"></div>
+<div class="relative z-10">
+<span class="material-symbols-outlined text-primary mb-4 text-3xl" style="font-variation-settings: 'FILL' 1;">quiz</span>
+<p class="text-on-surface-variant text-sm font-semibold mb-1 uppercase tracking-wider">Quizzes Completed</p>
+<h3 class="text-4xl font-headline font-bold text-on-surface">42</h3>
+<div class="mt-4 flex items-center gap-2">
+<span class="text-xs font-bold px-2 py-1 bg-primary-fixed text-on-primary-fixed-variant rounded-full">+5</span>
+<span class="text-xs text-on-surface-variant">total sessions</span>
+</div>
+</div>
+</div>
+<!-- Average Score -->
+<div class="col-span-1 md:col-span-1 bg-surface-container-lowest rounded-lg p-6 relative overflow-hidden group shadow-[0px_20px_40px_rgba(26,28,31,0.04)]">
+<div class="absolute top-0 right-0 w-32 h-32 bg-tertiary-fixed opacity-10 rounded-full -mr-16 -mt-16 group-hover:scale-110 transition-transform"></div>
+<div class="relative z-10">
+<span class="material-symbols-outlined text-primary mb-4 text-3xl" style="font-variation-settings: 'FILL' 1;">star</span>
+<p class="text-on-surface-variant text-sm font-semibold mb-1 uppercase tracking-wider">Average Score</p>
+<h3 class="text-4xl font-headline font-bold text-on-surface">88%</h3>
+<div class="mt-4 w-full h-1.5 bg-secondary-container rounded-full overflow-hidden">
+<div class="h-full bg-gradient-to-r from-tertiary to-tertiary-fixed-dim" style="width: 88%"></div>
+</div>
+</div>
+</div>
+<!-- Study Streak -->
+<div class="col-span-1 md:col-span-1 bg-surface-container-lowest rounded-lg p-6 relative overflow-hidden group shadow-[0px_20px_40px_rgba(26,28,31,0.04)]">
+<div class="absolute top-0 right-0 w-32 h-32 bg-tertiary-fixed opacity-10 rounded-full -mr-16 -mt-16 group-hover:scale-110 transition-transform"></div>
+<div class="relative z-10">
+<span class="material-symbols-outlined text-primary mb-4 text-3xl" style="font-variation-settings: 'FILL' 1;">local_fire_department</span>
+<p class="text-on-surface-variant text-sm font-semibold mb-1 uppercase tracking-wider">Study Streak</p>
+<h3 class="text-4xl font-headline font-bold text-on-surface">14 Days</h3>
+<div class="mt-4 flex gap-1">
+<div class="w-full h-1 rounded-full bg-primary-container"></div>
+<div class="w-full h-1 rounded-full bg-primary-container"></div>
+<div class="w-full h-1 rounded-full bg-primary-container"></div>
+<div class="w-full h-1 rounded-full bg-primary-container"></div>
+<div class="w-full h-1 rounded-full bg-outline-variant/30"></div>
+</div>
+</div>
+</div>
+</section>
+<!-- Main Content Layout -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-10">
+<!-- Left Column: Mastery & Concepts -->
+<div class="lg:col-span-8 space-y-10">
+<!-- Tab Navigation (Internal Content) -->
+<nav class="flex gap-8 mb-6 border-b border-outline-variant/20">
+<button class="pb-4 text-primary border-b-2 border-primary font-bold transition-all">Performance</button>
+<button class="pb-4 text-on-surface-variant font-medium hover:text-on-surface transition-all">Curriculum</button>
+<button class="pb-4 text-on-surface-variant font-medium hover:text-on-surface transition-all">Resources</button>
+</nav>
+<!-- Performance by Document -->
+<div class="bg-surface-container-lowest rounded-lg p-8 shadow-[0px_20px_40px_rgba(26,28,31,0.06)]">
+<h4 class="font-headline text-2xl font-bold mb-8 flex items-center gap-3">
+                        Mastery by Document
+                        <span class="material-symbols-outlined text-on-surface-variant/40">info</span>
+</h4>
+<div class="space-y-4">
+<!-- Biology Row -->
+<div class="group flex items-center justify-between p-4 rounded-xl hover:bg-surface-container-low transition-all cursor-pointer">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-2xl bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">biotech</span>
+</div>
+<div>
+<h5 class="font-bold text-on-surface">Biology</h5>
+<p class="text-sm text-on-surface-variant">124 Concepts Tracked</p>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<div class="hidden md:block w-48 h-2 bg-secondary-container rounded-full overflow-hidden">
+<div class="h-full bg-gradient-to-r from-primary to-primary-container" style="width: 92%"></div>
+</div>
+<span class="font-headline font-bold text-primary">92%</span>
+<span class="material-symbols-outlined text-on-surface-variant group-hover:translate-x-1 transition-transform">chevron_right</span>
+</div>
+</div>
+<!-- Physics Row -->
+<div class="group flex items-center justify-between p-4 rounded-xl hover:bg-surface-container-low transition-all cursor-pointer">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-2xl bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">rocket_launch</span>
+</div>
+<div>
+<h5 class="font-bold text-on-surface">Physics</h5>
+<p class="text-sm text-on-surface-variant">89 Concepts Tracked</p>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<div class="hidden md:block w-48 h-2 bg-secondary-container rounded-full overflow-hidden">
+<div class="h-full bg-gradient-to-r from-primary to-primary-container" style="width: 78%"></div>
+</div>
+<span class="font-headline font-bold text-primary">78%</span>
+<span class="material-symbols-outlined text-on-surface-variant group-hover:translate-x-1 transition-transform">chevron_right</span>
+</div>
+</div>
+<!-- History Row -->
+<div class="group flex items-center justify-between p-4 rounded-xl hover:bg-surface-container-low transition-all cursor-pointer">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-2xl bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">menu_book</span>
+</div>
+<div>
+<h5 class="font-bold text-on-surface">History</h5>
+<p class="text-sm text-on-surface-variant">256 Concepts Tracked</p>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<div class="hidden md:block w-48 h-2 bg-secondary-container rounded-full overflow-hidden">
+<div class="h-full bg-gradient-to-r from-primary to-primary-container" style="width: 84%"></div>
+</div>
+<span class="font-headline font-bold text-primary">84%</span>
+<span class="material-symbols-outlined text-on-surface-variant group-hover:translate-x-1 transition-transform">chevron_right</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Recent Concepts -->
+<div class="bg-surface-container-lowest rounded-lg p-8 shadow-[0px_20px_40px_rgba(26,28,31,0.06)]">
+<h4 class="font-headline text-2xl font-bold mb-8">Recent Concepts</h4>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<div class="p-4 bg-surface-container rounded-xl border border-outline-variant/10">
+<div class="flex items-start justify-between mb-3">
+<span class="text-xs px-2 py-1 bg-tertiary-fixed text-on-tertiary-fixed-variant rounded-full font-bold">New</span>
+<span class="material-symbols-outlined text-on-surface-variant text-sm">schedule</span>
+</div>
+<h6 class="font-bold mb-1">Mitochondrial DNA</h6>
+<p class="text-sm text-on-surface-variant line-clamp-2">The inheritance pattern of mitochondrial genetic material from the maternal line.</p>
+</div>
+<div class="p-4 bg-surface-container rounded-xl border border-outline-variant/10">
+<div class="flex items-start justify-between mb-3">
+<span class="text-xs px-2 py-1 bg-primary-fixed text-on-primary-fixed-variant rounded-full font-bold">Review</span>
+<span class="material-symbols-outlined text-on-surface-variant text-sm">schedule</span>
+</div>
+<h6 class="font-bold mb-1">Quantum Superposition</h6>
+<p class="text-sm text-on-surface-variant line-clamp-2">A fundamental principle of quantum mechanics where a system exists in multiple states.</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: Visualization -->
+<div class="lg:col-span-4 space-y-10">
+<!-- Mastery Distribution Donut -->
+<div class="bg-surface-container-lowest rounded-lg p-8 shadow-[0px_20px_40px_rgba(26,28,31,0.06)] flex flex-col items-center">
+<h4 class="font-headline text-xl font-bold mb-8 text-center w-full">Mastery Distribution</h4>
+<div class="relative w-48 h-48 mb-8">
+<!-- Custom SVG Donut -->
+<svg class="w-full h-full rotate-[-90deg]" viewbox="0 0 36 36">
+<path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#e1dfdf" stroke-width="3"></path>
+<path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#5625a8" stroke-dasharray="70, 100" stroke-width="3"></path>
+<path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#ffb957" stroke-dasharray="20, 100" stroke-dashoffset="-70" stroke-width="3"></path>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center">
+<span class="text-3xl font-headline font-extrabold text-on-surface">1.2k</span>
+<span class="text-[10px] uppercase font-bold text-on-surface-variant tracking-widest">Total</span>
+</div>
+</div>
+<div class="w-full space-y-4">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<div class="w-3 h-3 rounded-full bg-primary"></div>
+<span class="text-sm font-medium text-on-surface-variant">Mastered</span>
+</div>
+<span class="text-sm font-bold">70%</span>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<div class="w-3 h-3 rounded-full bg-tertiary-fixed-dim"></div>
+<span class="text-sm font-medium text-on-surface-variant">In Progress</span>
+</div>
+<span class="text-sm font-bold">20%</span>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<div class="w-3 h-3 rounded-full bg-secondary-container"></div>
+<span class="text-sm font-medium text-on-surface-variant">Not Started</span>
+</div>
+<span class="text-sm font-bold">10%</span>
+</div>
+</div>
+</div>
+<!-- Weakness Highlight (Nesting Example) -->
+<div class="bg-primary rounded-lg p-8 shadow-lg relative overflow-hidden">
+<div class="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full -mr-24 -mt-24"></div>
+<h4 class="font-headline text-xl font-bold mb-4 text-white relative z-10">Attention Needed</h4>
+<div class="bg-white/10 backdrop-blur-md rounded-xl p-4 relative z-10">
+<p class="text-primary-fixed-dim text-sm font-bold mb-2">THERMODYNAMICS</p>
+<h6 class="text-white font-bold mb-2">Second Law &amp; Entropy</h6>
+<p class="text-white/70 text-xs mb-4">You've missed the last 3 questions related to entropy calculation.</p>
+<button class="w-full py-3 bg-white text-primary font-bold rounded-full text-sm active:scale-95 transition-transform">Practice Now</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 bg-white/60 dark:bg-slate-950/60 backdrop-blur-xl rounded-t-[2rem] shadow-[0px_-10px_40px_rgba(26,28,31,0.04)]">
+<div class="flex justify-around items-center px-4 pb-6 pt-3">
+<a class="flex flex-col items-center justify-center text-slate-400 px-5 py-2 hover:text-purple-600 transition-all" href="#">
+<span class="material-symbols-outlined mb-1">auto_stories</span>
+<span class="Plus Jakarta Sans text-[11px] font-semibold tracking-wide">Learn</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-200 rounded-2xl px-5 py-2 active:scale-90 transition-transform duration-200 ease-out" href="#">
+<span class="material-symbols-outlined mb-1">analytics</span>
+<span class="Plus Jakarta Sans text-[11px] font-semibold tracking-wide">Insights</span>
+</a>
+<a class="flex flex-col items-center justify-center text-slate-400 px-5 py-2 hover:text-purple-600 transition-all" href="#">
+<span class="material-symbols-outlined mb-1">error_outline</span>
+<span class="Plus Jakarta Sans text-[11px] font-semibold tracking-wide">Weakness</span>
+</a>
+<a class="flex flex-col items-center justify-center text-slate-400 px-5 py-2 hover:text-purple-600 transition-all" href="#">
+<span class="material-symbols-outlined mb-1">history</span>
+<span class="Plus Jakarta Sans text-[11px] font-semibold tracking-wide">History</span>
+</a>
+</div>
+</nav>
+</body></html>

@@ -16,9 +16,10 @@ import {
     Layers,
     Sparkles,
     FileText,
+    BarChart3
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -28,7 +29,6 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import { useLearningStats } from "@/hooks/useLearning"
 import type { ConceptMasteryWithDetails } from "@/hooks/useLearning"
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
 import { useGenerateReviewQuiz, useQuizzes } from "@/hooks/useQuizzes"
@@ -39,17 +39,18 @@ import type {
     GoalMarkerPlanItem,
     PlannedReviewPlanItem,
 } from "@/lib/learningPathPlan"
+import { matchesQuizScope, type LearningPathPlanScopeFilter } from "@/lib/learningPathScope"
 import { Link, useNavigate } from "react-router-dom"
 import { toast } from 'sonner'
 
 function masteryBadge(level: string) {
     switch (level) {
         case 'mastered':
-            return <Badge variant="secondary" className="bg-green-50 text-green-700 text-xs">Mastered</Badge>
+            return <Badge variant="secondary" className="bg-green-50 text-green-700 hover:bg-green-100 text-xs shadow-sm">Mastered</Badge>
         case 'developing':
-            return <Badge variant="secondary" className="bg-yellow-50 text-yellow-700 text-xs">Developing</Badge>
+            return <Badge variant="secondary" className="bg-yellow-50 text-yellow-700 hover:bg-yellow-100 text-xs shadow-sm">Developing</Badge>
         default:
-            return <Badge variant="secondary" className="bg-red-50 text-red-700 text-xs">Needs Review</Badge>
+            return <Badge variant="secondary" className="bg-red-50 text-red-700 hover:bg-red-100 text-xs shadow-sm">Needs Review</Badge>
     }
 }
 
@@ -106,36 +107,36 @@ function AdaptiveTaskCard({
     const isUrgent = task.reason === 'due_today' || task.reason === 'needs_review'
 
     return (
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
             <CardContent className="p-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-start gap-3 min-w-0">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isUrgent ? 'bg-red-50' : 'bg-primary/10'}`}>
+                <div className="flex items-start gap-4 min-w-0">
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${isUrgent ? 'bg-red-50' : 'bg-primary/10'}`}>
                         {adaptiveTaskIcon(task)}
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap mb-1">
-                            <p className="font-medium">{task.title}</p>
-                            <Badge variant="outline" className="text-xs">
+                            <p className="font-semibold text-base tracking-tight">{task.title}</p>
+                            <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-wider">
                                 {task.type === 'quiz' ? `${task.count} questions` : task.type === 'flashcards' ? `${task.count} cards` : `${task.count} concepts`}
                             </Badge>
-                            <Badge variant="secondary" className="text-xs">
+                            <Badge variant="secondary" className="text-[10px] uppercase font-bold tracking-wider">
                                 {task.reason === 'due_today' ? 'Due now' : task.reason === 'needs_review' ? 'Weak area' : 'Build mastery'}
                             </Badge>
                         </div>
-                        <p className="text-sm text-muted-foreground mb-1">{task.description}</p>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                        <p className="text-sm text-muted-foreground mb-1.5">{task.description}</p>
+                        <div className="flex items-center gap-3 text-[11px] font-medium text-muted-foreground uppercase tracking-wider flex-wrap">
                             <span>{task.documentTitle}</span>
-                            <span>·</span>
+                            <span className="opacity-50">•</span>
                             <span>{task.scheduledDate}</span>
-                            <span>·</span>
-                            <span>{Math.round(task.priorityScore * 100)}% priority</span>
+                            <span className="opacity-50">•</span>
+                            <span className={task.priorityScore > 0.8 ? 'text-orange-500' : ''}>{Math.round(task.priorityScore * 100)}% PRIORITY</span>
                         </div>
                     </div>
                 </div>
                 <Button
                     onClick={() => onAction(task)}
                     variant={task.type === 'quiz' ? 'default' : 'outline'}
-                    className="w-full sm:w-auto"
+                    className={`w-full sm:w-auto shadow-sm ${task.type !== 'quiz' && 'bg-white hover:bg-gray-50'}`}
                 >
                     {task.type === 'quiz' && task.status === 'generating' ? (
                         <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -151,32 +152,40 @@ function GeneratedPlanCard({ item }: { item: PlannedReviewPlanItem }) {
     const goalDate = item.mastery.document_exam_date?.split("T")[0] ?? null
 
     return (
-        <Card className="border-dashed border-primary/30 bg-primary/5">
+        <Card className="border-dashed border-primary/30 bg-primary/5 hover:bg-primary/[0.07] transition-colors">
             <CardContent className="p-4 flex items-start justify-between gap-4">
                 <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <p className="font-medium">{item.conceptName}</p>
-                        <Badge variant="outline" className="text-xs">
-                            Planned Baseline
+                        <p className="font-medium text-base">{item.conceptName}</p>
+                        <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-wider bg-white">
+                            Planned
                         </Badge>
                     </div>
                     <p className="text-sm text-muted-foreground">
                         Scheduled for {dueLabel(item.date).toLowerCase()} from your current goal window.
                         {goalDate ? ` Goal date: ${goalDate}.` : ""}
                     </p>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2 flex-wrap">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2 flex-wrap font-medium">
                         {item.documentTitle ? <span>{item.documentTitle}</span> : null}
-                        {item.documentTitle ? <span>·</span> : null}
+                        {item.documentTitle ? <span className="opacity-50">•</span> : null}
                         <span>{Math.round(item.priorityScore * 100)}% priority</span>
                     </div>
                 </div>
                 {item.documentId ? (
-                    <Link to={`/files/${item.documentId}`}>
-                        <Button variant="outline" size="sm">
-                            <ArrowUpRight className="w-3 h-3 mr-1" />
-                            Open
-                        </Button>
-                    </Link>
+                    <div className="flex flex-col gap-2 shrink-0">
+                        <Link to={`/files/${item.documentId}`}>
+                            <Button variant="outline" size="sm" className="w-full bg-white text-xs h-8">
+                                <ArrowUpRight className="w-3.5 h-3.5 mr-1" />
+                                Open
+                            </Button>
+                        </Link>
+                        <Link to={`/analytics/document/${item.documentId}`}>
+                            <Button variant="ghost" size="sm" className="w-full text-xs h-8">
+                                <BarChart3 className="w-3.5 h-3.5 mr-1" />
+                                Analytics
+                            </Button>
+                        </Link>
+                    </div>
                 ) : null}
             </CardContent>
         </Card>
@@ -185,12 +194,12 @@ function GeneratedPlanCard({ item }: { item: PlannedReviewPlanItem }) {
 
 function GoalMarkerCard({ marker }: { marker: GoalMarkerPlanItem }) {
     return (
-        <Card>
+        <Card className="hover:shadow-sm transition-shadow">
             <CardContent className="p-4 flex items-start justify-between gap-4">
                 <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <p className="font-medium">{marker.title}</p>
-                        <Badge variant="outline" className="text-xs">
+                        <p className="font-semibold text-base tracking-tight">{marker.title}</p>
+                        <Badge variant="secondary" className="text-[10px] font-bold uppercase tracking-wider">
                             {marker.markerType === "file_goal" ? "File Goal" : "Quiz Deadline"}
                         </Badge>
                     </div>
@@ -199,24 +208,33 @@ function GoalMarkerCard({ marker }: { marker: GoalMarkerPlanItem }) {
                             ? `Target date for ${marker.documentTitle}.`
                             : `Assessment deadline tied to ${marker.documentTitle}.`}
                     </p>
-                    <div className="text-xs text-muted-foreground mt-2">
-                        Scheduled for {new Date(marker.date + "T00:00:00").toLocaleDateString()}
+                    <div className="text-xs font-semibold text-primary mt-2 flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5" />
+                        {new Date(marker.date + "T00:00:00").toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
                     </div>
                 </div>
                 {marker.quizId ? (
                     <Link to={`/quizzes/${marker.quizId}`}>
-                        <Button variant="outline" size="sm">
-                            <ArrowUpRight className="w-3 h-3 mr-1" />
+                        <Button variant="outline" size="sm" className="shadow-sm">
+                            <ArrowUpRight className="w-3.5 h-3.5 mr-1" />
                             Open
                         </Button>
                     </Link>
                 ) : marker.documentId ? (
-                    <Link to={`/files/${marker.documentId}`}>
-                        <Button variant="outline" size="sm">
-                            <ArrowUpRight className="w-3 h-3 mr-1" />
-                            Open
-                        </Button>
-                    </Link>
+                    <div className="flex flex-col gap-2 shrink-0">
+                        <Link to={`/files/${marker.documentId}`}>
+                            <Button variant="outline" size="sm" className="w-full text-xs h-8 shadow-sm">
+                                <ArrowUpRight className="w-3.5 h-3.5 mr-1" />
+                                Open
+                            </Button>
+                        </Link>
+                        <Link to={`/analytics/document/${marker.documentId}`}>
+                            <Button variant="ghost" size="sm" className="w-full text-xs h-8">
+                                <BarChart3 className="w-3.5 h-3.5 mr-1" />
+                                Analytics
+                            </Button>
+                        </Link>
+                    </div>
                 ) : null}
             </CardContent>
         </Card>
@@ -228,9 +246,9 @@ function TopicCard({ topic, onSelect }: { topic: ConceptMasteryWithDetails; onSe
     return (
         <button
             onClick={() => onSelect(topic)}
-            className="w-full flex items-start gap-3 p-4 rounded-lg border bg-card hover:bg-accent/5 transition-colors text-left">
-            <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${topic.display_mastery_level === 'mastered' ? 'bg-green-100' :
-                    topic.display_mastery_level === 'developing' ? 'bg-yellow-100' : 'bg-red-100'
+            className="w-full flex items-start gap-4 p-4 rounded-xl border bg-card hover:bg-accent/10 hover:border-primary/20 transition-all text-left shadow-sm group">
+            <div className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center shrink-0 shadow-sm ${topic.display_mastery_level === 'mastered' ? 'bg-green-100 border border-green-200' :
+                    topic.display_mastery_level === 'developing' ? 'bg-yellow-100 border border-yellow-200' : 'bg-red-100 border border-red-200'
                 }`}>
                 {topic.display_mastery_level === 'mastered' ? (
                     <CheckCircle2 className="w-5 h-5 text-green-600" />
@@ -241,37 +259,27 @@ function TopicCard({ topic, onSelect }: { topic: ConceptMasteryWithDetails; onSe
                 )}
             </div>
             <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                    <p className="font-medium truncate">{topic.concept_name}</p>
+                <div className="flex items-center gap-2 mb-1.5">
+                    <p className="font-semibold text-base truncate tracking-tight group-hover:text-primary transition-colors">{topic.concept_name}</p>
                     {masteryBadge(topic.display_mastery_level)}
                 </div>
-                <Progress value={topic.display_mastery_score} className="h-1.5 mb-2" />
-                <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                    <span>{Math.round(topic.display_mastery_score)}% mastery</span>
-                    <span>·</span>
-                    <span>Confidence: {Math.round(topic.confidence * 100)}%</span>
-                    <span>·</span>
-                    <span className={days <= 0 ? 'text-red-600 font-medium' : ''}>
-                        <Clock className="w-3 h-3 inline mr-0.5" />
+                <Progress value={topic.display_mastery_score} className="h-1.5 mb-2.5" />
+                <div className="flex items-center gap-3 text-[11px] uppercase tracking-wider font-medium text-muted-foreground flex-wrap">
+                    <span className="font-bold text-foreground/80">{Math.round(topic.display_mastery_score)}% mastery</span>
+                    <span className="opacity-50">•</span>
+                    <span>Conf: {Math.round(topic.confidence * 100)}%</span>
+                    <span className="opacity-50">•</span>
+                    <span className={days <= 0 ? 'text-red-500 font-bold flex items-center' : 'flex items-center'}>
+                        <Clock className="w-3 h-3 inline mr-1 opacity-80" />
                         {dueLabel(topic.due_date)}
                     </span>
                     {topic.document_title && (
                         <>
-                            <span>·</span>
-                            <span className="truncate">{topic.document_title}</span>
+                            <span className="opacity-50">•</span>
+                            <span className="truncate max-w-[150px]">{topic.document_title}</span>
                         </>
                     )}
                 </div>
-            </div>
-            <div className="flex gap-1 shrink-0">
-                {topic.document_id && (
-                    <Link to={`/files/${topic.document_id}`} onClick={(e) => e.stopPropagation()}>
-                        <Button variant="ghost" size="sm" className="text-xs">
-                            <ArrowUpRight className="w-3 h-3 mr-1" />
-                            Review
-                        </Button>
-                    </Link>
-                )}
             </div>
         </button>
     )
@@ -293,20 +301,19 @@ function SectionBlock({
     if (items.length === 0) return null
 
     return (
-        <Card>
-            <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
+        <Card className="shadow-sm border-muted">
+            <CardHeader className="pb-3 bg-muted/20 border-b border-border/50">
+                <CardTitle className="flex items-center gap-2 text-lg">
                     {icon}
                     {title}
-                    <Badge variant="secondary" className="text-[10px] font-medium ml-1">Based on your performance</Badge>
-                    <Badge variant="outline" className="ml-auto">{items.length}</Badge>
+                    <Badge variant="secondary" className="px-1.5 bg-background border shadow-sm ml-auto">{items.length}</Badge>
                 </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-4">
                 {items.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">{emptyMessage}</p>
+                    <p className="text-sm text-muted-foreground text-center py-6 italic">{emptyMessage}</p>
                 ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                         {items.map((topic) => (
                             <TopicCard key={topic.id} topic={topic} onSelect={onSelect} />
                         ))}
@@ -316,8 +323,6 @@ function SectionBlock({
         </Card>
     )
 }
-
-// ─── Concept Detail Dialog ────────────────────────────────────────────────────
 
 function ConceptDetailDialog({
     concept,
@@ -347,75 +352,77 @@ function ConceptDetailDialog({
                 </DialogHeader>
                 <div className="space-y-4 pt-2">
                     <div className="grid grid-cols-2 gap-3">
-                        <div className="p-3 rounded-lg bg-muted text-center">
+                        <div className="p-3 rounded-xl bg-muted/50 border text-center">
                             <p className="text-2xl font-bold">{Math.round(concept.display_mastery_score)}%</p>
-                            <p className="text-xs text-muted-foreground">Display Mastery</p>
+                            <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mt-1">Display Mastery</p>
                         </div>
-                        <div className="p-3 rounded-lg bg-muted text-center">
+                        <div className="p-3 rounded-xl bg-muted/50 border text-center">
                             <p className="text-2xl font-bold">{Math.round(concept.confidence * 100)}%</p>
-                            <p className="text-xs text-muted-foreground">Confidence</p>
+                            <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mt-1">Confidence</p>
                         </div>
-                        <div className="p-3 rounded-lg bg-muted text-center">
+                        <div className="p-3 rounded-xl bg-muted/50 border text-center">
                             <p className="text-2xl font-bold">{concept.total_attempts}</p>
-                            <p className="text-xs text-muted-foreground">Attempts</p>
+                            <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mt-1">Attempts</p>
                         </div>
-                        <div className="p-3 rounded-lg bg-muted text-center">
+                        <div className="p-3 rounded-xl bg-muted/50 border text-center">
                             <p className="text-2xl font-bold">
                                 {concept.total_attempts > 0
                                     ? Math.round((concept.correct_attempts / concept.total_attempts) * 100)
                                     : 0}%
                             </p>
-                            <p className="text-xs text-muted-foreground">Accuracy</p>
+                            <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mt-1">Accuracy</p>
                         </div>
                     </div>
 
-                    <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                            <span className="text-muted-foreground">SM-2 Due Date</span>
-                            <span className={days <= 0 ? 'text-red-600 font-medium' : ''}>
+                    <div className="space-y-2 text-sm bg-muted/30 p-3 rounded-xl border border-border/50">
+                        <div className="flex justify-between items-center py-1">
+                            <span className="text-muted-foreground text-xs uppercase tracking-wide font-medium">SM-2 Due Date</span>
+                            <span className={`font-medium ${days <= 0 ? 'text-red-500 font-bold' : ''}`}>
                                 {dueLabel(concept.due_date)}
                             </span>
                         </div>
-                        <div className="flex justify-between">
-                            <span className="text-muted-foreground">SM-2 Interval</span>
-                            <span>{concept.interval_days} day{concept.interval_days !== 1 ? 's' : ''}</span>
+                        <div className="flex justify-between items-center py-1">
+                            <span className="text-muted-foreground text-xs uppercase tracking-wide font-medium">SM-2 Interval</span>
+                            <span className="font-medium">{concept.interval_days} day{concept.interval_days !== 1 ? 's' : ''}</span>
                         </div>
-                        <div className="flex justify-between">
-                            <span className="text-muted-foreground">Ease Factor</span>
-                            <span>{Number(concept.ease_factor).toFixed(2)}</span>
+                        <div className="flex justify-between items-center py-1">
+                            <span className="text-muted-foreground text-xs uppercase tracking-wide font-medium">Ease Factor</span>
+                            <span className="font-medium">{Number(concept.ease_factor).toFixed(2)}</span>
                         </div>
-                        <div className="flex justify-between">
-                            <span className="text-muted-foreground">Stored Mastery</span>
-                            <span>{Math.round(concept.mastery_score)}%</span>
+                        <div className="flex justify-between items-center py-1">
+                            <span className="text-muted-foreground text-xs uppercase tracking-wide font-medium">Stored Mastery</span>
+                            <span className="font-medium">{Math.round(concept.mastery_score)}%</span>
                         </div>
-                        <div className="flex justify-between">
-                            <span className="text-muted-foreground">Last Reviewed</span>
-                            <span>{concept.last_reviewed_at
-                                ? new Date(concept.last_reviewed_at).toLocaleDateString()
-                                : 'Never'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span className="text-muted-foreground">Priority Score</span>
-                            <span>{(concept.priority_score * 100).toFixed(0)}%</span>
+                        <div className="flex justify-between items-center py-1">
+                            <span className="text-muted-foreground text-xs uppercase tracking-wide font-medium">Last Reviewed</span>
+                            <span className="font-medium">{concept.last_reviewed_at ? new Date(concept.last_reviewed_at).toLocaleDateString() : 'Never'}</span>
                         </div>
                     </div>
 
                     {concept.display_mastery_score < concept.mastery_score && (
-                        <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 text-amber-800 text-xs">
-                            <HelpCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                            <span>
+                        <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-50/80 border border-amber-200 text-amber-800 text-xs shadow-sm">
+                            <HelpCircle className="w-5 h-5 shrink-0 text-amber-500" />
+                            <span className="leading-relaxed font-medium">
                                 Display mastery is lower than stored ({Math.round(concept.mastery_score)}%) because this concept is overdue for review. Take a quiz to restore it!
                             </span>
                         </div>
                     )}
 
                     {concept.document_id && (
-                        <Link to={`/files/${concept.document_id}`} onClick={onClose}>
-                            <Button className="w-full" variant="outline">
-                                <ArrowUpRight className="w-4 h-4 mr-2" />
-                                Open Document
-                            </Button>
-                        </Link>
+                        <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                            <Link to={`/files/${concept.document_id}`} onClick={onClose} className="flex-1">
+                                <Button className="w-full shadow-sm" variant="default">
+                                    <BookOpen className="w-4 h-4 mr-2" />
+                                    Review Material
+                                </Button>
+                            </Link>
+                            <Link to={`/analytics/document/${concept.document_id}`} onClick={onClose} className="flex-1">
+                                <Button className="w-full bg-white shadow-sm" variant="outline">
+                                    <BarChart3 className="w-4 h-4 mr-2" />
+                                    Analytics
+                                </Button>
+                            </Link>
+                        </div>
                     )}
                 </div>
             </DialogContent>
@@ -423,9 +430,23 @@ function ConceptDetailDialog({
     )
 }
 
-export function LearningPathContent() {
-    const plan = useLearningPathPlan()
-    const { data: stats, isLoading: statsLoading, isError: statsError } = useLearningStats()
+interface QuizItem {
+    id: string;
+    title: string;
+    documentTitle: string | null;
+    dueDate: string | null;
+}
+
+interface LearningPathContentProps {
+    scopeFilter?: LearningPathPlanScopeFilter
+    dueTodayQuizzes?: QuizItem[]
+}
+
+export function LearningPathContent({
+    scopeFilter,
+    dueTodayQuizzes = [],
+}: LearningPathContentProps) {
+    const plan = useLearningPathPlan(scopeFilter)
     const { data: weeklyProgress } = useWeeklyProgress()
     const { data: documents } = useDocuments()
     const { data: quizzes } = useQuizzes()
@@ -434,6 +455,10 @@ export function LearningPathContent() {
 
     const [selectedConcept, setSelectedConcept] = useState<ConceptMasteryWithDetails | null>(null)
     const autoGeneratedTaskIds = useRef<Set<string>>(new Set())
+    const scopedQuizzes = useMemo(
+        () => (quizzes || []).filter((quiz) => matchesQuizScope(quiz, scopeFilter)),
+        [quizzes, scopeFilter],
+    )
 
     const performanceMasteryList = useMemo(
         () => plan.performancePlannedReviews.map((item) => item.mastery as ConceptMasteryWithDetails),
@@ -442,9 +467,27 @@ export function LearningPathContent() {
     const baselineReviews = plan.baselinePlannedReviews
     const adaptiveTasks = useMemo(() => plan.adaptiveTasks.map((item) => item.task), [plan.adaptiveTasks])
     const upcomingGoals = useMemo(() => plan.goalMarkers.slice(0, 4), [plan.goalMarkers])
+    const stats = useMemo(() => {
+        const totalConcepts = performanceMasteryList.length
+        const masteredCount = performanceMasteryList.filter((item) => item.display_mastery_level === "mastered").length
+        const developingCount = performanceMasteryList.filter((item) => item.display_mastery_level === "developing").length
+        const needsReviewCount = performanceMasteryList.filter((item) => item.display_mastery_level === "needs_review").length
+        const averageMastery = totalConcepts > 0
+            ? Math.round(
+                performanceMasteryList.reduce((sum, item) => sum + item.display_mastery_score, 0) / totalConcepts,
+            )
+            : 0
+
+        return {
+            totalConcepts,
+            masteredCount,
+            developingCount,
+            needsReviewCount,
+            averageMastery,
+        }
+    }, [performanceMasteryList])
 
     const sections: TopicSections = useMemo(() => {
-        // Only include concepts with real student attempts in performance-derived sections.
         const all = performanceMasteryList
         const today = new Date().toISOString().split('T')[0]
 
@@ -468,7 +511,6 @@ export function LearningPathContent() {
         return { dueToday, needsReview, developing, mastered }
     }, [performanceMasteryList])
 
-    // Gather reviewable concepts (due + needs_review) grouped by document
     const handleStartReview = useCallback(() => {
         const reviewable = [...sections.dueToday, ...sections.needsReview]
         if (reviewable.length === 0) {
@@ -476,7 +518,6 @@ export function LearningPathContent() {
             return
         }
 
-        // Group by document and pick the document with the most reviewable concepts
         const docGroups = new Map<string, string[]>()
         for (const c of reviewable) {
             if (!c.document_id) continue
@@ -485,7 +526,6 @@ export function LearningPathContent() {
             docGroups.set(c.document_id, ids)
         }
 
-        // Pick the document with most reviewable concepts
         let bestDocId = ''
         let bestConceptIds: string[] = []
         for (const [docId, cIds] of docGroups) {
@@ -592,50 +632,37 @@ export function LearningPathContent() {
         )
     }, [adaptiveTasks, generateReview])
 
-    const isLoading = plan.isLoading || statsLoading
+    const isLoading = plan.isLoading
+    
+    // Milestones check
+    const milestones: { label: string; achieved: boolean }[] = []
+    const hasFirstQuiz = scopedQuizzes.length > 0 && plan.performancePlannedReviews.length > 0
+    milestones.push({ label: "First quiz", achieved: hasFirstQuiz })
+    const hasMastered = performanceMasteryList.some(m => m.display_mastery_level === 'mastered')
+    milestones.push({ label: "First concept mastered", achieved: hasMastered })
+    const achievedMilestones = milestones.filter(m => m.achieved)
 
     return (
         <main className="container mx-auto px-4 py-8">
-            <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center">
-                            <Calendar className="w-6 h-6 text-primary" />
-                        </div>
-                        <div>
-                            <h1 className="text-2xl sm:text-3xl font-bold">Learning Path</h1>
-                            <p className="text-sm sm:text-base text-muted-foreground">Your generated study plan, adaptive tasks, and live mastery priorities</p>
-                        </div>
-                    </div>
-                    {!isLoading && performanceMasteryList.length > 0 && (
-                        <Button
-                            onClick={handleStartReview}
-                            disabled={generateReview.isPending || (sections.dueToday.length + sections.needsReview.length) === 0}
-                            className="gap-2 w-full sm:w-auto"
-                        >
-                            {generateReview.isPending ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                                <Play className="w-4 h-4" />
-                            )}
-                            Start Review
-                        </Button>
-                    )}
-                </div>
+            <div className="space-y-8">
+
 
                 {isLoading ? (
-                    <div className="flex items-center justify-center py-16">
-                        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                    <div className="flex flex-col items-center justify-center py-24 gap-4">
+                        <Loader2 className="w-10 h-10 animate-spin text-primary" />
+                        <p className="text-muted-foreground font-medium">Analyzing mastery data...</p>
                     </div>
-                ) : (plan.isError || statsError) ? (
-                    <Card>
+                ) : plan.isError ? (
+                    <Card className="border-amber-200 bg-amber-50/30">
                         <CardContent className="text-center py-16">
-                            <AlertTriangle className="w-16 h-16 mx-auto text-amber-500 mb-4" />
-                            <h3 className="text-lg font-semibold mb-2">Could not load learning path</h3>
-                            <p className="text-muted-foreground mb-4">
-                                Something went wrong fetching your data. Please try refreshing.
+                            <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                                <AlertTriangle className="w-10 h-10 text-amber-500" />
+                            </div>
+                            <h3 className="text-xl font-bold mb-2">Could not load learning path</h3>
+                            <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+                                Something went wrong fetching your adaptive plan. Please try refreshing.
                             </p>
-                            <Button variant="outline" onClick={() => window.location.reload()}>
+                            <Button variant="outline" onClick={() => window.location.reload()} className="bg-white">
                                 Refresh Page
                             </Button>
                         </CardContent>
@@ -643,10 +670,11 @@ export function LearningPathContent() {
                 ) : plan.items.length === 0 ? (
                     (() => {
                         const docs = documents || []
-                        const hasUploaded = docs.length > 0
-                        const hasProcessed = docs.some(d => d.status === 'ready')
+                        const scopedDocs = scopeFilter?.documentId ? docs.filter((doc) => doc.id === scopeFilter.documentId) : docs
+                        const hasUploaded = scopedDocs.length > 0
+                        const hasProcessed = scopedDocs.some(d => d.status === 'ready')
                         const hasAttempted = plan.performancePlannedReviews.length > 0
-                        const hasTarget = docs.some(d => d.exam_date != null)
+                        const hasTarget = scopedDocs.some(d => d.exam_date != null || d.deadline != null)
                         const steps = [
                             { label: "Upload study materials", done: hasUploaded, link: "/files" },
                             { label: "Process your documents", done: hasProcessed, link: "/files" },
@@ -655,34 +683,34 @@ export function LearningPathContent() {
                         ]
                         const completedCount = steps.filter(s => s.done).length
                         return (
-                            <Card>
-                                <CardContent className="py-10 px-6">
-                                    <div className="text-center mb-6">
-                                        <Brain className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
-                                        <h3 className="text-lg font-semibold mb-1">Get started with your learning path</h3>
-                                        <p className="text-sm text-muted-foreground">
+                            <Card className="border-primary/20 bg-gradient-to-br from-background to-primary/5 shadow-md">
+                                <CardContent className="py-12 px-8">
+                                    <div className="text-center mb-8 max-w-md mx-auto">
+                                        <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                                            <Brain className="w-10 h-10 text-primary" />
+                                        </div>
+                                        <h3 className="text-2xl font-bold mb-3 tracking-tight">Onboarding Checklist</h3>
+                                        <p className="text-muted-foreground">
                                             Complete these steps to build your personalized study plan.
                                         </p>
                                     </div>
-                                    <div className="mb-4">
-                                        <div className="flex items-center justify-between text-sm mb-1">
-                                            <span className="font-medium">{completedCount} of {steps.length} steps completed</span>
-                                            <span className="text-muted-foreground">{Math.round((completedCount / steps.length) * 100)}%</span>
+                                    <div className="mb-8 max-w-md mx-auto">
+                                        <div className="flex items-center justify-between text-sm mb-2 font-bold uppercase tracking-wider text-muted-foreground">
+                                            <span>{completedCount} of {steps.length} steps</span>
+                                            <span>{Math.round((completedCount / steps.length) * 100)}%</span>
                                         </div>
-                                        <Progress value={(completedCount / steps.length) * 100} className="h-2" />
+                                        <Progress value={(completedCount / steps.length) * 100} className="h-3" />
                                     </div>
-                                    <ul className="space-y-3">
+                                    <ul className="space-y-4 max-w-md mx-auto">
                                         {steps.map((step, i) => (
-                                            <li key={i} className="flex items-center gap-3">
-                                                {step.done
-                                                    ? <CheckCircle2 className="w-5 h-5 text-primary shrink-0" />
-                                                    : <div className="w-5 h-5 rounded-full border-2 border-muted-foreground/30 shrink-0" />}
-                                                <span className={step.done ? "text-sm line-through text-muted-foreground" : "text-sm font-medium"}>
+                                            <li key={i} className={`flex items-center gap-4 p-4 rounded-xl border transition-colors ${step.done ? 'bg-primary/5 border-primary/20' : 'bg-card shadow-sm hover:border-primary/30'}`}>
+                                                {step.done ? <CheckCircle2 className="w-6 h-6 text-primary shrink-0" /> : <div className="w-6 h-6 rounded-full border-2 border-muted-foreground/30 shrink-0" />}
+                                                <span className={step.done ? "text-base font-medium line-through text-muted-foreground/70" : "text-base font-semibold"}>
                                                     {step.label}
                                                 </span>
                                                 {!step.done && (
                                                     <Link to={step.link} className="ml-auto">
-                                                        <Button size="sm" variant="outline" className="h-7 text-xs">Go</Button>
+                                                        <Button size="sm" variant="default" className="shadow-sm">Go</Button>
                                                     </Link>
                                                 )}
                                             </li>
@@ -694,44 +722,191 @@ export function LearningPathContent() {
                     })()
                 ) : (
                     <>
-                        {/* Weekly Progress Summary */}
-                        {weeklyProgress && weeklyProgress.questionsAnswered > 0 && (
-                            <Card className="bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20">
-                                <CardHeader className="pb-2">
-                                    <CardTitle className="flex items-center gap-2 text-base">
-                                        <TrendingUp className="w-5 h-5 text-primary" />
-                                        This Week's Progress
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="flex flex-col sm:flex-row flex-wrap sm:items-center gap-4 sm:gap-6 text-sm">
-                                        <div className="flex items-center gap-2">
-                                            <Zap className="w-4 h-4 text-amber-500 shrink-0" />
-                                            <span><strong>{weeklyProgress.conceptsImproved}</strong> concepts improved</span>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            {/* Readiness Estimate */}
+                            {(() => {
+                                const totalTracked = stats.totalConcepts
+                                const attempted = plan.performancePlannedReviews.length
+                                const performance = stats.averageMastery
+                                const coverage = totalTracked > 0 ? attempted / totalTracked : 0
+                                const coveragePct = Math.round(coverage * 100)
+
+                                let label = "Not enough data"
+                                let gradient = "from-gray-500 to-slate-600"
+                                if (coverage >= 0.60 && performance >= 80) { label = "Strong"; gradient = "from-emerald-500 to-teal-600" }
+                                else if (coverage >= 0.40 && performance >= 60) { label = "Moderate"; gradient = "from-blue-500 to-indigo-600" }
+                                else if (coverage >= 0.25) { label = "Limited"; gradient = "from-amber-500 to-orange-600" }
+
+                                return (
+                                    <Card className={`text-white overflow-hidden border-0 relative bg-gradient-to-br ${gradient} shadow-md`}>
+                                        <div className="absolute top-0 right-0 p-6 opacity-10">
+                                            <Target className="w-32 h-32" />
                                         </div>
-                                        <div className="flex items-center gap-2">
-                                            <Target className="w-4 h-4 text-blue-500 shrink-0" />
-                                            <span><strong>{weeklyProgress.newConceptsTracked}</strong> new concepts tracked</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <Brain className="w-4 h-4 text-purple-500 shrink-0" />
-                                            <span><strong>{weeklyProgress.questionsAnswered}</strong> questions answered</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <BookOpen className="w-4 h-4 text-green-500 shrink-0" />
-                                            <span><strong>{weeklyProgress.quizzesCompleted}</strong> quizzes completed</span>
-                                        </div>
-                                    </div>
+                                        <CardContent className="p-6 sm:p-8 relative z-10 flex flex-col h-full justify-between">
+                                            <div>
+                                                <div className="flex items-center gap-2 mb-2 uppercase tracking-widest text-[11px] font-bold text-white/80">
+                                                    <Brain className="w-4 h-4" /> 
+                                                    Readiness Estimate
+                                                </div>
+                                                <div className="text-4xl sm:text-5xl font-black tracking-tight mb-8 drop-shadow-sm">{label}</div>
+                                            </div>
+                                            
+                                            <div className="space-y-6">
+                                                <div className="grid grid-cols-2 gap-6 bg-black/10 rounded-2xl p-4 backdrop-blur-sm border border-white/10">
+                                                    <div>
+                                                        <div className="flex justify-between items-end mb-2">
+                                                            <p className="text-[11px] uppercase tracking-wider font-bold text-white/80">Coverage</p>
+                                                            <span className="text-xl font-bold">{coveragePct}%</span>
+                                                        </div>
+                                                        <Progress value={coveragePct} className="h-2 bg-white/20 [&>div]:bg-white" />
+                                                        <p className="text-[10px] text-white/60 mt-2 tracking-wide font-medium">{attempted} / {totalTracked} concepts</p>
+                                                    </div>
+                                                    <div>
+                                                        <div className="flex justify-between items-end mb-2">
+                                                            <p className="text-[11px] uppercase tracking-wider font-bold text-white/80">Performance</p>
+                                                            <span className="text-xl font-bold">{performance}%</span>
+                                                        </div>
+                                                        <Progress value={performance} className="h-2 bg-white/20 [&>div]:bg-white" />
+                                                        <p className="text-[10px] text-white/60 mt-2 tracking-wide font-medium">Avg mastery score</p>
+                                                    </div>
+                                                </div>
+                                                
+                                                {/* Injected Milestones */}
+                                                {achievedMilestones.length > 0 && (
+                                                    <div className="flex flex-wrap gap-2 pt-2 border-t border-white/10">
+                                                        {achievedMilestones.map((m, i) => (
+                                                            <Badge key={i} variant="outline" className="bg-white/10 hover:bg-white/20 text-white border-white/20 gap-1.5 text-[10px] font-bold uppercase tracking-wider py-1 backdrop-blur-sm">
+                                                                <CheckCircle2 className="w-3 h-3" />
+                                                                {m.label}
+                                                            </Badge>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                )
+                            })()}
+
+                            {/* Weekly Pulse & Start Review */}
+                            <div className="space-y-6 flex flex-col h-full">
+                                {weeklyProgress && weeklyProgress.questionsAnswered > 0 ? (
+                                    <Card className="bg-card shadow-sm border-muted flex-1 flex flex-col">
+                                        <CardHeader className="pb-4 border-b border-border/50 bg-muted/20">
+                                            <CardTitle className="flex items-center gap-2 text-lg">
+                                                <TrendingUp className="w-5 h-5 text-primary" />
+                                                Weekly Pulse
+                                            </CardTitle>
+                                        </CardHeader>
+                                        <CardContent className="p-6 flex-1 flex items-center">
+                                            <div className="grid grid-cols-2 gap-4 w-full">
+                                                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-100 flex flex-col items-center justify-center text-center">
+                                                    <Zap className="w-5 h-5 text-amber-500 mb-2" />
+                                                    <span className="text-2xl font-black text-amber-700">{weeklyProgress.conceptsImproved}</span>
+                                                    <span className="text-[10px] uppercase tracking-wider font-bold text-amber-600 mt-1">Concepts<br/>Improved</span>
+                                                </div>
+                                                <div className="p-4 rounded-2xl bg-purple-50 border border-purple-100 flex flex-col items-center justify-center text-center">
+                                                    <Brain className="w-5 h-5 text-purple-500 mb-2" />
+                                                    <span className="text-2xl font-black text-purple-700">{weeklyProgress.questionsAnswered}</span>
+                                                    <span className="text-[10px] uppercase tracking-wider font-bold text-purple-600 mt-1">Questions<br/>Answered</span>
+                                                </div>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                ) : (
+                                    <Card className="bg-card shadow-sm flex-1 flex flex-col justify-center text-center p-6 border-dashed border-2">
+                                        <TrendingUp className="w-10 h-10 mx-auto text-muted-foreground/30 mb-3" />
+                                        <h3 className="font-bold text-lg mb-1">No Activity Yet</h3>
+                                        <p className="text-sm text-muted-foreground max-w-[250px] mx-auto mb-4">Complete study tasks this week to start tracking your pulse.</p>
+                                    </Card>
+                                )}
+
+                                {/* Start Review CTA */}
+                                {!isLoading && performanceMasteryList.length > 0 && (
+                                    <Button
+                                        onClick={handleStartReview}
+                                        disabled={generateReview.isPending || (sections.dueToday.length + sections.needsReview.length) === 0}
+                                        className="w-full h-14 text-base font-bold shadow-md rounded-xl"
+                                        size="lg"
+                                    >
+                                        {generateReview.isPending ? (
+                                            <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                                        ) : (
+                                            <Play className="w-5 h-5 align-middle mr-2 fill-current" />
+                                        )}
+                                        Start Smart Review {(sections.dueToday.length + sections.needsReview.length) > 0 ? `(${sections.dueToday.length + sections.needsReview.length} waiting)` : ""}
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Summary Stats Grid */}
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                            <Card className="bg-background shadow-sm hover:border-primary/50 transition-colors">
+                                <CardContent className="p-3">
+                                    <p className="text-[10px] font-bold text-muted-foreground mb-0.5 uppercase tracking-wider">Due Today</p>
+                                    <p className="text-xl font-black">{sections.dueToday.length}</p>
                                 </CardContent>
                             </Card>
-                        )}
+                            <Card className="bg-red-50/50 border-red-100 shadow-sm hover:border-red-500/50 transition-colors">
+                                <CardContent className="p-3">
+                                    <p className="text-[10px] font-bold text-red-600 mb-0.5 uppercase tracking-wider">Needs Review</p>
+                                    <p className="text-xl font-black text-red-700">{stats.needsReviewCount}</p>
+                                </CardContent>
+                            </Card>
+                            <Card className="bg-yellow-50/50 border-yellow-100 shadow-sm hover:border-yellow-500/50 transition-colors">
+                                <CardContent className="p-3">
+                                    <p className="text-[10px] font-bold text-yellow-600 mb-0.5 uppercase tracking-wider">Developing</p>
+                                    <p className="text-xl font-black text-yellow-700">{stats.developingCount}</p>
+                                </CardContent>
+                            </Card>
+                            <Card className="bg-green-50/50 border-green-100 shadow-sm hover:border-green-500/50 transition-colors">
+                                <CardContent className="p-3">
+                                    <p className="text-[10px] font-bold text-green-600 mb-0.5 uppercase tracking-wider">Mastered</p>
+                                    <p className="text-xl font-black text-green-700">{stats.masteredCount}</p>
+                                </CardContent>
+                            </Card>
+                        </div>
+
+                        {/* Due Today Quizzes Section */}
+                        <Card className="mb-2 border-red-200 bg-red-50/10 shadow-sm">
+                            <CardHeader className="pb-2 pt-3 px-4 bg-red-50/30 border-b border-red-100/50">
+                                <CardTitle className="flex items-center gap-2 text-sm font-bold">
+                                    <Target className="w-4 h-4 text-red-500" />
+                                    Due Today Quizzes
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="p-4">
+                                {!dueTodayQuizzes || dueTodayQuizzes.length === 0 ? (
+                                    <p className="text-sm text-muted-foreground font-medium">No quizzes scheduled for today. Enjoy your day or work ahead!</p>
+                                ) : (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                        {dueTodayQuizzes.map((quiz) => (
+                                            <Link
+                                                key={quiz.id}
+                                                to={`/quizzes/${quiz.id}`}
+                                                className="flex items-center justify-between rounded-lg border bg-card p-3 shadow-sm transition-all hover:border-primary/40 hover:shadow"
+                                            >
+                                                <div className="min-w-0 pr-2">
+                                                    <p className="truncate font-bold text-sm tracking-tight">{quiz.title}</p>
+                                                    {quiz.documentTitle ? (
+                                                        <p className="truncate text-[10px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
+                                                    ) : null}
+                                                </div>
+                                                <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+                                            </Link>
+                                        ))}
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
 
                         {adaptiveTasks.length > 0 && (
-                            <div className="space-y-3">
-                                <div>
-                                    <h2 className="text-lg font-semibold">Adaptive Study Queue</h2>
+                            <div className="space-y-4 max-w-4xl">
+                                <div className="pl-1">
+                                    <h2 className="text-xl font-bold tracking-tight mb-1">Adaptive Study Queue</h2>
                                     <p className="text-sm text-muted-foreground">
-                                        EduCoach is turning your weak and developing concepts into the next set of study tasks.
+                                        EduCoach is turning your weak and developing concepts into the next set of targeted tasks.
                                     </p>
                                 </div>
                                 <div className="space-y-3">
@@ -747,11 +922,11 @@ export function LearningPathContent() {
                         )}
 
                         {(baselineReviews.length > 0 || upcomingGoals.length > 0) && (
-                            <div className="space-y-4">
-                                <div>
-                                    <h2 className="text-lg font-semibold">Generated Plan</h2>
+                            <div className="space-y-4 max-w-4xl">
+                                <div className="pl-1">
+                                    <h2 className="text-xl font-bold tracking-tight mb-1">Generated Plan Items</h2>
                                     <p className="text-sm text-muted-foreground">
-                                        Baseline scheduled work appears here before quiz history exists, and stays visible alongside your goal dates.
+                                        Baseline scheduled work and your established learning goal dates.
                                     </p>
                                 </div>
 
@@ -773,163 +948,51 @@ export function LearningPathContent() {
                             </div>
                         )}
 
-                        {/* Summary Stats */}
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            <Card>
-                                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                                    <CardTitle className="text-sm font-medium">Due Today</CardTitle>
-                                    <Target className="w-4 h-4 text-red-500" />
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="text-2xl font-bold">{sections.dueToday.length}</div>
-                                    <p className="text-xs text-muted-foreground">Topics to review</p>
-                                </CardContent>
-                            </Card>
-
-                            <Card>
-                                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                                    <CardTitle className="text-sm font-medium">Needs Review</CardTitle>
-                                    <AlertTriangle className="w-4 h-4 text-orange-500" />
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="text-2xl font-bold">{stats?.needsReviewCount ?? 0}</div>
-                                    <p className="text-xs text-muted-foreground">Weak concepts</p>
-                                </CardContent>
-                            </Card>
-
-                            <Card>
-                                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                                    <CardTitle className="text-sm font-medium">Developing</CardTitle>
-                                    <BookOpen className="w-4 h-4 text-yellow-500" />
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="text-2xl font-bold">{stats?.developingCount ?? 0}</div>
-                                    <p className="text-xs text-muted-foreground">Getting there</p>
-                                </CardContent>
-                            </Card>
-
-                            <Card>
-                                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                                    <CardTitle className="text-sm font-medium">Mastered</CardTitle>
-                                    <CheckCircle2 className="w-4 h-4 text-green-500" />
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="text-2xl font-bold">{stats?.masteredCount ?? 0}</div>
-                                    <p className="text-xs text-muted-foreground">Solid knowledge</p>
-                                </CardContent>
-                            </Card>
-                        </div>
-
-                        {/* Overall Preparation Estimate */}
-                        {(() => {
-                            const totalTracked = stats?.totalConcepts ?? 0
-                            const attempted = plan.performancePlannedReviews.length
-                            const performance = stats?.averageMastery ?? 0
-                            const coverage = totalTracked > 0 ? attempted / totalTracked : 0
-                            const coveragePct = Math.round(coverage * 100)
-
-                            let label = "Not enough data"
-                            if (coverage >= 0.60 && performance >= 80) label = "Strong"
-                            else if (coverage >= 0.40 && performance >= 60) label = "Moderate"
-                            else if (coverage >= 0.25) label = "Limited"
-
-                            return (
-                                <Card>
-                                    <CardHeader>
-                                        <CardTitle>Overall Preparation Estimate</CardTitle>
-                                        <CardDescription>
-                                            Based on your quiz and flashcard performance across {totalTracked} tracked concepts.
-                                        </CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="space-y-3">
-                                        <div className="text-2xl font-bold text-primary">{label}</div>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <p className="text-xs text-muted-foreground mb-1">Coverage</p>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-lg font-semibold">{coveragePct}%</span>
-                                                    <Progress value={coveragePct} className="flex-1 h-2" />
-                                                </div>
-                                                <p className="text-[11px] text-muted-foreground mt-0.5">{attempted} of {totalTracked} concepts attempted</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-xs text-muted-foreground mb-1">Performance</p>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-lg font-semibold">{performance}%</span>
-                                                    <Progress value={performance} className="flex-1 h-2" />
-                                                </div>
-                                                <p className="text-[11px] text-muted-foreground mt-0.5">Avg mastery of attempted concepts</p>
-                                            </div>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            )
-                        })()}
-
                         {/* Mastery explanation */}
-                        <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-4 py-3">
-                            <HelpCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                            <span>
-                                Mastery scores are based on recent quiz and flashcard performance, weighted by question difficulty and answer speed.
-                                Concepts are scheduled for review using spaced repetition (SM-2). Sections below are ordered by study priority.
+                        <div className="flex items-start gap-3 text-sm font-medium text-muted-foreground bg-muted/40 border border-border/50 rounded-xl p-5">
+                            <HelpCircle className="w-5 h-5 shrink-0 text-primary/60" />
+                            <span className="leading-relaxed">
+                                Mastery scores are dynamically updated based on your recent quiz and flashcard performance, factoring in difficulty and time decay. Topics below are ordered by their prioritized study necessity.
                             </span>
                         </div>
 
-                        {/* Milestones */}
-                        {(() => {
-                            const milestones: { label: string; achieved: boolean }[] = []
-                            const hasFirstQuiz = (quizzes || []).length > 0 && plan.performancePlannedReviews.length > 0
-                            milestones.push({ label: "First quiz taken", achieved: hasFirstQuiz })
-                            const hasMastered = performanceMasteryList.some(m => m.display_mastery_level === 'mastered')
-                            milestones.push({ label: "First concept mastered", achieved: hasMastered })
-                            const achieved = milestones.filter(m => m.achieved)
-                            if (achieved.length === 0) return null
-                            return (
-                                <div className="flex flex-wrap gap-2">
-                                    {achieved.map((m, i) => (
-                                        <Badge key={i} variant="secondary" className="gap-1.5 text-xs">
-                                            <CheckCircle2 className="w-3 h-3" />
-                                            {m.label}
-                                        </Badge>
-                                    ))}
-                                </div>
-                            )
-                        })()}
-
                         {/* Prioritized Sections */}
-                        <SectionBlock
-                            title="Due Today"
-                            icon={<Target className="w-5 h-5 text-red-500" />}
-                            items={sections.dueToday}
-                            emptyMessage="Nothing due today — you're caught up!"
-                            onSelect={setSelectedConcept}
-                        />
+                        <div className="space-y-6 pt-4">
+                            <h2 className="text-2xl font-bold tracking-tight mb-2">Active Topics</h2>
+                            
+                            <SectionBlock
+                                title="Due Today"
+                                icon={<Target className="w-6 h-6 text-red-500" />}
+                                items={sections.dueToday}
+                                emptyMessage="Nothing due today — you're caught up!"
+                                onSelect={setSelectedConcept}
+                            />
 
-                        <SectionBlock
-                            title="Needs Review"
-                            icon={<AlertTriangle className="w-5 h-5 text-orange-500" />}
-                            items={sections.needsReview}
-                            emptyMessage="No weak topics"
-                            onSelect={setSelectedConcept}
-                        />
+                            <SectionBlock
+                                title="Needs Review"
+                                icon={<AlertTriangle className="w-6 h-6 text-orange-500" />}
+                                items={sections.needsReview}
+                                emptyMessage="No weak topics identified yet."
+                                onSelect={setSelectedConcept}
+                            />
 
-                        <SectionBlock
-                            title="Developing"
-                            icon={<BookOpen className="w-5 h-5 text-yellow-500" />}
-                            items={sections.developing}
-                            emptyMessage="No developing topics"
-                            onSelect={setSelectedConcept}
-                        />
+                            <SectionBlock
+                                title="Developing"
+                                icon={<BookOpen className="w-6 h-6 text-yellow-500" />}
+                                items={sections.developing}
+                                emptyMessage="No developing topics currently tracking."
+                                onSelect={setSelectedConcept}
+                            />
 
-                        <SectionBlock
-                            title="Mastered"
-                            icon={<CheckCircle2 className="w-5 h-5 text-green-500" />}
-                            items={sections.mastered}
-                            emptyMessage="No mastered topics yet"
-                            onSelect={setSelectedConcept}
-                        />
+                            <SectionBlock
+                                title="Mastered"
+                                icon={<CheckCircle2 className="w-6 h-6 text-green-500" />}
+                                items={sections.mastered}
+                                emptyMessage="You haven't mastered any topics yet. Keep going!"
+                                onSelect={setSelectedConcept}
+                            />
+                        </div>
 
-                        {/* Concept Detail Dialog */}
                         <ConceptDetailDialog
                             concept={selectedConcept}
                             open={selectedConcept !== null}

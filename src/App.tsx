@@ -11,6 +11,7 @@ import QuizzesPage from './pages/QuizzesPage'
 import QuizSessionPage from './pages/QuizSessionPage'
 import LearningPathPage from './pages/LearningPathPage'
 import AnalyticsPage from './pages/AnalyticsPage'
+import DocumentAnalyticsPage from './pages/DocumentAnalyticsPage'
 import ProfilePage from './pages/ProfilePage'
 import SubscriptionPage from './pages/SubscriptionPage'
 import SubscriptionCheckoutPage from './pages/SubscriptionCheckoutPage'
@@ -85,6 +86,14 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute requireProfile requirePremium>
         <AnalyticsPage />
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: '/analytics/document/:documentId',
+    element: (
+      <ProtectedRoute requireProfile requirePremium>
+        <DocumentAnalyticsPage />
       </ProtectedRoute>
     )
   },

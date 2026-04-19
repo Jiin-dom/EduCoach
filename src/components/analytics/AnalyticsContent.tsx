@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react"
+import { Link } from "react-router-dom"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Progress } from "@/components/ui/progress"
@@ -47,7 +48,7 @@ function masteryLevelBadge(level: string) {
 
 const PIE_COLORS = ['#22c55e', '#eab308', '#ef4444']
 
-function ConceptDrillDown({ concept, onBack, timeline }: { concept: ConceptMasteryWithDetails; onBack: () => void; timeline?: { date: string; mastery: number }[] }) {
+export function ConceptDrillDown({ concept, onBack, timeline }: { concept: ConceptMasteryWithDetails; onBack: () => void; timeline?: { date: string; mastery: number }[] }) {
     return (
         <Card>
             <CardHeader>
@@ -349,6 +350,21 @@ export function AnalyticsContent() {
                                                     <Bar dataKey="averageMastery" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
                                                 </BarChart>
                                             </ResponsiveContainer>
+                                            <ul className="mt-4 space-y-1 border-t pt-3">
+                                                {performanceByDocument
+                                                    .filter((d) => d.documentId !== "unknown")
+                                                    .map((d) => (
+                                                        <li key={d.documentId}>
+                                                            <Link
+                                                                to={`/analytics/document/${d.documentId}`}
+                                                                className="text-sm text-primary hover:underline flex items-center justify-between gap-2 py-1"
+                                                            >
+                                                                <span className="truncate font-medium">{d.title}</span>
+                                                                <span className="shrink-0 text-muted-foreground">{d.averageMastery}%</span>
+                                                            </Link>
+                                                        </li>
+                                                    ))}
+                                            </ul>
                                         </CardContent>
                                     </Card>
 
