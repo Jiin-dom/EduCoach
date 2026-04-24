@@ -16,15 +16,15 @@ interface CardSectionProps extends React.ComponentProps<"div"> {
 function Card({ className, variant = "default", ...props }: CardProps) {
   const variantClassName =
     variant === "dashboard"
-      ? "rounded-2xl border-border/80 bg-card/80 shadow-[0_10px_30px_-22px_rgba(55,39,77,0.45)]"
-      : "rounded-xl border"
+      ? "rounded-2xl border-border/80 bg-card/80 shadow-[0_10px_30px_-22px_rgba(55,39,77,0.45)] py-5 gap-1"
+      : "rounded-xl border py-6 gap-4"
 
   return (
     <div
       data-slot="card"
       data-variant={variant}
       className={cn(
-        "bg-card text-card-foreground flex flex-col gap-6 py-6 shadow-sm",
+        "bg-card text-card-foreground flex flex-col shadow-sm",
         variantClassName,
         className
       )}

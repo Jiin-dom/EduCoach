@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Upload, FileText, Brain, Clock, TrendingUp, Eye, Sparkles, Loader2, RefreshCw, Zap } from "lucide-react"
 import { FileUploadDialog } from "@/components/files/FileUploadDialog"
@@ -334,7 +334,7 @@ export function DashboardContent() {
                 </Card>
             )}
 
-            <div className="grid h-full min-h-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+            <div className="grid h-full min-h-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
                 <div className="space-y-6 min-h-0 lg:h-full lg:overflow-y-auto lg:pr-2 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                     {/* Stats grid — gradient metric cards */}
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -426,7 +426,7 @@ export function DashboardContent() {
                     {/* Main Content Grid with Weak Topics Panel */}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* Uploaded Files Section */}
-                        <Card variant="dashboard" className="lg:col-span-1 max-h-[620px] flex flex-col">
+                        <Card variant="dashboard" className="lg:col-span-1 h-[500px] flex flex-col">
                     <CardHeader density="compact">
                         <div className="flex items-center justify-between gap-2">
                             <div>
@@ -446,15 +446,10 @@ export function DashboardContent() {
                                     <Upload className="h-4 w-4" />
                                     <span className="sr-only">Upload file</span>
                                 </Button>
-                                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs sm:px-3 sm:text-sm" asChild>
-                                    <Link to="/files" onClick={(event) => event.stopPropagation()}>
-                                        View all
-                                    </Link>
-                                </Button>
                             </div>
                         </div>
                     </CardHeader>
-                    <CardContent density="compact" className="flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                    <CardContent density="compact" className="flex-1 overflow-y-auto pb-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                         {isLoading ? (
                             <div className="space-y-2.5">
                                 {Array.from({ length: 3 }).map((_, idx) => (
@@ -629,39 +624,29 @@ export function DashboardContent() {
                                         </div>
                                     ))}
                                 </div>
-                                {/* <div className="flex gap-2">
-                                    <Button onClick={(event) => {
-                                        event.stopPropagation()
-                                        setShowUploadDialog(true)
-                                    }} variant="outline" className="flex-1">
-                                        <Upload className="w-4 h-4 mr-2" />
-                                        Upload More
-                                    </Button>
-                                    <Link to="/files" className="flex-1" onClick={(event) => event.stopPropagation()}>
-                                        <Button variant="ghost" className="w-full">
-                                            View All
-                                        </Button>
-                                    </Link>
-                                </div> */}
                             </div>
                         )}
                     </CardContent>
+                    {documents && documents.length > 0 && (
+                        <CardFooter density="compact" className="pt-0 shrink-0">
+                            <Link to="/files" className="w-full" onClick={(event) => event.stopPropagation()}>
+                                <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground hover:text-primary">
+                                    <FileText className="w-3.5 h-3.5 mr-2" />
+                                    View all study materials
+                                </Button>
+                            </Link>
+                        </CardFooter>
+                    )}
                         </Card>
 
                         {/* Quizzes Section */}
-                        <Card variant="dashboard" className="lg:col-span-1 max-h-[620px] flex flex-col">
+                        <Card variant="dashboard" className="lg:col-span-1 h-[500px] flex flex-col">
                     <CardHeader density="compact" className="flex flex-row items-center justify-between">
                         <div>
                             <CardTitle>Available Quizzes</CardTitle>
-                           
                         </div>
-                        <Link to="/quizzes">
-                            <Button variant="outline" size="sm">
-                                View All
-                            </Button>
-                        </Link>
                     </CardHeader>
-                    <CardContent density="compact" className="flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                    <CardContent density="compact" className="flex-1 overflow-y-auto pb-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                         {!quizzes ? (
                             <div className="space-y-3">
                                 {Array.from({ length: 3 }).map((_, idx) => (
@@ -697,9 +682,19 @@ export function DashboardContent() {
                             </div>
                         )}
                     </CardContent>
+                    {quizzes && quizzes.length > 0 && (
+                        <CardFooter density="compact" className="pt-0 shrink-0">
+                            <Link to="/quizzes" className="w-full">
+                                <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground hover:text-primary">
+                                    <Brain className="w-3.5 h-3.5 mr-2" />
+                                    View all available quizzes
+                                </Button>
+                            </Link>
+                        </CardFooter>
+                    )}
                         </Card>
 
-                        <div className="max-h-[620px]">
+                        <div className="h-[500px]">
                             <WeakTopicsPanel />
                         </div>
                     </div>
