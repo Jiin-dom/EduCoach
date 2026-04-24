@@ -17,9 +17,7 @@ import {
     buildGoalProgressViewModel,
 } from '@/lib/documentGoalAnalytics'
 import { DocumentGoalProgressStrip } from '@/components/analytics/DocumentGoalProgressStrip'
-import { ConceptDrillDown } from '@/components/analytics/AnalyticsContent'
-
-const PIE_COLORS = ['#22c55e', '#eab308', '#ef4444']
+import { ConceptDrillDown, PIE_COLORS, ChartTooltip } from '@/components/analytics/AnalyticsContent'
 
 function masteryLevelBadge(level: string) {
     switch (level) {
@@ -268,10 +266,10 @@ export function DocumentAnalyticsContent() {
                                             paddingAngle={2}
                                         >
                                             {distributionData.map((_, index) => (
-                                                <Cell key={index} fill={PIE_COLORS[index]} />
+                                                <Cell key={index} fill={PIE_COLORS[index]} stroke="var(--background)" strokeWidth={2} />
                                             ))}
                                         </Pie>
-                                        <Tooltip />
+                                        <Tooltip content={<ChartTooltip />} />
                                     </PieChart>
                                 </ResponsiveContainer>
                                 <div className="space-y-3">

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Upload, FileText, Brain, Clock, TrendingUp, Eye, Sparkles, Loader2, RefreshCw, Zap } from "lucide-react"
 import { Upload, FileText, Brain, Clock, TrendingUp, Eye, Sparkles, Loader2, RefreshCw, Zap } from "lucide-react"
 import { FileUploadDialog } from "@/components/files/FileUploadDialog"
 import { GenerateQuizDialog } from "@/components/files/GenerateQuizDialog"
@@ -13,6 +14,7 @@ import { AiTutorChat } from "@/components/shared/AiTutorChat"
 import { Link, useNavigate } from "react-router-dom"
 import { useAuth } from "@/contexts/AuthContext"
 import { useDocuments, useProcessDocument, type Document } from "@/hooks/useDocuments"
+import { useDocuments, useProcessDocument, type Document } from "@/hooks/useDocuments"
 import { formatFileSize } from "@/lib/storage"
 import { Badge } from "@/components/ui/badge"
 import { useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
@@ -20,6 +22,7 @@ import { useLearningStats, useStudyTimeLastTwoWeeks } from "@/hooks/useLearning"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 import { useMarkTrialWelcomeSeen } from "@/hooks/useStudentSubscription"
+import { Skeleton } from "@/components/ui/skeleton"
 
 export function DashboardContent() {
     const { profile, user } = useAuth()
@@ -63,13 +66,9 @@ export function DashboardContent() {
         refetch()
     }
 
-
-
     const handleRetryProcessing = (doc: Document) => {
         processDocument.mutate(doc.id)
     }
-
-
 
     const getStatusColor = (status: string) => {
         switch (status) {
@@ -80,8 +79,6 @@ export function DashboardContent() {
             default: return 'text-gray-600 bg-gray-50'
         }
     }
-
-    // Get greeting based on time of day
 
     const isTrialActive = profile?.subscription_is_trial_active === true
     const trialDaysLeft = profile?.subscription_trial_days_left ?? 0
@@ -160,7 +157,7 @@ export function DashboardContent() {
     }
 
     return (
-        <div className="space-y-8">
+        <div className="h-full space-y-8 overflow-hidden">
             <Dialog open={showExpiredTrialModal} onOpenChange={(open) => !open && handleCloseExpiredTrialModal()}>
                 <DialogContent showCloseButton={false} className="max-w-xl overflow-hidden border border-primary/10 bg-white p-0 shadow-[0_30px_75px_-26px_rgba(55,39,77,0.4)]">
                     <DialogHeader className="sr-only">
@@ -319,8 +316,8 @@ export function DashboardContent() {
 
 
             {isTrialActive && (
-                <Card className="border-primary/30 bg-primary/5">
-                    <CardContent className="p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <Card variant="dashboard" className="border-primary/30 bg-primary/5">
+                    <CardContent density="compact" className="p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                         <div className="flex items-start gap-2">
                             <Sparkles className="w-5 h-5 text-primary mt-0.5" />
                             <div>
@@ -337,249 +334,342 @@ export function DashboardContent() {
                 </Card>
             )}
 
-            {/* Stats grid — gradient metric cards */}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-                {/* Study time this week */}
-                <div className="group rounded-2xl border border-chart-1/20 bg-gradient-to-br from-chart-1/10 to-chart-1/5 p-5 shadow-sm transition-shadow hover:shadow-md sm:p-6">
-                    <div className="flex flex-row items-center justify-between gap-3">
-                        <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
-                                <Clock className="h-5 w-5" aria-hidden />
-                            </div>
-                            <p className="text-left text-xs font-medium leading-snug text-foreground/80">
-                                Study time this week
-                            </p>
-                        </div>
-                        <div className="flex shrink-0 items-center justify-end text-right text-2xl font-bold tabular-nums text-foreground sm:text-3xl">
-                            {studyTimeLoading ? (
-                                <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" aria-label="Loading study time" />
-                            ) : (
-                                `${((studyTimeWeeks?.thisWeekMinutes ?? 0) / 60).toFixed(1)} hrs`
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Quizzes completed */}
-                <div className="group rounded-2xl border border-chart-2/20 bg-gradient-to-br from-chart-2/10 to-chart-2/5 p-5 shadow-sm transition-shadow hover:shadow-md sm:p-6">
-                    <div className="flex flex-row items-center justify-between gap-3">
-                        <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-chart-2/15 text-chart-2">
-                                <Brain className="h-5 w-5" aria-hidden />
-                            </div>
-                            <p className="text-left text-xs font-medium leading-snug text-foreground/80">
-                                Quizzes completed
-                            </p>
-                        </div>
-                        <div className="shrink-0 text-right text-2xl font-bold tabular-nums text-foreground sm:text-3xl">
-                            {learningStats?.quizzesCompleted ?? 0}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Average score */}
-                <div className="group rounded-2xl border border-chart-3/20 bg-gradient-to-br from-chart-3/10 to-chart-3/5 p-5 shadow-sm transition-shadow hover:shadow-md sm:p-6">
-                    <div className="flex flex-row items-center justify-between gap-3">
-                        <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-chart-4/15 text-chart-4">
-                                <TrendingUp className="h-5 w-5" aria-hidden />
-                            </div>
-                            <p className="text-left text-xs font-medium leading-snug text-foreground/80">
-                                Average score
-                            </p>
-                        </div>
-                        <div className="shrink-0 text-right text-2xl font-bold tabular-nums text-foreground sm:text-3xl">
-                            {learningStats?.averageScore ?? 0}%
-                        </div>
-                    </div>
-                </div>
-
-                {/* Day streak */}
-                <div className="group rounded-2xl border border-orange-400/25 bg-gradient-to-br from-orange-400/10 to-orange-400/5 p-5 shadow-sm transition-shadow hover:shadow-md sm:p-6">
-                    <div className="flex flex-row items-center justify-between gap-3">
-                        <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-400/15 text-orange-500 dark:text-orange-400">
-                                <Zap className="h-5 w-5" aria-hidden />
-                            </div>
-                            <p className="text-left text-xs font-medium leading-snug text-foreground/80">
-                                Day streak
-                            </p>
-                        </div>
-                        <div className="shrink-0 text-right text-2xl font-bold tabular-nums text-foreground sm:text-3xl">
-                            {learningStats?.studyStreak ?? 0}
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <TodaysStudyPlan />
-
-            {/* Main Content Grid with Weak Topics Panel */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Uploaded Files Section */}
-                <Card className="lg:col-span-1 max-h-[620px] flex flex-col">
-                    <CardHeader>
-                        <div className="flex items-center justify-between gap-2">
-                            <div>
-                                <CardTitle>Study Materials</CardTitle>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-0.5">
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8"
-                                    onClick={(event) => {
-                                        event.stopPropagation()
-                                        setShowUploadDialog(true)
-                                    }}
-                                    title="Upload file"
-                                >
-                                    <Upload className="h-4 w-4" />
-                                    <span className="sr-only">Upload file</span>
-                                </Button>
-                                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs sm:px-3 sm:text-sm" asChild>
-                                    <Link to="/files" onClick={(event) => event.stopPropagation()}>
-                                        View all
-                                    </Link>
-                                </Button>
-                            </div>
-                        </div>
-                    </CardHeader>
-                    <CardContent className="flex-1 overflow-y-auto">
-                        {isLoading ? (
-                            <div className="flex items-center justify-center py-12">
-                                <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                            </div>
-                        ) : recentFiles.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center py-12 text-center">
-                                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                                    <Upload className="w-8 h-8 text-muted-foreground" />
+            <div className="grid h-full min-h-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+                <div className="space-y-6 min-h-0 lg:h-full lg:overflow-y-auto lg:pr-2 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                    {/* Stats grid — gradient metric cards */}
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                        {/* Study time this week */}
+                        <div className="group rounded-2xl border border-chart-1/20 bg-gradient-to-br from-chart-1/10 via-card to-chart-1/5 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md sm:p-5">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                                        <Clock className="h-5 w-5" aria-hidden />
+                                    </div>
+                                    <p className="text-left text-xs font-medium leading-snug text-foreground/75">
+                                        Study time this week
+                                    </p>
                                 </div>
-                                <h3 className="font-semibold mb-2">No files uploaded yet</h3>
-                                <p className="text-sm text-muted-foreground mb-4">
-                                    Upload your study materials to generate personalized quizzes
-                                </p>
-                                <Button onClick={(event) => {
-                                    event.stopPropagation()
-                                    setShowUploadDialog(true)
-                                }}>
-                                    <Upload className="w-4 h-4 mr-2" />
-                                    Upload File
-                                </Button>
                             </div>
-                        ) : (
-                            <div className="space-y-4">
-                                <div className="space-y-2">
-                                    {recentFiles.map((file) => (
-                                        <div
-                                            key={file.id}
-                                            className="flex items-center gap-3 rounded-lg border bg-card p-3 transition-colors hover:bg-accent/5"
-                                            role="link"
-                                            tabIndex={0}
-                                            onClick={() => navigate(`/files/${file.id}`)}
-                                            onKeyDown={(event) => {
-                                                if (event.key === "Enter" || event.key === " ") {
-                                                    event.preventDefault()
-                                                    navigate(`/files/${file.id}`)
-                                                }
+                            <div className="mt-3 flex items-end justify-between">
+                                <div className="text-[11px] text-muted-foreground">This week</div>
+                                <div className="flex shrink-0 items-center justify-end text-right text-3xl font-bold tabular-nums text-foreground">
+                                    {studyTimeLoading ? (
+                                        <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" aria-label="Loading study time" />
+                                    ) : (
+                                        `${((studyTimeWeeks?.thisWeekMinutes ?? 0) / 60).toFixed(1)} hrs`
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Quizzes completed */}
+                        <div className="group rounded-2xl border border-chart-2/20 bg-gradient-to-br from-chart-2/10 via-card to-chart-2/5 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md sm:p-5">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-chart-2/15 text-chart-2">
+                                        <Brain className="h-5 w-5" aria-hidden />
+                                    </div>
+                                    <p className="text-left text-xs font-medium leading-snug text-foreground/75">
+                                        Quizzes completed
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="mt-3 flex items-end justify-between">
+                                <div className="text-[11px] text-muted-foreground">All time</div>
+                                <div className="shrink-0 text-right text-3xl font-bold tabular-nums text-foreground">
+                                    {learningStats?.quizzesCompleted ?? 0}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Average score */}
+                        <div className="group rounded-2xl border border-chart-3/20 bg-gradient-to-br from-chart-3/10 via-card to-chart-3/5 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md sm:p-5">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-chart-4/15 text-chart-4">
+                                        <TrendingUp className="h-5 w-5" aria-hidden />
+                                    </div>
+                                    <p className="text-left text-xs font-medium leading-snug text-foreground/75">
+                                        Average score
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="mt-3 flex items-end justify-between">
+                                <div className="text-[11px] text-muted-foreground">Latest trend</div>
+                                <div className="shrink-0 text-right text-3xl font-bold tabular-nums text-foreground">
+                                    {learningStats?.averageScore ?? 0}%
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Day streak */}
+                        <div className="group rounded-2xl border border-orange-400/25 bg-gradient-to-br from-orange-400/10 via-card to-orange-400/5 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md sm:p-5">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-400/15 text-orange-500 dark:text-orange-400">
+                                        <Zap className="h-5 w-5" aria-hidden />
+                                    </div>
+                                    <p className="text-left text-xs font-medium leading-snug text-foreground/75">
+                                        Day streak
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="mt-3 flex items-end justify-between">
+                                <div className="text-[11px] text-muted-foreground">Consecutive days</div>
+                                <div className="shrink-0 text-right text-3xl font-bold tabular-nums text-foreground">
+                                    {learningStats?.studyStreak ?? 0}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Main Content Grid with Weak Topics Panel */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Uploaded Files Section */}
+                        <Card variant="dashboard" className="lg:col-span-1 h-[500px] flex flex-col">
+                            <CardHeader density="compact">
+                                <div className="flex items-center justify-between gap-2">
+                                    <div>
+                                        <CardTitle>Study Materials</CardTitle>
+                                    </div>
+                                    <div className="flex shrink-0 items-center gap-0.5">
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8"
+                                            onClick={(event) => {
+                                                event.stopPropagation()
+                                                setShowUploadDialog(true)
                                             }}
+                                            title="Upload file"
                                         >
-                                            <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                                                <FileText className="w-5 h-5 text-primary" />
+                                            <Upload className="h-4 w-4" />
+                                            <span className="sr-only">Upload file</span>
+                                        </Button>
+                                    </div>
+                                </div>
+                            </CardHeader>
+                            <CardContent density="compact" className="flex-1 overflow-y-auto pb-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                                {isLoading ? (
+                                    <div className="space-y-2.5">
+                                        {Array.from({ length: 3 }).map((_, idx) => (
+                                            <div key={idx} className="flex items-center gap-3 rounded-xl border border-border/70 bg-card/40 p-3">
+                                                <Skeleton className="h-9 w-9 rounded-md" />
+                                                <div className="min-w-0 flex-1 space-y-2">
+                                                    <Skeleton className="h-3.5 w-2/3" />
+                                                    <Skeleton className="h-3 w-1/3" />
+                                                </div>
+                                                <Skeleton className="h-8 w-8 rounded-md" />
                                             </div>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="font-medium truncate">{file.title}</p>
-                                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                                    <span>{formatFileSize(file.file_size)}</span>
-                                                    <Badge variant="outline" className={`text-xs ${getStatusColor(file.status)}`}>
-                                                        {file.status}
-                                                    </Badge>
-                                                    {file.deadline && (
-                                                        <span className="text-amber-600 dark:text-amber-500 font-medium">
-                                                            Due {new Date(file.deadline).toLocaleDateString()}
+                                        ))}
+                                    </div>
+                                ) : recentFiles.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                                        <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                                            <Upload className="w-8 h-8 text-muted-foreground" />
+                                        </div>
+                                        <h3 className="font-semibold mb-2">No files uploaded yet</h3>
+                                        <p className="text-sm text-muted-foreground mb-4">
+                                            Upload your study materials to generate personalized quizzes
+                                        </p>
+                                        <Button onClick={(event) => {
+                                            event.stopPropagation()
+                                            setShowUploadDialog(true)
+                                        }}>
+                                            <Upload className="w-4 h-4 mr-2" />
+                                            Upload File
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        <div className="space-y-2.5">
+                                            {recentFiles.map((file) => (
+                                                <div
+                                                    key={file.id}
+                                                    className={`group relative isolate flex items-center gap-3 overflow-hidden rounded-xl border bg-card/50 p-3 transition-all hover:border-primary/20 hover:bg-accent/5 ${file.status === "ready"
+                                                            ? "border-emerald-300/80 shadow-[inset_0_0_0_1px_rgba(110,231,183,0.35)]"
+                                                            : file.status === "processing"
+                                                                ? "border-sky-300/80 shadow-[inset_0_0_0_1px_rgba(125,211,252,0.35)]"
+                                                                : file.status === "pending"
+                                                                    ? "border-transparent"
+                                                                    : "border-border/70"
+                                                        }`}
+                                                    role="link"
+                                                    tabIndex={0}
+                                                    onClick={() => navigate(`/files/${file.id}`)}
+                                                    onKeyDown={(event) => {
+                                                        if (event.key === "Enter" || event.key === " ") {
+                                                            event.preventDefault()
+                                                            navigate(`/files/${file.id}`)
+                                                        }
+                                                    }}
+                                                >
+                                                    {file.status === "pending" && (
+                                                        <>
+                                                            <span className="pointer-events-none absolute inset-0 rounded-xl bg-[conic-gradient(from_0deg,_rgba(139,92,246,0.15),_rgba(56,189,248,0.55),_rgba(167,139,250,0.25),_rgba(99,102,241,0.55),_rgba(139,92,246,0.15))] animate-[spin_2.8s_linear_infinite]" />
+                                                            <span className="pointer-events-none absolute inset-[1px] rounded-[11px] bg-card/95" />
+                                                        </>
+                                                    )}
+                                                    {file.status === "ready" && (
+                                                        <span className="absolute right-2 top-2 z-10 rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 shadow-sm">
+                                                            Ready
                                                         </span>
                                                     )}
+                                                    {file.status === "processing" && (
+                                                        <span className="absolute right-2 top-2 z-10 rounded-full border border-sky-200 bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700 shadow-sm">
+                                                            Processing
+                                                        </span>
+                                                    )}
+                                                    {file.status === "pending" && (
+                                                        <span className="absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 shadow-sm">
+                                                            <Sparkles className="h-3 w-3 animate-pulse" />
+                                                            EduBuddy Extracting
+                                                        </span>
+                                                    )}
+                                                    <div className={`relative z-10 flex h-9 w-9 items-center justify-center rounded-md ${file.status === "processing"
+                                                            ? "bg-sky-100 text-sky-700"
+                                                            : file.status === "pending"
+                                                                ? "bg-violet-100 text-violet-700"
+                                                                : "bg-primary/10 text-primary"
+                                                        }`}>
+                                                        {file.status === "processing" ? (
+                                                            <Loader2 className="h-4.5 w-4.5 animate-spin" />
+                                                        ) : file.status === "pending" ? (
+                                                            <Sparkles className="h-4.5 w-4.5 animate-pulse" />
+                                                        ) : (
+                                                            <FileText className="h-4.5 w-4.5" />
+                                                        )}
+                                                    </div>
+                                                    <div className={`relative z-10 min-w-0 flex-1 ${(file.status === "ready" || file.status === "processing" || file.status === "pending") ? "pr-24" : ""}`}>
+                                                        <p className="truncate text-sm font-semibold">{file.title}</p>
+                                                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                                            <span>{formatFileSize(file.file_size)}</span>
+                                                            {file.status !== "ready" && file.status !== "processing" && file.status !== "pending" && (
+                                                                <Badge variant="outline" className={`border-0 text-[11px] ${getStatusColor(file.status)}`}>
+                                                                    {file.status}
+                                                                </Badge>
+                                                            )}
+                                                            {file.deadline && (
+                                                                <span className="font-medium text-amber-600 dark:text-amber-500">
+                                                                    Due {new Date(file.deadline).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className={`relative z-10 flex items-center gap-1 opacity-80 transition-opacity group-hover:opacity-100 ${(file.status === "ready" || file.status === "processing" || file.status === "pending") ? "mt-5" : ""}`}>
+                                                        <Link
+                                                            to={`/files/${file.id}`}
+                                                            onClick={(event) => event.stopPropagation()}
+                                                        >
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-8 w-8 rounded-md"
+                                                            >
+                                                                <Eye className="w-4 h-4" />
+                                                            </Button>
+                                                        </Link>
+                                                        {file.status === 'error' && (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-8 w-8 rounded-md text-orange-600 hover:text-orange-700"
+                                                                onClick={(event) => {
+                                                                    event.stopPropagation()
+                                                                    handleRetryProcessing(file)
+                                                                }}
+                                                                disabled={processDocument.isPending}
+                                                                title="Retry processing (wait a few minutes if rate limited)"
+                                                            >
+                                                                <RefreshCw className={`w-4 h-4 ${processDocument.isPending ? 'animate-spin' : ''}`} />
+                                                            </Button>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                            <div className="flex items-center gap-1">
-                                                <Link
-                                                    to={`/files/${file.id}`}
-                                                    onClick={(event) => event.stopPropagation()}
-                                                >
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="h-8 w-8"
-                                                    >
-                                                        <Eye className="w-4 h-4" />
-                                                    </Button>
-                                                </Link>
-                                                {file.status === 'error' && (
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="h-8 w-8 text-orange-600 hover:text-orange-700"
-                                                        onClick={(event) => {
-                                                            event.stopPropagation()
-                                                            handleRetryProcessing(file)
-                                                        }}
-                                                        disabled={processDocument.isPending}
-                                                        title="Retry processing (wait a few minutes if rate limited)"
-                                                    >
-                                                        <RefreshCw className={`w-4 h-4 ${processDocument.isPending ? 'animate-spin' : ''}`} />
-                                                    </Button>
-                                                )}
-                                            </div>
+                                            ))}
                                         </div>
-                                    ))}
+                                    </div>
+                                )}
+                            </CardContent>
+                            {documents && documents.length > 0 && (
+                                <CardFooter density="compact" className="pt-0 shrink-0">
+                                    <Link to="/files" className="w-full" onClick={(event) => event.stopPropagation()}>
+                                        <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground hover:text-primary">
+                                            <FileText className="w-3.5 h-3.5 mr-2" />
+                                            View all study materials
+                                        </Button>
+                                    </Link>
+                                </CardFooter>
+                            )}
+                        </Card>
+
+                        {/* Quizzes Section */}
+                        <Card variant="dashboard" className="lg:col-span-1 h-[500px] flex flex-col">
+                            <CardHeader density="compact" className="flex flex-row items-center justify-between">
+                                <div>
+                                    <CardTitle>Available Quizzes</CardTitle>
                                 </div>
+                            </CardHeader>
+                            <CardContent density="compact" className="flex-1 overflow-y-auto pb-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                                {!quizzes ? (
+                                    <div className="space-y-3">
+                                        {Array.from({ length: 3 }).map((_, idx) => (
+                                            <div key={idx} className="rounded-xl border bg-card p-3.5">
+                                                <div className="flex items-start gap-3">
+                                                    <Skeleton className="h-10 w-10 rounded-lg" />
+                                                    <div className="flex-1 space-y-2">
+                                                        <Skeleton className="h-4 w-2/3" />
+                                                        <Skeleton className="h-3 w-1/2" />
+                                                    </div>
+                                                </div>
+                                                <Skeleton className="mt-3 h-8 w-full rounded-md" />
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : recentQuizzes.length === 0 ? (
+                                    <div className="text-center py-8">
+                                        <Brain className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+                                        <p className="text-sm text-muted-foreground">
+                                            No quizzes yet. Generate one from your study materials!
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {recentQuizzes.map((quiz) => (
+                                            <QuizCard
+                                                key={quiz.id}
+                                                quiz={quiz}
+                                                lastScore={lastScoreByQuiz.get(quiz.id) ?? null}
+                                                compact
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+                            </CardContent>
+                            {quizzes && quizzes.length > 0 && (
+                                <CardFooter density="compact" className="pt-0 shrink-0">
+                                    <Link to="/quizzes" className="w-full">
+                                        <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground hover:text-primary">
+                                            <Brain className="w-3.5 h-3.5 mr-2" />
+                                            View all available quizzes
+                                        </Button>
+                                    </Link>
+                                </CardFooter>
+                            )}
+                        </Card>
 
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
-
-                {/* Quizzes Section */}
-                <Card className="lg:col-span-1 max-h-[620px] flex flex-col">
-                    <CardHeader className="flex flex-row items-center justify-between">
-                        <div>
-                            <CardTitle>Available Quizzes</CardTitle>
-                           
+                        <div className="h-[500px]">
+                            <WeakTopicsPanel />
                         </div>
-                        <Link to="/quizzes">
-                            <Button variant="outline" size="sm">
-                                View All
-                            </Button>
-                        </Link>
-                    </CardHeader>
-                    <CardContent className="flex-1 overflow-y-auto">
-                        {recentQuizzes.length === 0 ? (
-                            <div className="text-center py-8">
-                                <Brain className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
-                                <p className="text-sm text-muted-foreground">
-                                    No quizzes yet. Generate one from your study materials!
-                                </p>
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                {recentQuizzes.map((quiz) => (
-                                    <QuizCard
-                                        key={quiz.id}
-                                        quiz={quiz}
-                                        lastScore={lastScoreByQuiz.get(quiz.id) ?? null}
-                                    />
-                                ))}
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
+                    </div>
 
-                <div className="max-h-[620px]">
-                    <WeakTopicsPanel />
+                    <ProgressInsightsSection hasPremiumEntitlement={hasPremiumEntitlement} />
+                </div>
+
+                <div className="lg:sticky lg:top-0 lg:h-full [&>*]:h-full">
+                    <TodaysStudyPlan />
                 </div>
             </div>
-
-            <ProgressInsightsSection hasPremiumEntitlement={hasPremiumEntitlement} />
 
 
 
