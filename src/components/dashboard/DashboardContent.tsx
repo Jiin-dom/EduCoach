@@ -2,21 +2,25 @@ import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Upload, FileText, Brain, Clock, TrendingUp, Eye, Sparkles, Loader2, RefreshCw, Zap } from "lucide-react"
+import { Upload, FileText, Brain, Clock, TrendingUp, Eye, Sparkles, Loader2, RefreshCw, Zap } from "lucide-react"
 import { FileUploadDialog } from "@/components/files/FileUploadDialog"
 import { GenerateQuizDialog } from "@/components/files/GenerateQuizDialog"
 import { QuizCard } from "@/components/dashboard/QuizCard"
 import { TodaysStudyPlan } from "@/components/dashboard/TodaysStudyPlan"
 import { WeakTopicsPanel } from "@/components/dashboard/WeakTopicsPanel"
+
 import { ProgressInsightsSection } from "@/components/dashboard/ProgressInsightsSection"
 import { AiTutorChat } from "@/components/shared/AiTutorChat"
 import { Link, useNavigate } from "react-router-dom"
 import { useAuth } from "@/contexts/AuthContext"
+import { useDocuments, useProcessDocument, type Document } from "@/hooks/useDocuments"
 import { useDocuments, useProcessDocument, type Document } from "@/hooks/useDocuments"
 import { formatFileSize } from "@/lib/storage"
 import { Badge } from "@/components/ui/badge"
 import { useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
 import { useLearningStats, useStudyTimeLastTwoWeeks } from "@/hooks/useLearning"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+
 import { useMarkTrialWelcomeSeen } from "@/hooks/useStudentSubscription"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -309,11 +313,7 @@ export function DashboardContent() {
                 </DialogContent>
             </Dialog>
 
-            {/* Welcome Section */}
-            {/* <div className="bg-gradient-to-r from-primary to-accent rounded-2xl p-8 text-primary-foreground">
-                <h1 className="text-3xl font-bold mb-2">{getGreeting()}, {displayName}!</h1>
-                <p className="text-primary-foreground/90 text-lg">Ready to continue your learning journey?</p>
-            </div> */}
+
 
             {isTrialActive && (
                 <Card variant="dashboard" className="border-primary/30 bg-primary/5">
@@ -427,271 +427,235 @@ export function DashboardContent() {
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* Uploaded Files Section */}
                         <Card variant="dashboard" className="lg:col-span-1 h-[500px] flex flex-col">
-                    <CardHeader density="compact">
-                        <div className="flex items-center justify-between gap-2">
-                            <div>
-                                <CardTitle>Study Materials</CardTitle>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-0.5">
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8"
-                                    onClick={(event) => {
-                                        event.stopPropagation()
-                                        setShowUploadDialog(true)
-                                    }}
-                                    title="Upload file"
-                                >
-                                    <Upload className="h-4 w-4" />
-                                    <span className="sr-only">Upload file</span>
-                                </Button>
-                            </div>
-                        </div>
-                    </CardHeader>
-                    <CardContent density="compact" className="flex-1 overflow-y-auto pb-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                        {isLoading ? (
-                            <div className="space-y-2.5">
-                                {Array.from({ length: 3 }).map((_, idx) => (
-                                    <div key={idx} className="flex items-center gap-3 rounded-xl border border-border/70 bg-card/40 p-3">
-                                        <Skeleton className="h-9 w-9 rounded-md" />
-                                        <div className="min-w-0 flex-1 space-y-2">
-                                            <Skeleton className="h-3.5 w-2/3" />
-                                            <Skeleton className="h-3 w-1/3" />
-                                        </div>
-                                        <Skeleton className="h-8 w-8 rounded-md" />
+                            <CardHeader density="compact">
+                                <div className="flex items-center justify-between gap-2">
+                                    <div>
+                                        <CardTitle>Study Materials</CardTitle>
                                     </div>
-                                ))}
-                            </div>
-                        ) : recentFiles.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center py-12 text-center">
-                                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                                    <Upload className="w-8 h-8 text-muted-foreground" />
-                                </div>
-                                <h3 className="font-semibold mb-2">No files uploaded yet</h3>
-                                <p className="text-sm text-muted-foreground mb-4">
-                                    Upload your study materials to generate personalized quizzes
-                                </p>
-                                <Button onClick={(event) => {
-                                    event.stopPropagation()
-                                    setShowUploadDialog(true)
-                                }}>
-                                    <Upload className="w-4 h-4 mr-2" />
-                                    Upload File
-                                </Button>
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                <div className="space-y-2.5">
-                                    {recentFiles.map((file) => (
-                                        <div
-                                            key={file.id}
-                                            className={`group relative isolate flex items-center gap-3 overflow-hidden rounded-xl border bg-card/50 p-3 transition-all hover:border-primary/20 hover:bg-accent/5 ${
-                                                file.status === "ready"
-                                                    ? "border-emerald-300/80 shadow-[inset_0_0_0_1px_rgba(110,231,183,0.35)]"
-                                                    : file.status === "processing"
-                                                        ? "border-sky-300/80 shadow-[inset_0_0_0_1px_rgba(125,211,252,0.35)]"
-                                                        : file.status === "pending"
-                                                            ? "border-transparent"
-                                                    : "border-border/70"
-                                            }`}
-                                            role="link"
-                                            tabIndex={0}
-                                            onClick={() => navigate(`/files/${file.id}`)}
-                                            onKeyDown={(event) => {
-                                                if (event.key === "Enter" || event.key === " ") {
-                                                    event.preventDefault()
-                                                    navigate(`/files/${file.id}`)
-                                                }
+                                    <div className="flex shrink-0 items-center gap-0.5">
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8"
+                                            onClick={(event) => {
+                                                event.stopPropagation()
+                                                setShowUploadDialog(true)
                                             }}
+                                            title="Upload file"
                                         >
-                                            {file.status === "pending" && (
-                                                <>
-                                                    <span className="pointer-events-none absolute inset-0 rounded-xl bg-[conic-gradient(from_0deg,_rgba(139,92,246,0.15),_rgba(56,189,248,0.55),_rgba(167,139,250,0.25),_rgba(99,102,241,0.55),_rgba(139,92,246,0.15))] animate-[spin_2.8s_linear_infinite]" />
-                                                    <span className="pointer-events-none absolute inset-[1px] rounded-[11px] bg-card/95" />
-                                                </>
-                                            )}
-                                            {file.status === "ready" && (
-                                                <span className="absolute right-2 top-2 z-10 rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 shadow-sm">
-                                                    Ready
-                                                </span>
-                                            )}
-                                            {file.status === "processing" && (
-                                                <span className="absolute right-2 top-2 z-10 rounded-full border border-sky-200 bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700 shadow-sm">
-                                                    Processing
-                                                </span>
-                                            )}
-                                            {file.status === "pending" && (
-                                                <span className="absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 shadow-sm">
-                                                    <Sparkles className="h-3 w-3 animate-pulse" />
-                                                    EduBuddy Extracting
-                                                </span>
-                                            )}
-                                            <div className={`relative z-10 flex h-9 w-9 items-center justify-center rounded-md ${
-                                                file.status === "processing"
-                                                    ? "bg-sky-100 text-sky-700"
-                                                    : file.status === "pending"
-                                                        ? "bg-violet-100 text-violet-700"
-                                                        : "bg-primary/10 text-primary"
-                                            }`}>
-                                                {file.status === "processing" ? (
-                                                    <Loader2 className="h-4.5 w-4.5 animate-spin" />
-                                                ) : file.status === "pending" ? (
-                                                    <Sparkles className="h-4.5 w-4.5 animate-pulse" />
-                                                ) : (
-                                                    <FileText className="h-4.5 w-4.5" />
-                                                )}
+                                            <Upload className="h-4 w-4" />
+                                            <span className="sr-only">Upload file</span>
+                                        </Button>
+                                    </div>
+                                </div>
+                            </CardHeader>
+                            <CardContent density="compact" className="flex-1 overflow-y-auto pb-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                                {isLoading ? (
+                                    <div className="space-y-2.5">
+                                        {Array.from({ length: 3 }).map((_, idx) => (
+                                            <div key={idx} className="flex items-center gap-3 rounded-xl border border-border/70 bg-card/40 p-3">
+                                                <Skeleton className="h-9 w-9 rounded-md" />
+                                                <div className="min-w-0 flex-1 space-y-2">
+                                                    <Skeleton className="h-3.5 w-2/3" />
+                                                    <Skeleton className="h-3 w-1/3" />
+                                                </div>
+                                                <Skeleton className="h-8 w-8 rounded-md" />
                                             </div>
-                                            <div className={`relative z-10 min-w-0 flex-1 ${(file.status === "ready" || file.status === "processing" || file.status === "pending") ? "pr-24" : ""}`}>
-                                                <p className="truncate text-sm font-semibold">{file.title}</p>
-                                                <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                                                    <span>{formatFileSize(file.file_size)}</span>
-                                                    {file.status !== "ready" && file.status !== "processing" && file.status !== "pending" && (
-                                                        <Badge variant="outline" className={`border-0 text-[11px] ${getStatusColor(file.status)}`}>
-                                                            {file.status}
-                                                        </Badge>
+                                        ))}
+                                    </div>
+                                ) : recentFiles.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                                        <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                                            <Upload className="w-8 h-8 text-muted-foreground" />
+                                        </div>
+                                        <h3 className="font-semibold mb-2">No files uploaded yet</h3>
+                                        <p className="text-sm text-muted-foreground mb-4">
+                                            Upload your study materials to generate personalized quizzes
+                                        </p>
+                                        <Button onClick={(event) => {
+                                            event.stopPropagation()
+                                            setShowUploadDialog(true)
+                                        }}>
+                                            <Upload className="w-4 h-4 mr-2" />
+                                            Upload File
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        <div className="space-y-2.5">
+                                            {recentFiles.map((file) => (
+                                                <div
+                                                    key={file.id}
+                                                    className={`group relative isolate flex items-center gap-3 overflow-hidden rounded-xl border bg-card/50 p-3 transition-all hover:border-primary/20 hover:bg-accent/5 ${file.status === "ready"
+                                                            ? "border-emerald-300/80 shadow-[inset_0_0_0_1px_rgba(110,231,183,0.35)]"
+                                                            : file.status === "processing"
+                                                                ? "border-sky-300/80 shadow-[inset_0_0_0_1px_rgba(125,211,252,0.35)]"
+                                                                : file.status === "pending"
+                                                                    ? "border-transparent"
+                                                                    : "border-border/70"
+                                                        }`}
+                                                    role="link"
+                                                    tabIndex={0}
+                                                    onClick={() => navigate(`/files/${file.id}`)}
+                                                    onKeyDown={(event) => {
+                                                        if (event.key === "Enter" || event.key === " ") {
+                                                            event.preventDefault()
+                                                            navigate(`/files/${file.id}`)
+                                                        }
+                                                    }}
+                                                >
+                                                    {file.status === "pending" && (
+                                                        <>
+                                                            <span className="pointer-events-none absolute inset-0 rounded-xl bg-[conic-gradient(from_0deg,_rgba(139,92,246,0.15),_rgba(56,189,248,0.55),_rgba(167,139,250,0.25),_rgba(99,102,241,0.55),_rgba(139,92,246,0.15))] animate-[spin_2.8s_linear_infinite]" />
+                                                            <span className="pointer-events-none absolute inset-[1px] rounded-[11px] bg-card/95" />
+                                                        </>
                                                     )}
-                                                    {file.deadline && (
-                                                        <span className="font-medium text-amber-600 dark:text-amber-500">
-                                                            Due {new Date(file.deadline).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                                                    {file.status === "ready" && (
+                                                        <span className="absolute right-2 top-2 z-10 rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 shadow-sm">
+                                                            Ready
                                                         </span>
                                                     )}
+                                                    {file.status === "processing" && (
+                                                        <span className="absolute right-2 top-2 z-10 rounded-full border border-sky-200 bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700 shadow-sm">
+                                                            Processing
+                                                        </span>
+                                                    )}
+                                                    {file.status === "pending" && (
+                                                        <span className="absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 shadow-sm">
+                                                            <Sparkles className="h-3 w-3 animate-pulse" />
+                                                            EduBuddy Extracting
+                                                        </span>
+                                                    )}
+                                                    <div className={`relative z-10 flex h-9 w-9 items-center justify-center rounded-md ${file.status === "processing"
+                                                            ? "bg-sky-100 text-sky-700"
+                                                            : file.status === "pending"
+                                                                ? "bg-violet-100 text-violet-700"
+                                                                : "bg-primary/10 text-primary"
+                                                        }`}>
+                                                        {file.status === "processing" ? (
+                                                            <Loader2 className="h-4.5 w-4.5 animate-spin" />
+                                                        ) : file.status === "pending" ? (
+                                                            <Sparkles className="h-4.5 w-4.5 animate-pulse" />
+                                                        ) : (
+                                                            <FileText className="h-4.5 w-4.5" />
+                                                        )}
+                                                    </div>
+                                                    <div className={`relative z-10 min-w-0 flex-1 ${(file.status === "ready" || file.status === "processing" || file.status === "pending") ? "pr-24" : ""}`}>
+                                                        <p className="truncate text-sm font-semibold">{file.title}</p>
+                                                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                                            <span>{formatFileSize(file.file_size)}</span>
+                                                            {file.status !== "ready" && file.status !== "processing" && file.status !== "pending" && (
+                                                                <Badge variant="outline" className={`border-0 text-[11px] ${getStatusColor(file.status)}`}>
+                                                                    {file.status}
+                                                                </Badge>
+                                                            )}
+                                                            {file.deadline && (
+                                                                <span className="font-medium text-amber-600 dark:text-amber-500">
+                                                                    Due {new Date(file.deadline).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className={`relative z-10 flex items-center gap-1 opacity-80 transition-opacity group-hover:opacity-100 ${(file.status === "ready" || file.status === "processing" || file.status === "pending") ? "mt-5" : ""}`}>
+                                                        <Link
+                                                            to={`/files/${file.id}`}
+                                                            onClick={(event) => event.stopPropagation()}
+                                                        >
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-8 w-8 rounded-md"
+                                                            >
+                                                                <Eye className="w-4 h-4" />
+                                                            </Button>
+                                                        </Link>
+                                                        {file.status === 'error' && (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-8 w-8 rounded-md text-orange-600 hover:text-orange-700"
+                                                                onClick={(event) => {
+                                                                    event.stopPropagation()
+                                                                    handleRetryProcessing(file)
+                                                                }}
+                                                                disabled={processDocument.isPending}
+                                                                title="Retry processing (wait a few minutes if rate limited)"
+                                                            >
+                                                                <RefreshCw className={`w-4 h-4 ${processDocument.isPending ? 'animate-spin' : ''}`} />
+                                                            </Button>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                            <div className={`relative z-10 flex items-center gap-1 opacity-80 transition-opacity group-hover:opacity-100 ${(file.status === "ready" || file.status === "processing" || file.status === "pending") ? "mt-5" : ""}`}>
-                                                <Link
-                                                    to={`/files/${file.id}`}
-                                                    onClick={(event) => event.stopPropagation()}
-                                                >
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="h-8 w-8 rounded-md"
-                                                    >
-                                                        <Eye className="w-4 h-4" />
-                                                    </Button>
-                                                </Link>
-                                                {file.status === 'error' && (
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="h-8 w-8 rounded-md text-orange-600 hover:text-orange-700"
-                                                        onClick={(event) => {
-                                                            event.stopPropagation()
-                                                            handleRetryProcessing(file)
-                                                        }}
-                                                        disabled={processDocument.isPending}
-                                                        title="Retry processing (wait a few minutes if rate limited)"
-                                                    >
-                                                        <RefreshCw className={`w-4 h-4 ${processDocument.isPending ? 'animate-spin' : ''}`} />
-                                                    </Button>
-                                                )}
-                                                {/* {file.status === 'ready' && (
-                                                    <TooltipProvider>
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="h-8 w-8 text-primary hover:text-primary"
-                                                                    onClick={(event) => {
-                                                                        event.stopPropagation()
-                                                                        handleGenerateQuiz(file)
-                                                                    }}
-                                                                >
-                                                                    <Sparkles className="w-4 h-4" />
-                                                                </Button>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent>
-                                                                <p>Generate quiz from this file</p>
-                                                            </TooltipContent>
-                                                        </Tooltip>
-                                                    </TooltipProvider>
-                                                )}
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-8 w-8 text-destructive hover:text-destructive"
-                                                    onClick={(event) => {
-                                                        event.stopPropagation()
-                                                        handleDeleteFile(file)
-                                                    }}
-                                                    disabled={deleteDocument.isPending}
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </Button> */}
-                                            </div>
+                                            ))}
                                         </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </CardContent>
-                    {documents && documents.length > 0 && (
-                        <CardFooter density="compact" className="pt-0 shrink-0">
-                            <Link to="/files" className="w-full" onClick={(event) => event.stopPropagation()}>
-                                <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground hover:text-primary">
-                                    <FileText className="w-3.5 h-3.5 mr-2" />
-                                    View all study materials
-                                </Button>
-                            </Link>
-                        </CardFooter>
-                    )}
+                                    </div>
+                                )}
+                            </CardContent>
+                            {documents && documents.length > 0 && (
+                                <CardFooter density="compact" className="pt-0 shrink-0">
+                                    <Link to="/files" className="w-full" onClick={(event) => event.stopPropagation()}>
+                                        <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground hover:text-primary">
+                                            <FileText className="w-3.5 h-3.5 mr-2" />
+                                            View all study materials
+                                        </Button>
+                                    </Link>
+                                </CardFooter>
+                            )}
                         </Card>
 
                         {/* Quizzes Section */}
                         <Card variant="dashboard" className="lg:col-span-1 h-[500px] flex flex-col">
-                    <CardHeader density="compact" className="flex flex-row items-center justify-between">
-                        <div>
-                            <CardTitle>Available Quizzes</CardTitle>
-                        </div>
-                    </CardHeader>
-                    <CardContent density="compact" className="flex-1 overflow-y-auto pb-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                        {!quizzes ? (
-                            <div className="space-y-3">
-                                {Array.from({ length: 3 }).map((_, idx) => (
-                                    <div key={idx} className="rounded-xl border bg-card p-3.5">
-                                        <div className="flex items-start gap-3">
-                                            <Skeleton className="h-10 w-10 rounded-lg" />
-                                            <div className="flex-1 space-y-2">
-                                                <Skeleton className="h-4 w-2/3" />
-                                                <Skeleton className="h-3 w-1/2" />
+                            <CardHeader density="compact" className="flex flex-row items-center justify-between">
+                                <div>
+                                    <CardTitle>Available Quizzes</CardTitle>
+                                </div>
+                            </CardHeader>
+                            <CardContent density="compact" className="flex-1 overflow-y-auto pb-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                                {!quizzes ? (
+                                    <div className="space-y-3">
+                                        {Array.from({ length: 3 }).map((_, idx) => (
+                                            <div key={idx} className="rounded-xl border bg-card p-3.5">
+                                                <div className="flex items-start gap-3">
+                                                    <Skeleton className="h-10 w-10 rounded-lg" />
+                                                    <div className="flex-1 space-y-2">
+                                                        <Skeleton className="h-4 w-2/3" />
+                                                        <Skeleton className="h-3 w-1/2" />
+                                                    </div>
+                                                </div>
+                                                <Skeleton className="mt-3 h-8 w-full rounded-md" />
                                             </div>
-                                        </div>
-                                        <Skeleton className="mt-3 h-8 w-full rounded-md" />
+                                        ))}
                                     </div>
-                                ))}
-                            </div>
-                        ) : recentQuizzes.length === 0 ? (
-                            <div className="text-center py-8">
-                                <Brain className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
-                                <p className="text-sm text-muted-foreground">
-                                    No quizzes yet. Generate one from your study materials!
-                                </p>
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                {recentQuizzes.map((quiz) => (
-                                    <QuizCard
-                                        key={quiz.id}
-                                        quiz={quiz}
-                                        lastScore={lastScoreByQuiz.get(quiz.id) ?? null}
-                                        compact
-                                    />
-                                ))}
-                            </div>
-                        )}
-                    </CardContent>
-                    {quizzes && quizzes.length > 0 && (
-                        <CardFooter density="compact" className="pt-0 shrink-0">
-                            <Link to="/quizzes" className="w-full">
-                                <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground hover:text-primary">
-                                    <Brain className="w-3.5 h-3.5 mr-2" />
-                                    View all available quizzes
-                                </Button>
-                            </Link>
-                        </CardFooter>
-                    )}
+                                ) : recentQuizzes.length === 0 ? (
+                                    <div className="text-center py-8">
+                                        <Brain className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+                                        <p className="text-sm text-muted-foreground">
+                                            No quizzes yet. Generate one from your study materials!
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {recentQuizzes.map((quiz) => (
+                                            <QuizCard
+                                                key={quiz.id}
+                                                quiz={quiz}
+                                                lastScore={lastScoreByQuiz.get(quiz.id) ?? null}
+                                                compact
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+                            </CardContent>
+                            {quizzes && quizzes.length > 0 && (
+                                <CardFooter density="compact" className="pt-0 shrink-0">
+                                    <Link to="/quizzes" className="w-full">
+                                        <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground hover:text-primary">
+                                            <Brain className="w-3.5 h-3.5 mr-2" />
+                                            View all available quizzes
+                                        </Button>
+                                    </Link>
+                                </CardFooter>
+                            )}
                         </Card>
 
                         <div className="h-[500px]">
@@ -707,7 +671,7 @@ export function DashboardContent() {
                 </div>
             </div>
 
-            {/* <MotivationalCard /> */}
+
 
             <FileUploadDialog
                 open={showUploadDialog}
