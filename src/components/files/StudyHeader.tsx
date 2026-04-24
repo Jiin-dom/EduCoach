@@ -17,6 +17,7 @@ import {
     Gauge,
     Layers,
     BarChart3,
+    FileText,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { Document } from '@/hooks/useDocuments'
@@ -32,19 +33,19 @@ interface StudyHeaderProps {
     refetchDoc: () => void
 }
 
-const STATUS_MAP: Record<string, { icon: React.ElementType; color: string; label: string; animate?: boolean }> = {
-    pending: { icon: Clock, color: 'text-orange-500', label: 'Pending' },
-    processing: { icon: Loader2, color: 'text-blue-500', label: 'Processing...', animate: true },
-    ready: { icon: CheckCircle2, color: 'text-green-500', label: 'Ready' },
-    error: { icon: AlertCircle, color: 'text-red-500', label: 'Error' },
+const STATUS_MAP: Record<string, { icon: React.ElementType; color: string; bg: string; label: string; animate?: boolean }> = {
+    pending: { icon: Clock, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-950/30', label: 'Pending' },
+    processing: { icon: Loader2, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/30', label: 'Processing...', animate: true },
+    ready: { icon: CheckCircle2, color: 'text-green-600 dark:text-green-400', bg: 'bg-green-50 dark:bg-green-950/30', label: 'Ready' },
+    error: { icon: AlertCircle, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950/30', label: 'Error' },
 }
 
 function QualityBadge({ processedBy }: { processedBy?: string | null }) {
     const config = processedBy === 'gemini'
-        ? { icon: Wand2, label: 'Refined', color: 'text-purple-600 border-purple-300 bg-purple-50', tip: 'Rewritten for readability by AI, grounded to the source.' }
+        ? { icon: Wand2, label: 'Refined', color: 'text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-900', tip: 'Rewritten for readability by AI, grounded to the source.' }
         : processedBy === 'pure_nlp'
-            ? { icon: Scissors, label: 'Extractive', color: 'text-amber-600 border-amber-300 bg-amber-50', tip: 'Summary is based on direct sentence selection; may feel choppy.' }
-            : { icon: ShieldCheck, label: 'Clean', color: 'text-green-600 border-green-300 bg-green-50', tip: 'Extracted text looks good; minimal cleanup needed.' }
+            ? { icon: Scissors, label: 'Extractive', color: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900', tip: 'Summary is based on direct sentence selection; may feel choppy.' }
+            : { icon: ShieldCheck, label: 'Clean', color: 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-900', tip: 'Extracted text looks good; minimal cleanup needed.' }
 
     const Icon = config.icon
     return (
@@ -65,10 +66,10 @@ function QualityBadge({ processedBy }: { processedBy?: string | null }) {
 function ProcessingQualityBadge({ quality }: { quality: number }) {
     const pct = Math.round(quality * 100)
     const config = quality >= 0.7
-        ? { color: 'text-green-600 border-green-300 bg-green-50', tip: `Quality: ${pct}%. Extracted study material looks comprehensive.` }
+        ? { color: 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-900', tip: `Quality: ${pct}%. Extracted study material looks comprehensive.` }
         : quality >= 0.4
-            ? { color: 'text-amber-600 border-amber-300 bg-amber-50', tip: `Quality: ${pct}%. Some concepts may be missing. Consider refining with AI.` }
-            : { color: 'text-red-600 border-red-300 bg-red-50', tip: `Quality: ${pct}%. Limited extraction. Refine with AI for better results.` }
+            ? { color: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900', tip: `Quality: ${pct}%. Some concepts may be missing. Consider refining with AI.` }
+            : { color: 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900', tip: `Quality: ${pct}%. Limited extraction. Refine with AI for better results.` }
 
     return (
         <TooltipProvider>
@@ -134,82 +135,77 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
 
 
     return (
-        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b pb-4 mb-6">
-            <div className="flex items-center justify-between flex-wrap gap-4">
-                <div className="flex items-center gap-4">
-                    <Link to="/files">
-                        <Button variant="ghost" size="icon"><ArrowLeft className="w-4 h-4" /></Button>
+        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-xl supports-[backdrop-filter]:bg-background/80 border-b pb-4 mb-6 pt-3">
+            <div className="flex items-start md:items-center justify-between flex-col md:flex-row gap-5">
+                <div className="flex items-start gap-4">
+                    <Link to="/files" className="mt-1">
+                        <Button variant="ghost" size="icon" className="rounded-full hover:bg-muted/60 text-muted-foreground transition-all w-9 h-9">
+                            <ArrowLeft className="w-5 h-5" />
+                        </Button>
                     </Link>
-                    <div>
+                    <div className="space-y-2">
                         <div className="flex items-center gap-3 flex-wrap">
-                            <h1 className="text-2xl font-bold">{document.title}</h1>
-                            <Badge variant="outline" className={`gap-1 ${status.color}`}>
-                                <StatusIcon className={`w-3 h-3 ${status.animate ? 'animate-spin' : ''}`} />
-                                {status.label}
-                            </Badge>
-                            {document.status === 'ready' && <QualityBadge processedBy={document.processed_by} />}
-                            {document.status === 'ready' && document.processing_quality != null && (
-                                <ProcessingQualityBadge quality={document.processing_quality} />
-                            )}
+                            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                                {document.title}
+                            </h1>
+                            <div className="flex items-center gap-2">
+                                <Badge variant="outline" className={`gap-1.5 shadow-sm rounded-full px-2.5 py-0.5 border-border/40 font-semibold ${status.color} ${status.bg}`}>
+                                    <StatusIcon className={`w-3.5 h-3.5 ${status.animate ? 'animate-spin' : ''}`} />
+                                    <span>{status.label}</span>
+                                </Badge>
+                                {document.status === 'ready' && <QualityBadge processedBy={document.processed_by} />}
+                                {document.status === 'ready' && document.processing_quality != null && (
+                                    <ProcessingQualityBadge quality={document.processing_quality} />
+                                )}
+                            </div>
                         </div>
-                        <div className="flex items-center gap-3 text-muted-foreground text-sm mt-1">
-                            <span>{document.file_name}</span>
-                            <span>&middot;</span>
+                        <div className="flex items-center gap-2.5 text-muted-foreground text-[13px] mt-0.5 font-medium">
+                            <span className="truncate max-w-[200px] sm:max-w-[300px] flex items-center gap-1.5 text-foreground/80">
+                                <FileText className="w-3.5 h-3.5 opacity-70" />
+                                {document.file_name}
+                            </span>
+                            <span className="w-1 h-1 rounded-full bg-muted-foreground/30"></span>
                             <span>{formatFileSize(document.file_size)}</span>
-                            <span>&middot;</span>
+                            <span className="w-1 h-1 rounded-full bg-muted-foreground/30"></span>
                             <span>Uploaded {new Date(document.created_at).toLocaleDateString()}</span>
                         </div>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap">
-
-                    <div className="flex items-center gap-2 bg-muted/50 px-3 py-1.5 rounded-md border text-sm mr-2">
-                        <Clock className="w-4 h-4 text-muted-foreground mr-1" />
-                        <span className="text-muted-foreground">Study Goal:</span>
+                <div className="flex items-center gap-2.5 flex-wrap md:justify-end w-full md:w-auto mt-3 md:mt-0">
+                    <div className="flex items-center gap-2 bg-muted/30 hover:bg-muted/50 transition-colors px-3 py-1.5 rounded-full border border-border/40 text-[13px] shadow-sm mr-1">
+                        <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                        <span className="text-muted-foreground font-medium">Goal:</span>
                         <input
                             type="date"
-                            className="bg-transparent border-none border-b border-muted hover:border-primary outline-none text-sm w-[120px] cursor-pointer transition-colors"
+                            className="bg-transparent border-none outline-none text-[13px] w-[105px] cursor-pointer font-semibold text-foreground focus:ring-0 p-0"
                             value={document.exam_date ? new Date(document.exam_date).toISOString().split('T')[0] : ''}
                             onChange={handleGoalDateChange}
                             disabled={updateDocument.isPending}
                         />
                     </div>
                     {document.status === 'ready' && (
-                        <Button variant="outline" className="gap-2" asChild>
+                        <Button variant="outline" className="gap-2 shadow-sm rounded-full font-medium hover:bg-muted/50 px-4" asChild>
                             <Link to={`/analytics/document/${document.id}`}>
-                                <BarChart3 className="w-4 h-4" />
-                                File analytics
+                                <BarChart3 className="w-4 h-4 text-muted-foreground" />
+                                Analytics
                             </Link>
                         </Button>
                     )}
-                    <Button variant="outline" className="gap-2" onClick={handleDownload} disabled={downloadingUrl}>
-                        {downloadingUrl ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                    <Button variant="outline" className="gap-2 shadow-sm rounded-full font-medium hover:bg-muted/50 px-4" onClick={handleDownload} disabled={downloadingUrl}>
+                        {downloadingUrl ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /> : <Download className="w-4 h-4 text-muted-foreground" />}
                         Download
                     </Button>
                     {document.status === 'pending' && (
-                        <Button className="gap-2" onClick={handleProcess} disabled={processDocument.isPending}>
+                        <Button className="gap-2 shadow-sm rounded-full font-medium bg-primary hover:bg-primary/90 px-5" onClick={handleProcess} disabled={processDocument.isPending}>
                             {processDocument.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                            Process Document
+                            Process
                         </Button>
                     )}
                     {document.status === 'ready' && (
                         <>
-                            {/* <Button
-                                variant="outline"
-                                className="gap-2"
-                                onClick={handleRefine}
-                                disabled={processDocument.isPending}
-                            >
-                                {processDocument.isPending ? (
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                    <Brain className="w-4 h-4" />
-                                )}
-                                Refine with Gemini
-                            </Button> */}
                             <Button
-                                className="gap-2"
+                                className="gap-2 shadow-sm rounded-full font-medium bg-primary hover:bg-primary/90 text-primary-foreground px-5"
                                 onClick={() => setQuizDialogOpen(true)}
                             >
                                 <Sparkles className="w-4 h-4" />
@@ -217,16 +213,16 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
                             </Button>
                             <Button
                                 variant="outline"
-                                className="gap-2"
+                                className="gap-2 shadow-sm rounded-full font-medium hover:bg-muted/50 px-4"
                                 disabled={generateFlashcards.isPending}
                                 onClick={() => generateFlashcards.mutate(document.id)}
                             >
                                 {generateFlashcards.isPending ? (
-                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
                                 ) : (
-                                    <Layers className="w-4 h-4" />
+                                    <Layers className="w-4 h-4 text-muted-foreground" />
                                 )}
-                                Generate Flashcards
+                                Flashcards
                             </Button>
                         </>
                     )}
@@ -234,13 +230,15 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
             </div>
 
             {document.status === 'error' && document.error_message && (
-                <div className="mt-4 flex items-start gap-3 p-3 rounded-lg border border-destructive/50 bg-destructive/5">
-                    <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
+                <div className="mt-5 flex items-start gap-4 p-4 rounded-xl border border-destructive/30 bg-destructive/5 shadow-sm">
+                    <div className="p-2 rounded-full bg-destructive/10">
+                        <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
+                    </div>
                     <div>
-                        <p className="font-medium text-destructive">Processing Failed</p>
-                        <p className="text-sm text-muted-foreground mt-1">{document.error_message}</p>
-                        <Button variant="outline" size="sm" className="mt-2 gap-2" onClick={handleProcess} disabled={processDocument.isPending}>
-                            <RefreshCw className="w-3 h-3" /> Retry
+                        <p className="font-semibold text-destructive">Processing Failed</p>
+                        <p className="text-sm text-destructive/80 mt-1 leading-relaxed">{document.error_message}</p>
+                        <Button variant="outline" size="sm" className="mt-3 gap-2 bg-background shadow-sm hover:bg-muted" onClick={handleProcess} disabled={processDocument.isPending}>
+                            <RefreshCw className="w-3.5 h-3.5" /> Retry Processing
                         </Button>
                     </div>
                 </div>

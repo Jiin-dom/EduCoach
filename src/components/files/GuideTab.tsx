@@ -16,6 +16,7 @@ import {
     ChevronUp,
     Eye,
     EyeOff,
+    ListChecks,
 } from 'lucide-react'
 import type { StructuredSummary } from '@/hooks/useDocuments'
 import type { Concept } from '@/hooks/useConcepts'
@@ -81,7 +82,7 @@ export function GuideTab({ summary, structuredSummary, concepts, onPageJump }: G
                 {parts.map((part, i) => {
                     const isKw = sortedKeywords.some(k => k.toLowerCase() === part.toLowerCase())
                     return isKw
-                        ? <span key={i} className="bg-primary/15 text-primary px-1 rounded font-medium">{part}</span>
+                        ? <span key={i} className="bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded-md font-semibold transition-colors hover:bg-primary/20 inline-block mx-0.5 leading-none">{part}</span>
                         : <span key={i}>{part}</span>
                 })}
             </>
@@ -133,7 +134,7 @@ export function GuideTab({ summary, structuredSummary, concepts, onPageJump }: G
 
             {/* Canonical sections */}
             {ss?.detailed && ss.detailed.length > 0 && (
-                <div className="space-y-4">
+                <div className="space-y-5">
                     {ss.detailed.map((section, idx) => {
                         const IconComp = SECTION_ICON_MAP[section.icon] || BookOpen
                         const colorClass = SECTION_COLOR_MAP[section.icon] || 'text-blue-500 border-blue-300'
@@ -141,26 +142,31 @@ export function GuideTab({ summary, structuredSummary, concepts, onPageJump }: G
                         const sectionId = `guide-section-${section.title.toLowerCase().replace(/\s+/g, '-')}`
 
                         return (
-                            <div key={idx} id={sectionId} className={`border-l-4 ${colorClass.split(' ').slice(1).join(' ')} pl-4 py-3 scroll-mt-32`}>
-                                <div className="flex items-center justify-between mb-2">
-                                    <div className="flex items-center gap-2">
-                                        <IconComp className={`w-4 h-4 ${textColor}`} />
-                                        <h4 className={`text-sm font-semibold uppercase tracking-wide ${textColor}`}>
-                                            {section.title}
-                                        </h4>
+                            <div key={idx} id={sectionId} className={`relative overflow-hidden rounded-2xl border ${colorClass.split(' ').slice(1).join(' ').replace('300', '200')} bg-card shadow-sm hover:shadow-md transition-shadow scroll-mt-32`}>
+                                <div className={`absolute top-0 left-0 w-1.5 h-full bg-current ${textColor}`} />
+                                <div className="p-5 sm:p-6">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className={`p-2.5 rounded-xl bg-current/10 ${textColor}`}>
+                                                <IconComp className="w-5 h-5" />
+                                            </div>
+                                            <h4 className={`text-base font-bold uppercase tracking-wider ${textColor}`}>
+                                                {section.title}
+                                            </h4>
+                                        </div>
+                                        {section.pages && section.pages.length > 0 && (
+                                            <button onClick={() => handlePageClick(section.pages?.[0])}>
+                                                <Badge variant="outline" className="text-xs gap-1.5 px-2.5 py-1 cursor-pointer hover:bg-accent shadow-sm rounded-lg font-bold">
+                                                    <BookOpen className="w-3.5 h-3.5 text-muted-foreground" />
+                                                    p.{section.pages.join(', ')}
+                                                </Badge>
+                                            </button>
+                                        )}
                                     </div>
-                                    {section.pages && section.pages.length > 0 && (
-                                        <button onClick={() => handlePageClick(section.pages?.[0])}>
-                                            <Badge variant="outline" className="text-xs gap-1 cursor-pointer hover:bg-accent">
-                                                <BookOpen className="w-3 h-3" />
-                                                p.{section.pages.join(', ')}
-                                            </Badge>
-                                        </button>
-                                    )}
+                                    <p className="text-muted-foreground leading-relaxed text-[15px]">
+                                        {renderText(section.content)}
+                                    </p>
                                 </div>
-                                <p className="text-muted-foreground leading-relaxed text-sm">
-                                    {renderText(section.content)}
-                                </p>
                             </div>
                         )
                     })}
@@ -178,28 +184,33 @@ export function GuideTab({ summary, structuredSummary, concepts, onPageJump }: G
 
             {/* Bullet points */}
             {visibleBullets.length > 0 && (
-                <div className="space-y-3">
-                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Key Points</h4>
+                <div className="space-y-4 pt-2">
+                    <h4 className="text-sm font-bold text-foreground/80 uppercase tracking-wider flex items-center gap-2">
+                        <ListChecks className="w-4 h-4 text-primary" />
+                        Key Points
+                    </h4>
                     {visibleBullets.map((bullet, idx) => {
                         const labelColor = BULLET_LABEL_COLORS[bullet.label] || 'bg-gray-50 text-gray-700 border-gray-200'
                         return (
-                            <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-muted/30 border">
-                                <CheckCircle2 className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-                                <div className="flex-1 space-y-1.5">
+                            <div key={idx} className="group flex items-start gap-4 p-4 rounded-2xl bg-muted/30 hover:bg-muted/50 border border-border/50 transition-all shadow-sm">
+                                <div className="mt-1 p-1.5 rounded-full bg-background shadow-sm border border-border">
+                                    <CheckCircle2 className="w-4 h-4 text-primary" />
+                                </div>
+                                <div className="flex-1 space-y-2.5">
                                     <div className="flex items-center justify-between gap-2">
-                                        <Badge variant="outline" className={`text-xs font-semibold ${labelColor}`}>
+                                        <Badge variant="outline" className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-md shadow-sm ${labelColor}`}>
                                             {bullet.label}
                                         </Badge>
                                         {bullet.page != null && (
                                             <button onClick={() => handlePageClick(bullet.page)}>
-                                                <Badge variant="outline" className="text-xs gap-1 cursor-pointer hover:bg-accent">
-                                                    <BookOpen className="w-3 h-3" />
+                                                <Badge variant="outline" className="text-xs gap-1 cursor-pointer hover:bg-accent rounded-lg">
+                                                    <BookOpen className="w-3 h-3 text-muted-foreground" />
                                                     p.{bullet.page}
                                                 </Badge>
                                             </button>
                                         )}
                                     </div>
-                                    <p className="text-sm text-muted-foreground leading-relaxed">
+                                    <p className="text-[15px] text-muted-foreground leading-relaxed">
                                         {renderText(bullet.text)}
                                     </p>
                                 </div>
@@ -208,12 +219,12 @@ export function GuideTab({ summary, structuredSummary, concepts, onPageJump }: G
                     })}
                     {allBullets.length > 5 && (
                         <Button
-                            variant="ghost"
+                            variant="outline"
                             size="sm"
-                            className="gap-1 text-xs w-full"
+                            className="gap-2 text-xs w-full rounded-xl mt-2 font-bold bg-muted/30 hover:bg-muted/60"
                             onClick={() => setExpandedBullets(p => !p)}
                         >
-                            {expandedBullets ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                            {expandedBullets ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                             {expandedBullets ? 'Show fewer' : `Show all ${allBullets.length} points`}
                         </Button>
                     )}
