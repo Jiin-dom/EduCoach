@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Upload, FileText, Brain, Clock, TrendingUp, Eye, Sparkles, Loader2, RefreshCw, Zap } from "lucide-react"
-import { Upload, FileText, Brain, Clock, TrendingUp, Eye, Sparkles, Loader2, RefreshCw, Zap } from "lucide-react"
 import { FileUploadDialog } from "@/components/files/FileUploadDialog"
 import { GenerateQuizDialog } from "@/components/files/GenerateQuizDialog"
 import { QuizCard } from "@/components/dashboard/QuizCard"
@@ -13,7 +12,6 @@ import { ProgressInsightsSection } from "@/components/dashboard/ProgressInsights
 import { AiTutorChat } from "@/components/shared/AiTutorChat"
 import { Link, useNavigate } from "react-router-dom"
 import { useAuth } from "@/contexts/AuthContext"
-import { useDocuments, useProcessDocument, type Document } from "@/hooks/useDocuments"
 import { useDocuments, useProcessDocument, type Document } from "@/hooks/useDocuments"
 import { formatFileSize } from "@/lib/storage"
 import { Badge } from "@/components/ui/badge"
@@ -487,12 +485,12 @@ export function DashboardContent() {
                                                 <div
                                                     key={file.id}
                                                     className={`group relative isolate flex items-center gap-3 overflow-hidden rounded-xl border bg-card/50 p-3 transition-all hover:border-primary/20 hover:bg-accent/5 ${file.status === "ready"
-                                                            ? "border-emerald-300/80 shadow-[inset_0_0_0_1px_rgba(110,231,183,0.35)]"
-                                                            : file.status === "processing"
-                                                                ? "border-sky-300/80 shadow-[inset_0_0_0_1px_rgba(125,211,252,0.35)]"
-                                                                : file.status === "pending"
-                                                                    ? "border-transparent"
-                                                                    : "border-border/70"
+                                                        ? "border-emerald-300/80 shadow-[inset_0_0_0_1px_rgba(110,231,183,0.35)]"
+                                                        : file.status === "processing"
+                                                            ? "border-sky-300/80 shadow-[inset_0_0_0_1px_rgba(125,211,252,0.35)]"
+                                                            : file.status === "pending"
+                                                                ? "border-transparent"
+                                                                : "border-border/70"
                                                         }`}
                                                     role="link"
                                                     tabIndex={0}
@@ -527,10 +525,10 @@ export function DashboardContent() {
                                                         </span>
                                                     )}
                                                     <div className={`relative z-10 flex h-9 w-9 items-center justify-center rounded-md ${file.status === "processing"
-                                                            ? "bg-sky-100 text-sky-700"
-                                                            : file.status === "pending"
-                                                                ? "bg-violet-100 text-violet-700"
-                                                                : "bg-primary/10 text-primary"
+                                                        ? "bg-sky-100 text-sky-700"
+                                                        : file.status === "pending"
+                                                            ? "bg-violet-100 text-violet-700"
+                                                            : "bg-primary/10 text-primary"
                                                         }`}>
                                                         {file.status === "processing" ? (
                                                             <Loader2 className="h-4.5 w-4.5 animate-spin" />
