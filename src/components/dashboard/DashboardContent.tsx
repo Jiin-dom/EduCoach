@@ -1,24 +1,24 @@
 import { useEffect, useMemo, useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Upload, FileText, Brain, Clock, TrendingUp, Eye, Trash2, Sparkles, Loader2, RefreshCw, Zap } from "lucide-react"
+import { Upload, FileText, Brain, Clock, TrendingUp, Eye, Sparkles, Loader2, RefreshCw, Zap } from "lucide-react"
 import { FileUploadDialog } from "@/components/files/FileUploadDialog"
 import { GenerateQuizDialog } from "@/components/files/GenerateQuizDialog"
 import { QuizCard } from "@/components/dashboard/QuizCard"
 import { TodaysStudyPlan } from "@/components/dashboard/TodaysStudyPlan"
 import { WeakTopicsPanel } from "@/components/dashboard/WeakTopicsPanel"
-import { MotivationalCard } from "@/components/dashboard/MotivationalCard"
+
 import { ProgressInsightsSection } from "@/components/dashboard/ProgressInsightsSection"
 import { AiTutorChat } from "@/components/shared/AiTutorChat"
 import { Link, useNavigate } from "react-router-dom"
 import { useAuth } from "@/contexts/AuthContext"
-import { useDocuments, useDeleteDocument, useProcessDocument, type Document } from "@/hooks/useDocuments"
+import { useDocuments, useProcessDocument, type Document } from "@/hooks/useDocuments"
 import { formatFileSize } from "@/lib/storage"
 import { Badge } from "@/components/ui/badge"
 import { useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
 import { useLearningStats, useStudyTimeLastTwoWeeks } from "@/hooks/useLearning"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+
 import { useMarkTrialWelcomeSeen } from "@/hooks/useStudentSubscription"
 
 export function DashboardContent() {
@@ -33,7 +33,6 @@ export function DashboardContent() {
 
     // Use real document data
     const { data: documents, isLoading, refetch } = useDocuments()
-    const deleteDocument = useDeleteDocument()
     const processDocument = useProcessDocument()
 
     // Use real quiz data
@@ -64,20 +63,13 @@ export function DashboardContent() {
         refetch()
     }
 
-    const handleDeleteFile = (doc: Document) => {
-        if (window.confirm(`Delete "${doc.title}"?`)) {
-            deleteDocument.mutate(doc)
-        }
-    }
+
 
     const handleRetryProcessing = (doc: Document) => {
         processDocument.mutate(doc.id)
     }
 
-    const handleGenerateQuiz = (doc: Document) => {
-        setSelectedDocForQuiz(doc)
-        setQuizDialogOpen(true)
-    }
+
 
     const getStatusColor = (status: string) => {
         switch (status) {
@@ -90,14 +82,7 @@ export function DashboardContent() {
     }
 
     // Get greeting based on time of day
-    const getGreeting = () => {
-        const hour = new Date().getHours()
-        if (hour < 12) return "Good morning"
-        if (hour < 18) return "Good afternoon"
-        return "Good evening"
-    }
 
-    const displayName = profile?.display_name || "Student"
     const isTrialActive = profile?.subscription_is_trial_active === true
     const trialDaysLeft = profile?.subscription_trial_days_left ?? 0
     const trialEndsAt = profile?.subscription_trial_ends_at
@@ -331,11 +316,7 @@ export function DashboardContent() {
                 </DialogContent>
             </Dialog>
 
-            {/* Welcome Section */}
-            {/* <div className="bg-gradient-to-r from-primary to-accent rounded-2xl p-8 text-primary-foreground">
-                <h1 className="text-3xl font-bold mb-2">{getGreeting()}, {displayName}!</h1>
-                <p className="text-primary-foreground/90 text-lg">Ready to continue your learning journey?</p>
-            </div> */}
+
 
             {isTrialActive && (
                 <Card className="border-primary/30 bg-primary/5">
@@ -548,58 +529,11 @@ export function DashboardContent() {
                                                         <RefreshCw className={`w-4 h-4 ${processDocument.isPending ? 'animate-spin' : ''}`} />
                                                     </Button>
                                                 )}
-                                                {/* {file.status === 'ready' && (
-                                                    <TooltipProvider>
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="h-8 w-8 text-primary hover:text-primary"
-                                                                    onClick={(event) => {
-                                                                        event.stopPropagation()
-                                                                        handleGenerateQuiz(file)
-                                                                    }}
-                                                                >
-                                                                    <Sparkles className="w-4 h-4" />
-                                                                </Button>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent>
-                                                                <p>Generate quiz from this file</p>
-                                                            </TooltipContent>
-                                                        </Tooltip>
-                                                    </TooltipProvider>
-                                                )}
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-8 w-8 text-destructive hover:text-destructive"
-                                                    onClick={(event) => {
-                                                        event.stopPropagation()
-                                                        handleDeleteFile(file)
-                                                    }}
-                                                    disabled={deleteDocument.isPending}
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </Button> */}
                                             </div>
                                         </div>
                                     ))}
                                 </div>
-                                {/* <div className="flex gap-2">
-                                    <Button onClick={(event) => {
-                                        event.stopPropagation()
-                                        setShowUploadDialog(true)
-                                    }} variant="outline" className="flex-1">
-                                        <Upload className="w-4 h-4 mr-2" />
-                                        Upload More
-                                    </Button>
-                                    <Link to="/files" className="flex-1" onClick={(event) => event.stopPropagation()}>
-                                        <Button variant="ghost" className="w-full">
-                                            View All
-                                        </Button>
-                                    </Link>
-                                </div> */}
+
                             </div>
                         )}
                     </CardContent>
@@ -647,7 +581,7 @@ export function DashboardContent() {
 
             <ProgressInsightsSection hasPremiumEntitlement={hasPremiumEntitlement} />
 
-            {/* <MotivationalCard /> */}
+
 
             <FileUploadDialog
                 open={showUploadDialog}
