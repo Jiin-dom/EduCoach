@@ -6,6 +6,7 @@ import { FileUploadDialog } from "@/components/files/FileUploadDialog"
 import { GenerateQuizDialog } from "@/components/files/GenerateQuizDialog"
 import { QuizCard } from "@/components/dashboard/QuizCard"
 import { TodaysStudyPlan } from "@/components/dashboard/TodaysStudyPlan"
+import { DashboardMiniCalendar } from "@/components/dashboard/DashboardMiniCalendar"
 import { WeakTopicsPanel } from "@/components/dashboard/WeakTopicsPanel"
 
 import { ProgressInsightsSection } from "@/components/dashboard/ProgressInsightsSection"
@@ -664,8 +665,11 @@ export function DashboardContent() {
                     <ProgressInsightsSection hasPremiumEntitlement={hasPremiumEntitlement} />
                 </div>
 
-                <div className="lg:sticky lg:top-0 lg:h-full [&>*]:h-full">
-                    <TodaysStudyPlan />
+                <div className="lg:sticky lg:top-0 lg:h-full">
+                    <div className="flex h-full min-h-0 flex-col gap-4">
+                        <DashboardMiniCalendar className="min-h-[220px] lg:flex-[0.9]" />
+                        <TodaysStudyPlan className="min-h-0 lg:flex-[1.7]" />
+                    </div>
                 </div>
             </div>
 

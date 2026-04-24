@@ -8,6 +8,7 @@ import { useDueTopics, useConceptMasteryList } from "@/hooks/useLearning"
 import { todayUTC } from "@/lib/learningAlgorithms"
 import { Link } from "react-router-dom"
 import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
 
 function masteryBadge(level: string) {
     switch (level) {
@@ -20,7 +21,11 @@ function masteryBadge(level: string) {
     }
 }
 
-export function TodaysStudyPlan() {
+interface TodaysStudyPlanProps {
+    className?: string
+}
+
+export function TodaysStudyPlan({ className }: TodaysStudyPlanProps) {
     const { data: dueTopics, isLoading } = useDueTopics()
     const { data: allMastery } = useConceptMasteryList()
 
@@ -40,7 +45,7 @@ export function TodaysStudyPlan() {
     }, [allMastery])
 
     return (
-        <Card variant="dashboard" className="h-full flex flex-col">
+        <Card variant="dashboard" className={cn("h-full min-h-0 flex flex-col", className)}>
             <CardHeader density="compact">
                 <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
