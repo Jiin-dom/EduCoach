@@ -7,15 +7,15 @@ import {
     Clock,
     CheckCircle2,
     BookOpen,
-    Filter,
+
     Target,
     Loader2,
     Zap,
-    TrendingUp,
+
     AlertCircle,
     ArrowUpRight
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import {
@@ -42,10 +42,7 @@ function formatDateToLocalString(d: Date) {
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, '0') + "-" + String(d.getDate()).padStart(2, '0');
 }
 
-function formatStudyWindow(start: string | null | undefined, end: string | null | undefined) {
-    if (!start || !end) return "Not set"
-    return `${start} - ${end}`
-}
+
 
 type ScheduleFilter = 'all' | 'due' | 'needs_review' | 'developing'
 
