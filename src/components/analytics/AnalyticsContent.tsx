@@ -14,9 +14,9 @@ import {
     Flame,
     BookOpen,
     AlertTriangle,
-    Loader2,
+
     ArrowLeft,
-    Clock,
+
     Zap,
     Timer,
     Gauge,
