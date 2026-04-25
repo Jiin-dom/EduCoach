@@ -8,7 +8,6 @@ import { useDocument, useProcessDocument } from '@/hooks/useDocuments'
 import { useDocumentConcepts } from '@/hooks/useConcepts'
 import { AiTutorChat } from '@/components/shared/AiTutorChat'
 import { StudyHeader } from './StudyHeader'
-import { StudyPath } from './StudyPath'
 import { GuideTab } from './GuideTab'
 import { ConceptsTab } from './ConceptsTab'
 import { QuizPrepTab } from './QuizPrepTab'
@@ -55,16 +54,21 @@ export function FileViewer() {
             <div className="space-y-6">
                 <div className="flex items-center gap-4">
                     <Link to="/files">
-                        <Button variant="ghost" size="icon"><ArrowLeft className="w-4 h-4" /></Button>
+                        <Button variant="ghost" size="icon" className="rounded-full hover:bg-muted/80">
+                            <ArrowLeft className="w-5 h-5" />
+                        </Button>
                     </Link>
-                    <div className="animate-pulse">
-                        <div className="h-6 bg-muted rounded w-48 mb-2" />
-                        <div className="h-4 bg-muted rounded w-32" />
+                    <div className="animate-pulse space-y-2">
+                        <div className="h-7 bg-muted rounded-md w-64" />
+                        <div className="h-4 bg-muted rounded-md w-40" />
                     </div>
                 </div>
-                <Card>
-                    <CardContent className="flex items-center justify-center py-16">
-                        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                <Card className="border-border/50 shadow-sm">
+                    <CardContent className="flex items-center justify-center py-32">
+                        <div className="flex flex-col items-center gap-4">
+                            <Loader2 className="w-10 h-10 text-primary animate-spin" />
+                            <p className="text-sm text-muted-foreground animate-pulse">Loading document...</p>
+                        </div>
                     </CardContent>
                 </Card>
             </div>
@@ -77,18 +81,27 @@ export function FileViewer() {
             <div className="space-y-6">
                 <div className="flex items-center gap-4">
                     <Link to="/files">
-                        <Button variant="ghost" size="icon"><ArrowLeft className="w-4 h-4" /></Button>
+                        <Button variant="ghost" size="icon" className="rounded-full hover:bg-muted/80">
+                            <ArrowLeft className="w-5 h-5" />
+                        </Button>
                     </Link>
-                    <h1 className="text-2xl font-bold">Document Not Found</h1>
+                    <h1 className="text-2xl font-bold tracking-tight">Document Not Found</h1>
                 </div>
-                <Card>
-                    <CardContent className="flex flex-col items-center justify-center py-16 text-destructive">
-                        <AlertCircle className="w-12 h-12 mb-4" />
-                        <p className="text-lg font-medium">Could not load document</p>
-                        <p className="text-sm text-muted-foreground mb-4">
-                            {docError instanceof Error ? docError.message : 'Document not found'}
+                <Card className="border-destructive/20 bg-destructive/5 shadow-sm">
+                    <CardContent className="flex flex-col items-center justify-center py-24 text-destructive">
+                        <div className="w-20 h-20 rounded-full bg-destructive/10 flex items-center justify-center mb-6">
+                            <AlertCircle className="w-10 h-10" />
+                        </div>
+                        <h3 className="text-xl font-semibold mb-2">Could not load document</h3>
+                        <p className="text-base text-muted-foreground mb-8 max-w-md text-center">
+                            {docError instanceof Error ? docError.message : 'The document you are looking for might have been removed or is temporarily unavailable.'}
                         </p>
-                        <Link to="/files"><Button variant="outline">Return to Files</Button></Link>
+                        <Link to="/files">
+                            <Button variant="outline" className="gap-2 bg-background hover:bg-muted">
+                                <ArrowLeft className="w-4 h-4" />
+                                Return to Files
+                            </Button>
+                        </Link>
                     </CardContent>
                 </Card>
             </div>
@@ -99,35 +112,37 @@ export function FileViewer() {
     const isProcessing = document.status === 'processing'
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-500">
             <StudyHeader document={document} refetchDoc={refetchDoc} />
 
             {isPending && (
-                <Card className="border-orange-200 bg-orange-50/70 dark:border-orange-900/40 dark:bg-orange-950/10">
-                    <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-start gap-3">
-                            <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-orange-100 dark:bg-orange-900/30">
-                                <Sparkles className="h-5 w-5 text-orange-500" />
+                <Card className="group relative overflow-hidden border-orange-200/50 bg-gradient-to-br from-orange-50/80 via-background to-amber-50/80 dark:border-orange-900/30 dark:from-orange-950/30 dark:via-background dark:to-amber-950/30 shadow-sm transition-all hover:shadow-md">
+                    <div className="absolute inset-0 bg-gradient-to-r from-orange-500/5 via-transparent to-amber-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                    <CardContent className="relative flex flex-col gap-6 p-6 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-start gap-5">
+                            <div className="mt-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-100 to-amber-100 dark:from-orange-900/50 dark:to-amber-900/50 shadow-inner border border-orange-200/50 dark:border-orange-800/50">
+                                <Sparkles className="h-7 w-7 text-orange-600 dark:text-orange-400" />
                             </div>
-                            <div>
-                                <h3 className="text-base font-semibold">Document Pending Processing</h3>
-                                <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
-                                    Your file is uploaded and ready. You can preview the original document now while Guide,
-                                    Concepts, Quiz Prep, Flashcards, and Notes stay unavailable until processing finishes.
+                            <div className="space-y-1.5">
+                                <h3 className="text-xl font-semibold tracking-tight">Processing Required</h3>
+                                <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
+                                    Your file is ready to view. To unlock AI features like the Guide,
+                                    Concepts, Quiz Prep, Flashcards, and Notes, you need to process it first.
                                 </p>
                             </div>
                         </div>
                         <Button
                             onClick={() => processDocument.mutate(document.id)}
                             disabled={processDocument.isPending}
-                            className="gap-2 self-start sm:self-auto"
+                            className="gap-2 self-start sm:self-auto shadow-sm hover:shadow transition-all bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white border-0 rounded-xl"
+                            size="lg"
                         >
                             {processDocument.isPending ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
+                                <Loader2 className="w-5 h-5 animate-spin" />
                             ) : (
-                                <Brain className="w-4 h-4" />
+                                <Brain className="w-5 h-5" />
                             )}
-                            Process Document
+                            <span className="font-semibold">{processDocument.isPending ? 'Processing...' : 'Process Document'}</span>
                         </Button>
                     </CardContent>
                 </Card>
@@ -135,24 +150,27 @@ export function FileViewer() {
 
             {/* Processing overlay */}
             {isProcessing && (
-                <Card>
-                    <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-                        <div className="relative mb-6">
-                            <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
-                                <Brain className="w-10 h-10 text-primary" />
+                <Card className="relative overflow-hidden border-primary/20 bg-gradient-to-b from-primary/5 via-background to-background shadow-sm">
+                    <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px] [mask-image:radial-gradient(ellipse_60%_60%_at_50%_50%,#000_70%,transparent_100%)]" />
+                    <CardContent className="relative flex flex-col items-center justify-center py-24 text-center">
+                        <div className="relative mb-8 group">
+                            <div className="absolute inset-0 bg-primary/20 rounded-full blur-2xl animate-pulse" />
+                            <div className="relative w-24 h-24 rounded-2xl bg-gradient-to-tr from-primary/20 to-primary/5 border border-primary/20 flex items-center justify-center shadow-inner rotate-3 transition-transform group-hover:rotate-6">
+                                <Brain className="w-12 h-12 text-primary animate-pulse" />
                             </div>
-                            <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-background border-2 border-primary/30 flex items-center justify-center">
-                                <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                            <div className="absolute -bottom-3 -right-3 w-12 h-12 rounded-xl bg-background border shadow-xl flex items-center justify-center -rotate-3 transition-transform group-hover:-rotate-6">
+                                <Loader2 className="w-6 h-6 text-primary animate-spin" />
                             </div>
                         </div>
-                        <h3 className="text-lg font-semibold mb-1">Analyzing Your Document</h3>
-                        <p className="text-sm text-muted-foreground max-w-sm">
-                            EduCoach is extracting concepts, building flashcards, and
-                            preparing your study material. This page will update automatically.
+                        <h3 className="text-2xl font-bold tracking-tight mb-3 bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
+                            Analyzing Your Document
+                        </h3>
+                        <p className="text-base text-muted-foreground max-w-md mx-auto leading-relaxed">
+                            EduCoach is extracting key concepts, generating flashcards, and preparing your personalized study materials.
                         </p>
-                        <div className="mt-6 flex items-center gap-2 text-xs text-muted-foreground">
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                            Checking for updates every few seconds...
+                        <div className="mt-8 flex items-center gap-3 text-sm font-medium text-muted-foreground bg-muted/50 px-5 py-2.5 rounded-full border border-border/50 shadow-sm">
+                            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                            <span>Updating automatically in a few moments...</span>
                         </div>
                     </CardContent>
                 </Card>
@@ -164,7 +182,7 @@ export function FileViewer() {
                     <Button
                         variant="outline"
                         onClick={() => setShowMobileDoc(!showMobileDoc)}
-                        className="gap-2 w-full sm:w-auto"
+                        className="gap-2 w-full sm:w-auto shadow-sm rounded-xl font-medium"
                     >
                         {showMobileDoc ? (
                             <>
@@ -182,90 +200,96 @@ export function FileViewer() {
             )}
 
             {/* Two-pane layout */}
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-6" style={isProcessing ? { opacity: 0.3, pointerEvents: 'none' } : undefined}>
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-8 transition-opacity duration-300" style={isProcessing ? { opacity: 0.4, pointerEvents: 'none' } : undefined}>
                 {/* Left pane: study content */}
-                <div className={`lg:col-span-3 space-y-4 ${showMobileDoc ? 'hidden lg:block' : 'block'}`}>
-                    {document.status === 'ready' && (
-                        <StudyPath
-                            documentId={document.id}
-                            onSelectTab={(tab) => {
-                                const nextParams = new URLSearchParams(searchParams)
-                                nextParams.set('tab', tab)
-                                setSearchParams(nextParams, { replace: true })
-                            }}
-                        />
-                    )}
-
+                <div className={`lg:col-span-3 flex flex-col gap-6 ${showMobileDoc ? 'hidden lg:flex' : 'flex'}`}>
                     <Tabs value={activeTab} onValueChange={(value) => {
                         const nextParams = new URLSearchParams(searchParams)
                         nextParams.set('tab', value)
                         setSearchParams(nextParams, { replace: true })
-                    }}>
-                        <TabsList className="flex w-full overflow-x-auto justify-start no-scrollbar">
-                            <TabsTrigger value="guide" className="gap-1.5 text-xs sm:text-sm whitespace-nowrap">
-                                <BookOpen className="w-3.5 h-3.5" />
-                                Guide
+                    }} className="flex-1 flex flex-col">
+                        <TabsList className="flex w-full overflow-x-auto justify-start no-scrollbar bg-muted/40 p-1.5 rounded-xl h-auto border border-border/50 shadow-sm">
+                            <TabsTrigger 
+                                value="guide" 
+                                className="gap-2 text-sm whitespace-nowrap px-5 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary text-muted-foreground hover:text-foreground transition-all"
+                            >
+                                <BookOpen className="w-4 h-4" />
+                                <span className="font-medium">Guide</span>
                             </TabsTrigger>
-                            <TabsTrigger value="concepts" className="gap-1.5 text-xs sm:text-sm whitespace-nowrap">
-                                <Brain className="w-3.5 h-3.5" />
-                                Concepts
+                            <TabsTrigger 
+                                value="concepts" 
+                                className="gap-2 text-sm whitespace-nowrap px-5 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary text-muted-foreground hover:text-foreground transition-all"
+                            >
+                                <Brain className="w-4 h-4" />
+                                <span className="font-medium">Concepts</span>
                             </TabsTrigger>
-                            <TabsTrigger value="quiz-prep" className="gap-1.5 text-xs sm:text-sm whitespace-nowrap">
-                                <Sparkles className="w-3.5 h-3.5" />
-                                Quiz Prep
+                            <TabsTrigger 
+                                value="quiz-prep" 
+                                className="gap-2 text-sm whitespace-nowrap px-5 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary text-muted-foreground hover:text-foreground transition-all"
+                            >
+                                <Sparkles className="w-4 h-4" />
+                                <span className="font-medium">Quiz Prep</span>
                             </TabsTrigger>
-                            <TabsTrigger value="flashcards" className="gap-1.5 text-xs sm:text-sm whitespace-nowrap">
-                                <Layers className="w-3.5 h-3.5" />
-                                Flashcards
+                            <TabsTrigger 
+                                value="flashcards" 
+                                className="gap-2 text-sm whitespace-nowrap px-5 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary text-muted-foreground hover:text-foreground transition-all"
+                            >
+                                <Layers className="w-4 h-4" />
+                                <span className="font-medium">Flashcards</span>
                             </TabsTrigger>
-                            <TabsTrigger value="notes" className="gap-1.5 text-xs sm:text-sm whitespace-nowrap">
-                                <StickyNote className="w-3.5 h-3.5" />
-                                Notes
+                            <TabsTrigger 
+                                value="notes" 
+                                className="gap-2 text-sm whitespace-nowrap px-5 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary text-muted-foreground hover:text-foreground transition-all"
+                            >
+                                <StickyNote className="w-4 h-4" />
+                                <span className="font-medium">Notes</span>
                             </TabsTrigger>
                         </TabsList>
 
-                        <TabsContent value="guide" className="mt-4">
-                            <GuideTab
-                                summary={document.summary}
-                                structuredSummary={document.structured_summary}
-                                concepts={concepts || []}
-                                onPageJump={handlePageJump}
-                            />
-                        </TabsContent>
+                        <div className="flex-1 mt-6 relative">
+                            <TabsContent value="guide" className="m-0 focus-visible:outline-none focus-visible:ring-0">
+                                <GuideTab
+                                    summary={document.summary}
+                                    structuredSummary={document.structured_summary}
+                                    concepts={concepts || []}
+                                    onPageJump={handlePageJump}
+                                />
+                            </TabsContent>
 
-                        <TabsContent value="concepts" className="mt-4">
-                            <ConceptsTab
-                                concepts={concepts || []}
-                                isLoading={conceptsLoading}
-                                documentStatus={document.status}
-                                onPageJump={handlePageJump}
-                                onAskTutor={(prompt: string) => setTutorPrompt(prompt)}
-                                documentId={document.id}
-                            />
-                        </TabsContent>
+                            <TabsContent value="concepts" className="m-0 focus-visible:outline-none focus-visible:ring-0">
+                                <ConceptsTab
+                                    concepts={concepts || []}
+                                    isLoading={conceptsLoading}
+                                    documentStatus={document.status}
+                                    onPageJump={handlePageJump}
+                                    onAskTutor={(prompt: string) => setTutorPrompt(prompt)}
+                                    documentId={document.id}
+                                />
+                            </TabsContent>
 
-                        <TabsContent value="quiz-prep" className="mt-4">
-                            <QuizPrepTab
-                                documentId={document.id}
-                                concepts={concepts || []}
-                                documentStatus={document.status}
-                            />
-                        </TabsContent>
+                            <TabsContent value="quiz-prep" className="m-0 focus-visible:outline-none focus-visible:ring-0">
+                                <QuizPrepTab
+                                    documentId={document.id}
+                                    concepts={concepts || []}
+                                    documentStatus={document.status}
+                                />
+                            </TabsContent>
 
-                        <TabsContent value="flashcards" className="mt-4">
-                            <FlashcardsTab
-                                documentId={document.id}
-                                documentStatus={document.status}
-                            />
-                        </TabsContent>
+                            <TabsContent value="flashcards" className="m-0 focus-visible:outline-none focus-visible:ring-0">
+                                <FlashcardsTab
+                                    documentId={document.id}
+                                    documentStatus={document.status}
+                                />
+                            </TabsContent>
 
-                        <TabsContent value="notes" className="mt-4">
-                            <NotesTab
-                                documentId={document.id}
-                                concepts={concepts || []}
-                                onHighlightPress={handleHighlightPress}
-                            />
-                        </TabsContent>
+                            <TabsContent value="notes" className="m-0 focus-visible:outline-none focus-visible:ring-0">
+                                <NotesTab
+                                    documentId={document.id}
+                                    concepts={concepts || []}
+                                    onHighlightPress={handleHighlightPress}
+                                />
+                            </TabsContent>
+                        </div>
                     </Tabs>
                 </div>
 
