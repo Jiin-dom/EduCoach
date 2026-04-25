@@ -7,9 +7,10 @@ import type { Quiz } from "@/hooks/useQuizzes"
 interface QuizCardProps {
     quiz: Quiz
     lastScore?: number | null
+    compact?: boolean
 }
 
-export function QuizCard({ quiz, lastScore }: QuizCardProps) {
+export function QuizCard({ quiz, lastScore, compact = false }: QuizCardProps) {
     const difficultyColors: Record<string, string> = {
         easy: "bg-green-500/10 text-green-700 dark:text-green-400",
         medium: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",
@@ -24,6 +25,76 @@ export function QuizCard({ quiz, lastScore }: QuizCardProps) {
     const isError = quiz.status === 'error'
     const isReady = quiz.status === 'ready'
     const hasAttempt = lastScore !== null && lastScore !== undefined
+
+    if (compact) {
+        return (
+            <div className="rounded-xl border bg-card p-3.5 transition-colors hover:bg-accent/5">
+                <div className="flex items-start gap-3">
+                    <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                        {isGenerating ? (
+                            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                        ) : isError ? (
+                            <AlertCircle className="h-5 w-5 text-destructive" />
+                        ) : hasAttempt ? (
+                            <CheckCircle2 className="h-5 w-5 text-primary" />
+                        ) : (
+                            <FileQuestion className="h-5 w-5 text-primary" />
+                        )}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                        <h4 className="truncate text-sm font-semibold leading-5">{quiz.title}</h4>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                            <span>{quiz.question_count} questions</span>
+                            <span className="text-muted-foreground/60">•</span>
+                            <span className="inline-flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {estimatedMinutes} min
+                            </span>
+                            <Badge variant="secondary" className={difficultyColors[quiz.difficulty] || difficultyColors.mixed}>
+                                {quiz.difficulty.charAt(0).toUpperCase() + quiz.difficulty.slice(1)}
+                            </Badge>
+                        </div>
+
+                        {hasAttempt && (
+                            <p className="mt-1 text-xs font-semibold text-primary">
+                                Last Score: {Math.round(lastScore)}%
+                            </p>
+                        )}
+                        {isError && quiz.error_message && (
+                            <p className="mt-1 truncate text-xs text-destructive">{quiz.error_message}</p>
+                        )}
+                    </div>
+                </div>
+
+                <div className="mt-3">
+                    {isReady && (
+                        <div className={`grid gap-2 ${hasAttempt ? "grid-cols-2" : "grid-cols-1"}`}>
+                            {hasAttempt && (
+                                <Link to={`/quizzes/${quiz.id}?review=true`}>
+                                    <Button size="sm" variant="outline" className="w-full gap-2">
+                                        <Eye className="h-4 w-4" />
+                                        View
+                                    </Button>
+                                </Link>
+                            )}
+                            <Link to={`/quizzes/${quiz.id}`}>
+                                <Button size="sm" variant={hasAttempt ? "ghost" : "default"} className="w-full">
+                                    {hasAttempt ? "Retake" : "Start Quiz"}
+                                </Button>
+                            </Link>
+                        </div>
+                    )}
+                    {isGenerating && (
+                        <Button size="sm" variant="outline" disabled className="w-full">
+                            <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                            Generating...
+                        </Button>
+                    )}
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-lg border bg-card hover:bg-accent/5 transition-colors">
@@ -71,7 +142,7 @@ export function QuizCard({ quiz, lastScore }: QuizCardProps) {
                     <p className="text-sm text-destructive mt-1 truncate">{quiz.error_message}</p>
                 )}
             </div>
-            
+
             <div className="sm:hidden w-full space-y-2 mt-1 mb-1">
                 <Badge variant="secondary" className={difficultyColors[quiz.difficulty] || difficultyColors.mixed}>
                     {quiz.difficulty.charAt(0).toUpperCase() + quiz.difficulty.slice(1)}
