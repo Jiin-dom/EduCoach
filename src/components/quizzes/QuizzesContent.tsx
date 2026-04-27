@@ -27,6 +27,7 @@ export function QuizzesContent() {
         persistedHighlightRef.current = routeHighlightQuizId
     }
     const highlightQuizId = persistedHighlightRef.current
+    const [activeHighlightQuizId, setActiveHighlightQuizId] = useState<string | null>(highlightQuizId)
 
     // Dialog state
     const [isSelectDocOpen, setIsSelectDocOpen] = useState(false)
@@ -39,6 +40,18 @@ export function QuizzesContent() {
             navigate(location.pathname, { replace: true })
         }
     }, [routeHighlightQuizId, navigate, location.pathname])
+
+    useEffect(() => {
+        if (!highlightQuizId) {
+            setActiveHighlightQuizId(null)
+            return
+        }
+        setActiveHighlightQuizId(highlightQuizId)
+        const clearTimer = window.setTimeout(() => {
+            setActiveHighlightQuizId(null)
+        }, 2600)
+        return () => window.clearTimeout(clearTimer)
+    }, [highlightQuizId])
 
     useEffect(() => {
         setActiveTab(requestedTab === 'completed' ? 'completed' : 'available')
@@ -219,8 +232,8 @@ export function QuizzesContent() {
                                     {availableQuizzes.map((quiz) => (
                                         <div
                                             key={quiz.id}
-                                            className={quiz.id === highlightQuizId
-                                                ? "ring-2 ring-primary rounded-lg"
+                                            className={quiz.id === activeHighlightQuizId
+                                                ? "ring-2 ring-primary rounded-lg bg-primary/5 animate-pulse transition-all duration-700"
                                                 : ""}
                                         >
                                             <QuizCard
