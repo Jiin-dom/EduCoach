@@ -300,6 +300,11 @@ export function LearningPathCalendar({
     const handleRescheduleDrop = (rawPayload: string, targetDateStr: string) => {
         if (!rawPayload || !targetDateStr) return
 
+        if (targetDateStr < todayLocal) {
+            toast.error("You cannot reschedule items to a past date.")
+            return
+        }
+
         let payload: { kind?: string; conceptId?: string; taskId?: string } | null = null
         try {
             payload = JSON.parse(rawPayload)
@@ -600,15 +605,18 @@ export function LearningPathCalendar({
                                 }
 
                                 const isToday = dateStr === todayLocal
+                                const isPast = dateStr < todayLocal
 
                                 return (
                                     <div
                                         key={idx}
-                                        className={`min-w-[200px] flex-1 border rounded-2xl p-3 snap-start bg-card min-h-[300px] flex flex-col ${isToday ? 'ring-2 ring-primary/20 border-primary/30' : ''}`}
-                                        onDragOver={(e) => { e.preventDefault() }}
+                                        className={`min-w-[200px] flex-1 border rounded-2xl p-3 snap-start bg-card min-h-[300px] flex flex-col ${isToday ? 'ring-2 ring-primary/20 border-primary/30' : ''} ${isPast ? 'bg-muted/40 opacity-60 grayscale-[0.2]' : ''}`}
+                                        onDragOver={(e) => { 
+                                            if (!isPast) e.preventDefault() 
+                                        }}
                                         onDrop={(e) => {
                                             e.preventDefault()
-                                            if (isMovingItem) return
+                                            if (isMovingItem || isPast) return
                                             const payload = e.dataTransfer.getData('text/plain')
                                             handleRescheduleDrop(payload, dateStr)
                                         }}
@@ -660,15 +668,18 @@ export function LearningPathCalendar({
                                     }
 
                                     const isToday = dateStr === todayLocal
+                                    const isPast = dateStr < todayLocal
 
                                     return (
                                         <div
                                             key={i}
-                                            className={`aspect-square p-1.5 sm:p-2 border rounded-xl relative min-h-[80px] sm:min-h-[100px] overflow-hidden transition-colors hover:border-primary/50 ${isToday ? 'bg-primary/5 ring-1 ring-primary/20 border-primary/30' : 'bg-card'}`}
-                                            onDragOver={(e) => { e.preventDefault() }}
+                                            className={`aspect-square p-1.5 sm:p-2 border rounded-xl relative min-h-[80px] sm:min-h-[100px] overflow-hidden transition-colors ${isToday ? 'bg-primary/5 ring-1 ring-primary/20 border-primary/30' : 'bg-card'} ${isPast ? 'bg-muted/40 opacity-60 grayscale-[0.2]' : 'hover:border-primary/50'}`}
+                                            onDragOver={(e) => { 
+                                                if (!isPast) e.preventDefault() 
+                                            }}
                                             onDrop={(e) => {
                                                 e.preventDefault()
-                                                if (isMovingItem) return
+                                                if (isMovingItem || isPast) return
                                                 const payload = e.dataTransfer.getData('text/plain')
                                                 handleRescheduleDrop(payload, dateStr)
                                             }}
