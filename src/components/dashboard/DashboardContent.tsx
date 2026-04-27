@@ -6,6 +6,7 @@ import { FileUploadDialog } from "@/components/files/FileUploadDialog"
 import { GenerateQuizDialog } from "@/components/files/GenerateQuizDialog"
 import { QuizCard } from "@/components/dashboard/QuizCard"
 import { TodaysStudyPlan } from "@/components/dashboard/TodaysStudyPlan"
+import { DashboardMiniCalendar } from "@/components/dashboard/DashboardMiniCalendar"
 import { WeakTopicsPanel } from "@/components/dashboard/WeakTopicsPanel"
 
 import { ProgressInsightsSection } from "@/components/dashboard/ProgressInsightsSection"
@@ -155,7 +156,7 @@ export function DashboardContent() {
     }
 
     return (
-        <div className="h-full space-y-8 overflow-hidden">
+        <div className="h-full min-h-0 flex flex-col gap-8 overflow-y-auto lg:overflow-hidden">
             <Dialog open={showExpiredTrialModal} onOpenChange={(open) => !open && handleCloseExpiredTrialModal()}>
                 <DialogContent showCloseButton={false} className="max-w-xl overflow-hidden border border-primary/10 bg-white p-0 shadow-[0_30px_75px_-26px_rgba(55,39,77,0.4)]">
                     <DialogHeader className="sr-only">
@@ -332,7 +333,7 @@ export function DashboardContent() {
                 </Card>
             )}
 
-            <div className="grid h-full min-h-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
                 <div className="space-y-6 min-h-0 lg:h-full lg:overflow-y-auto lg:pr-2 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                     {/* Stats grid — gradient metric cards */}
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -664,8 +665,11 @@ export function DashboardContent() {
                     <ProgressInsightsSection hasPremiumEntitlement={hasPremiumEntitlement} />
                 </div>
 
-                <div className="lg:sticky lg:top-0 lg:h-full [&>*]:h-full">
-                    <TodaysStudyPlan />
+                <div className="min-h-0 lg:h-full lg:overflow-y-auto lg:pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                    <div className="flex min-h-0 flex-col gap-4">
+                        <DashboardMiniCalendar className="min-h-[220px] lg:flex-[0.9]" />
+                        <TodaysStudyPlan className="min-h-0 lg:flex-[1.7]" />
+                    </div>
                 </div>
             </div>
 

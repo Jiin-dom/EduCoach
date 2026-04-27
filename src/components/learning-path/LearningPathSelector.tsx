@@ -173,19 +173,19 @@ export function LearningPathSelector({
                     </div>
                     <Button asChild className="gap-1.5 shadow-sm transition-all hover:scale-105 active:scale-95" size="sm">
                         <Link to="/learning-path?scope=all">
-                            Start Combined Plan
+                            View Combined Path
                             <ArrowRight className="w-3.5 h-3.5" />
                         </Link>
                     </Button>
                 </div>
 
-                <section className="space-y-3 pt-2">
-                    <div className="flex items-center gap-2 px-1">
+                <section className="space-y-3">
+                    {/* <div className="flex items-center gap-2 px-1">
                         <div className="p-1.5 bg-blue-100 text-blue-700 rounded-lg">
                             <FileText className="w-5 h-5" />
                         </div>
                         <h2 className="text-xl font-bold tracking-tight">Files</h2>
-                    </div>
+                    </div> */}
                     {fileCards.length === 0 ? (
                         <Card>
                             <CardContent className="py-10 text-center text-sm text-muted-foreground">
