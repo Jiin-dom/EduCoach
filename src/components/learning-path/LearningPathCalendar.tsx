@@ -26,6 +26,7 @@ import {
 } from "@/hooks/useLearning"
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
 import { useNavigate } from "react-router-dom"
+import { useUserAttempts } from "@/hooks/useQuizzes"
 import { useLearningPathPlan } from "@/hooks/useLearningPathPlan"
 import { useRescheduleAdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { getLearningPathItemsForDate, type LearningPathPlanItem, type PlannedReviewPlanItem } from "@/lib/learningPathPlan"
@@ -79,6 +80,7 @@ export function LearningPathCalendar({
     const rescheduleDueDate = useRescheduleConceptDueDate()
     const rescheduleAdaptiveTask = useRescheduleAdaptiveStudyTask()
     const replanLearningPath = useReplanLearningPath()
+    const { data: attempts = [] } = useUserAttempts()
     const { profile } = useAuth()
 
     const scopedStats = {
@@ -260,20 +262,26 @@ export function LearningPathCalendar({
         }
 
         const task = item.task
-        const colors = task.type === 'quiz'
-            ? 'bg-primary/5 text-primary border-primary/20 hover:bg-primary/10 tracking-wide'
-            : task.type === 'flashcards'
-                ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 tracking-wide'
-                : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 tracking-wide'
+        const isCompleted = task.type === 'quiz' && task.quizId && attempts.some(a => a.quiz_id === task.quizId)
+        
+        const colors = isCompleted
+            ? 'bg-green-50 text-green-700 border-green-200'
+            : task.type === 'quiz'
+                ? 'bg-primary/5 text-primary border-primary/20 hover:bg-primary/10 tracking-wide'
+                : task.type === 'flashcards'
+                    ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 tracking-wide'
+                    : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 tracking-wide'
 
         const label = task.type === 'quiz'
-            ? 'Quiz'
+            ? (isCompleted ? 'Retake' : 'Quiz')
             : task.type === 'flashcards'
                 ? 'Cards'
                 : 'Review'
 
         const iconProps = { className: "w-3.5 h-3.5 opacity-80" }
-        const taskIcon = task.type === 'quiz' ? <Target {...iconProps} /> : task.type === 'flashcards' ? <BookOpen {...iconProps} /> : <AlertCircle {...iconProps} />
+        const taskIcon = isCompleted 
+            ? <CheckCircle2 {...iconProps} className="w-3.5 h-3.5 text-green-600" />
+            : task.type === 'quiz' ? <Target {...iconProps} /> : task.type === 'flashcards' ? <BookOpen {...iconProps} /> : <AlertCircle {...iconProps} />
 
         const openTask = () => {
              if (task.type === 'quiz') {
@@ -301,18 +309,22 @@ export function LearningPathCalendar({
             <button
                 type="button"
                 onClick={openTask}
-                draggable
+                draggable={!isCompleted}
                 onDragStart={(e) => {
+                    if (isCompleted) {
+                        e.preventDefault()
+                        return
+                    }
                     e.dataTransfer.setData('text/plain', dragPayload({
                         kind: "adaptive_task",
                         taskId: task.id,
                     }))
                     e.dataTransfer.effectAllowed = 'move'
                 }}
-                className={`${compact ? 'mt-1 text-[10px] p-1.5 rounded-md' : 'p-3 rounded-xl mb-2'} w-full border text-xs shadow-sm ${colors} text-left transition-all duration-500 ${task.type === 'quiz' ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'} hover:shadow-md flex items-center gap-2 ${dismissingTaskIds[task.id] ? 'opacity-0 scale-[0.98]' : ''}`}
-                title={`${task.title}. Drag to move or click to open.`}
+                className={`${compact ? 'mt-1 text-[10px] p-1.5 rounded-md' : 'p-3 rounded-xl mb-2'} w-full border text-xs shadow-sm ${colors} text-left transition-all duration-500 ${isCompleted ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'} hover:shadow-md flex items-center gap-2 ${dismissingTaskIds[task.id] ? 'opacity-0 scale-[0.98]' : ''}`}
+                title={`${task.title}. ${isCompleted ? 'Completed. Click to retake.' : 'Drag to move or click to open.'}`}
             >
-                <div className="p-1.5 rounded-md bg-white/60 shrink-0">
+                <div className={`p-1.5 rounded-md shrink-0 ${isCompleted ? 'bg-green-100/50' : 'bg-white/60'}`}>
                     {taskIcon}
                 </div>
                 <div className="font-bold truncate w-full flex-1">
@@ -325,6 +337,11 @@ export function LearningPathCalendar({
     const handleRescheduleDrop = (rawPayload: string, targetDateStr: string) => {
         if (!rawPayload || !targetDateStr) return
 
+        if (targetDateStr < todayLocal) {
+            toast.error("You cannot reschedule items to a past date.")
+            return
+        }
+
         let payload: { kind?: string; conceptId?: string; taskId?: string } | null = null
         try {
             payload = JSON.parse(rawPayload)
@@ -335,6 +352,14 @@ export function LearningPathCalendar({
         if (payload?.kind === "adaptive_task" && payload.taskId) {
             const source = plan.items.find((item) => item.kind === "adaptive_task" && item.task.id === payload?.taskId)
             if (!source || source.kind !== "adaptive_task") return
+
+            // Prevent moving completed quizzes
+            const isCompleted = source.task.type === 'quiz' && source.task.quizId && attempts.some(a => a.quiz_id === source.task.quizId)
+            if (isCompleted) {
+                toast.error("You cannot reschedule a completed quiz.")
+                return
+            }
+
             if (source.task.scheduledDate === targetDateStr) return
 
             rescheduleAdaptiveTask.mutate(
@@ -627,15 +652,18 @@ export function LearningPathCalendar({
                                 }
 
                                 const isToday = dateStr === todayLocal
+                                const isPast = dateStr < todayLocal
 
                                 return (
                                     <div
                                         key={idx}
-                                        className={`min-w-[200px] flex-1 border rounded-2xl p-3 snap-start bg-card min-h-[300px] flex flex-col ${isToday ? 'ring-2 ring-primary/20 border-primary/30' : ''}`}
-                                        onDragOver={(e) => { e.preventDefault() }}
+                                        className={`min-w-[200px] flex-1 border rounded-2xl p-3 snap-start bg-card min-h-[300px] flex flex-col ${isToday ? 'ring-2 ring-primary/20 border-primary/30' : ''} ${isPast ? 'bg-muted/40 opacity-60 grayscale-[0.2]' : ''}`}
+                                        onDragOver={(e) => { 
+                                            if (!isPast) e.preventDefault() 
+                                        }}
                                         onDrop={(e) => {
                                             e.preventDefault()
-                                            if (isMovingItem) return
+                                            if (isMovingItem || isPast) return
                                             const payload = e.dataTransfer.getData('text/plain')
                                             handleRescheduleDrop(payload, dateStr)
                                         }}
@@ -688,15 +716,18 @@ export function LearningPathCalendar({
                                     }
 
                                     const isToday = dateStr === todayLocal
+                                    const isPast = dateStr < todayLocal
 
                                     return (
                                         <div
                                             key={i}
-                                            className={`aspect-square p-1.5 sm:p-2 border rounded-xl relative min-h-[80px] sm:min-h-[100px] overflow-hidden transition-colors hover:border-primary/50 ${isToday ? 'bg-primary/5 ring-1 ring-primary/20 border-primary/30' : 'bg-card'}`}
-                                            onDragOver={(e) => { e.preventDefault() }}
+                                            className={`aspect-square p-1.5 sm:p-2 border rounded-xl relative min-h-[80px] sm:min-h-[100px] overflow-hidden transition-colors ${isToday ? 'bg-primary/5 ring-1 ring-primary/20 border-primary/30' : 'bg-card'} ${isPast ? 'bg-muted/40 opacity-60 grayscale-[0.2]' : 'hover:border-primary/50'}`}
+                                            onDragOver={(e) => { 
+                                                if (!isPast) e.preventDefault() 
+                                            }}
                                             onDrop={(e) => {
                                                 e.preventDefault()
-                                                if (isMovingItem) return
+                                                if (isMovingItem || isPast) return
                                                 const payload = e.dataTransfer.getData('text/plain')
                                                 handleRescheduleDrop(payload, dateStr)
                                             }}
