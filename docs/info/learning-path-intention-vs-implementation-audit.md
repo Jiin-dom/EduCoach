@@ -179,15 +179,16 @@ The current Learning Path implementation is **largely aligned in core adaptive l
 **Current Implementation**
 - Respects available study days.
 - Uses `daily_study_minutes` to compute per-day capacity (`~30 min/session` heuristic).
-- Does **not** schedule by preferred start/end time window.
+- Uses preferred study start/end as an in-day placement constraint for learning-path items.
+- Falls back gracefully when preferred window is missing/invalid/too small while still honoring `daily_study_minutes`.
 
 **Evidence**
 - `src/services/goalWindowScheduling.ts`
 - `src/components/profile/ProfileContent.tsx`
 - `supabase/migrations/012_study_time_preferences.sql`
 
-**Status:** Partially aligned  
-**Gap:** Preferred study time is stored but not applied in scheduling algorithm.
+**Status:** Aligned  
+**Gap:** No persisted DB-level time field yet (`due_date`/`scheduled_date` remain date-only), so time placement is computed at planning/render time.
 
 ---
 

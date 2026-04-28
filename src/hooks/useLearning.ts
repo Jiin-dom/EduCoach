@@ -1132,6 +1132,8 @@ export function useProcessQuizResults() {
                     examDate: activeExamDate,
                     availableStudyDays: profile?.available_study_days ?? null,
                     dailyStudyMinutes: profile?.daily_study_minutes ?? 30,
+                    preferredStudyTimeStart: profile?.preferred_study_time_start ?? null,
+                    preferredStudyTimeEnd: profile?.preferred_study_time_end ?? null,
                     learningConfig,
                 })
             }

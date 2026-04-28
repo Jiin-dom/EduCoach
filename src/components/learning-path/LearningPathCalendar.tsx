@@ -155,6 +155,9 @@ export function LearningPathCalendar({
                         {session.mastery.display_mastery_level === 'needs_review' && <BookOpen className="w-3.5 h-3.5" />}
                     </div>
                     <span className="truncate">{session.source === "baseline" ? `Planned: ${session.conceptName}` : session.conceptName}</span>
+                    {session.scheduledTime ? (
+                        <span className="ml-auto text-[10px] font-semibold tabular-nums opacity-80">{session.scheduledTime}</span>
+                    ) : null}
                 </div>
             </div>
         )
@@ -187,7 +190,8 @@ export function LearningPathCalendar({
                 {session.mastery.display_mastery_level === 'mastered' && <CheckCircle2 className="w-2.5 h-2.5 hidden sm:block" />}
                 {session.mastery.display_mastery_level === 'developing' && <Clock className="w-2.5 h-2.5 hidden sm:block" />}
                 {session.mastery.display_mastery_level === 'needs_review' && <BookOpen className="w-2.5 h-2.5 hidden sm:block" />}
-                <span>{session.source === "baseline" ? `Planned: ${session.conceptName}` : session.conceptName}</span>
+                <span className="truncate">{session.source === "baseline" ? `Planned: ${session.conceptName}` : session.conceptName}</span>
+                {session.scheduledTime ? <span className="ml-auto tabular-nums opacity-70">{session.scheduledTime}</span> : null}
             </div>
         )
     }
@@ -330,6 +334,9 @@ export function LearningPathCalendar({
                 <div className="font-bold truncate w-full flex-1">
                     {label}: {task.documentTitle}
                 </div>
+                {item.scheduledTime ? (
+                    <span className="text-[10px] font-semibold tabular-nums opacity-80 shrink-0">{item.scheduledTime}</span>
+                ) : null}
             </button>
         )
     }
@@ -398,7 +405,12 @@ export function LearningPathCalendar({
         try {
             const availableStudyDays = profile?.available_study_days ?? []
             const dailyStudyMinutes = profile?.daily_study_minutes ?? 30
-            const result = await replanLearningPath.mutateAsync({ availableStudyDays, dailyStudyMinutes })
+            const result = await replanLearningPath.mutateAsync({
+                availableStudyDays,
+                dailyStudyMinutes,
+                preferredStudyTimeStart: profile?.preferred_study_time_start ?? null,
+                preferredStudyTimeEnd: profile?.preferred_study_time_end ?? null,
+            })
 
             if (result.total === 0) {
                 toast.info("No goal-dated documents found to replan.")
