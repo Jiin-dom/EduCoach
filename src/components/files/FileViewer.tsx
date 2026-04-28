@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { ArrowLeft, Loader2, AlertCircle, BookOpen, Brain, Sparkles, StickyNote, Layers, FileText } from 'lucide-react'
+import { ArrowLeft, Loader2, AlertCircle, BookOpen, Brain, StickyNote, Layers, FileText, Sparkles } from 'lucide-react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useDocument, useProcessDocument } from '@/hooks/useDocuments'
 import { useDocumentConcepts } from '@/hooks/useConcepts'
@@ -10,7 +10,6 @@ import { AiTutorChat } from '@/components/shared/AiTutorChat'
 import { StudyHeader } from './StudyHeader'
 import { GuideTab } from './GuideTab'
 import { ConceptsTab } from './ConceptsTab'
-import { QuizPrepTab } from './QuizPrepTab'
 import { NotesTab } from './NotesTab'
 import { FlashcardsTab } from './FlashcardsTab'
 import { DocumentPane } from './DocumentPane'
@@ -20,7 +19,8 @@ export function FileViewer() {
     const { id } = useParams<{ id: string }>()
     const [searchParams, setSearchParams] = useSearchParams()
     const requestedTab = searchParams.get('tab')
-    const activeTab = requestedTab || 'guide'
+    const allowedTabs = new Set(['guide', 'concepts', 'flashcards', 'notes'])
+    const activeTab = requestedTab && allowedTabs.has(requestedTab) ? requestedTab : 'guide'
     const [currentPage, setCurrentPage] = useState(1)
     const [highlightTarget, setHighlightTarget] = useState<{ type: 'pdf'; page: number } | { type: 'docx'; id: string } | null>(null)
     const [tutorPrompt, setTutorPrompt] = useState<string | null>(null)
@@ -127,7 +127,7 @@ export function FileViewer() {
                                 <h3 className="text-xl font-semibold tracking-tight">Processing Required</h3>
                                 <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
                                     Your file is ready to view. To unlock AI features like the Guide,
-                                    Concepts, Quiz Prep, Flashcards, and Notes, you need to process it first.
+                                    Concepts, Flashcards, and Notes, you need to process it first.
                                 </p>
                             </div>
                         </div>
@@ -224,13 +224,6 @@ export function FileViewer() {
                                 <span className="font-medium">Concepts</span>
                             </TabsTrigger>
                             <TabsTrigger 
-                                value="quiz-prep" 
-                                className="gap-2 text-sm whitespace-nowrap px-5 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary text-muted-foreground hover:text-foreground transition-all"
-                            >
-                                <Sparkles className="w-4 h-4" />
-                                <span className="font-medium">Quiz Prep</span>
-                            </TabsTrigger>
-                            <TabsTrigger 
                                 value="flashcards" 
                                 className="gap-2 text-sm whitespace-nowrap px-5 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary text-muted-foreground hover:text-foreground transition-all"
                             >
@@ -264,14 +257,6 @@ export function FileViewer() {
                                     onPageJump={handlePageJump}
                                     onAskTutor={(prompt: string) => setTutorPrompt(prompt)}
                                     documentId={document.id}
-                                />
-                            </TabsContent>
-
-                            <TabsContent value="quiz-prep" className="m-0 focus-visible:outline-none focus-visible:ring-0">
-                                <QuizPrepTab
-                                    documentId={document.id}
-                                    concepts={concepts || []}
-                                    documentStatus={document.status}
                                 />
                             </TabsContent>
 

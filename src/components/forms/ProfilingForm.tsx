@@ -14,53 +14,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
-import { ArrowRight, ArrowLeft, BookOpen, Eye, Headphones, PenTool, Loader2, Clock, Plus } from "lucide-react"
-
-// Learning style options with descriptions
-const learningStyles = [
-    {
-        id: "visual",
-        label: "Visual Learner",
-        description: "I learn best through images, diagrams, and visual representations",
-        icon: Eye,
-    },
-    {
-        id: "auditory",
-        label: "Auditory Learner",
-        description: "I learn best through listening and verbal explanations",
-        icon: Headphones,
-    },
-    {
-        id: "reading",
-        label: "Reading/Writing Learner",
-        description: "I learn best through reading texts and taking notes",
-        icon: BookOpen,
-    },
-    {
-        id: "kinesthetic",
-        label: "Kinesthetic Learner",
-        description: "I learn best through hands-on practice and examples",
-        icon: PenTool,
-    },
-]
-
-// Subject options
-const subjectOptions = [
-    "Computer Science",
-    "Mathematics",
-    "Physics",
-    "Chemistry",
-    "Biology",
-    "Engineering",
-    "Business",
-    "Economics",
-    "Psychology",
-    "History",
-    "Literature",
-    "Languages",
-    "Art & Design",
-    "Other",
-]
+import { ArrowRight, ArrowLeft, Loader2, Clock, Plus } from "lucide-react"
 
 // Study goal options
 const studyGoals = [
@@ -109,9 +63,7 @@ export function ProfilingForm() {
 
     // Form state
     const [step, setStep] = useState(1)
-    const [learningStyle, setLearningStyle] = useState<string>("")
     const [studyGoal, setStudyGoal] = useState<string>("")
-    const [preferredSubjects, setPreferredSubjects] = useState<string[]>([])
     const [dailyStudyMinutes, setDailyStudyMinutes] = useState<number>(30)
     const [studyTimeStart, setStudyTimeStart] = useState<string>("18:00")
     const [studyTimeEnd, setStudyTimeEnd] = useState<string>("23:59")
@@ -122,14 +74,7 @@ export function ProfilingForm() {
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
-    const totalSteps = 5
-
-    // Handle subject toggle
-    const toggleSubject = (subject: string) => {
-        setPreferredSubjects((prev) =>
-            prev.includes(subject) ? prev.filter((s) => s !== subject) : [...prev, subject]
-        )
-    }
+    const totalSteps = 3
 
     // Check if current step is valid
     const isStepValid = () => {
@@ -137,12 +82,8 @@ export function ProfilingForm() {
             case 1:
                 return displayName.trim().length >= 2
             case 2:
-                return learningStyle !== ""
-            case 3:
                 return studyGoal !== ""
-            case 4:
-                return preferredSubjects.length > 0
-            case 5:
+            case 3:
                 return (
                     dailyStudyMinutes > 0 &&
                     studyTimeStart.trim() !== "" &&
@@ -162,9 +103,7 @@ export function ProfilingForm() {
         try {
             const { error: updateError } = await updateProfile({
                 display_name: displayName.trim(),
-                learning_style: learningStyle,
                 study_goal: studyGoal,
-                preferred_subjects: preferredSubjects,
                 daily_study_minutes: dailyStudyMinutes,
                 preferred_study_time_start: studyTimeStart,
                 preferred_study_time_end: studyTimeEnd,
@@ -223,10 +162,8 @@ export function ProfilingForm() {
                 </div>
                 <CardDescription>
                     {step === 1 && "Pick a display name — a nickname or your first name"}
-                    {step === 2 && "How do you learn best?"}
-                    {step === 3 && "What's your primary learning goal?"}
-                    {step === 4 && "What subjects are you studying?"}
-                    {step === 5 && "When do you want to study, and what days work?"}
+                    {step === 2 && "What's your primary learning goal?"}
+                    {step === 3 && "When do you want to study, and what days work?"}
                 </CardDescription>
             </CardHeader>
 
@@ -251,36 +188,8 @@ export function ProfilingForm() {
                     </div>
                 )}
 
-                {/* Step 2: Learning Style */}
+                {/* Step 2: Study Goal */}
                 {step === 2 && (
-                    <RadioGroup value={learningStyle} onValueChange={setLearningStyle} className="space-y-3">
-                        {learningStyles.map((style) => {
-                            const Icon = style.icon
-                            return (
-                                <div key={style.id}>
-                                    <RadioGroupItem value={style.id} id={style.id} className="peer sr-only" />
-                                    <Label
-                                        htmlFor={style.id}
-                                        className="flex items-start gap-4 p-4 rounded-lg border cursor-pointer
-                                            hover:bg-accent/50 peer-data-[state=checked]:border-primary 
-                                            peer-data-[state=checked]:bg-primary/5 transition-all"
-                                    >
-                                        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                                            <Icon className="w-5 h-5 text-primary" />
-                                        </div>
-                                        <div className="flex-1">
-                                            <p className="font-semibold">{style.label}</p>
-                                            <p className="text-sm text-muted-foreground">{style.description}</p>
-                                        </div>
-                                    </Label>
-                                </div>
-                            )
-                        })}
-                    </RadioGroup>
-                )}
-
-                {/* Step 3: Study Goal */}
-                {step === 3 && (
                     <RadioGroup value={studyGoal} onValueChange={setStudyGoal} className="space-y-3">
                         {studyGoals.map((goal) => (
                             <div key={goal.id}>
@@ -299,43 +208,8 @@ export function ProfilingForm() {
                     </RadioGroup>
                 )}
 
-                {/* Step 4: Preferred Subjects */}
-                {step === 4 && (
-                    <div className="space-y-4">
-                        <p className="text-sm text-muted-foreground">Select all subjects you're interested in:</p>
-                        <div className="grid grid-cols-2 gap-3">
-                            {subjectOptions.map((subject) => (
-                                <div
-                                    key={subject}
-                                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer
-                                        hover:bg-accent/50 transition-all ${
-                                            preferredSubjects.includes(subject)
-                                                ? "border-primary bg-primary/5"
-                                                : ""
-                                        }`}
-                                    onClick={() => toggleSubject(subject)}
-                                >
-                                    <Checkbox
-                                        id={subject}
-                                        checked={preferredSubjects.includes(subject)}
-                                        onCheckedChange={() => toggleSubject(subject)}
-                                    />
-                                    <Label htmlFor={subject} className="cursor-pointer flex-1">
-                                        {subject}
-                                    </Label>
-                                </div>
-                            ))}
-                        </div>
-                        {preferredSubjects.length > 0 && (
-                            <p className="text-sm text-primary">
-                                {preferredSubjects.length} subject{preferredSubjects.length > 1 ? "s" : ""} selected
-                            </p>
-                        )}
-                    </div>
-                )}
-
-                {/* Step 5: Daily Study Time */}
-                {step === 5 && (
+                {/* Step 3: Daily Study Time */}
+                {step === 3 && (
                     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
                         <div className="space-y-4">
                             <div className="flex items-center gap-2 mb-1">
