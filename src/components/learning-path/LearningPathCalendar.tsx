@@ -25,8 +25,8 @@ import {
     useLearningConfig,
 } from "@/hooks/useLearning"
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
-import { useNavigate, Link } from "react-router-dom"
-import { useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
+import { useNavigate } from "react-router-dom"
+import { useUserAttempts } from "@/hooks/useQuizzes"
 import { useLearningPathPlan } from "@/hooks/useLearningPathPlan"
 import { useRescheduleAdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { getLearningPathItemsForDate, type LearningPathPlanItem, type PlannedReviewPlanItem } from "@/lib/learningPathPlan"
@@ -67,6 +67,9 @@ export function LearningPathCalendar({
     const [viewMode, setViewMode] = useState<"week" | "month">("week")
     const [anchorDate, setAnchorDate] = useState(() => new Date())
     const [focusFilter, setFocusFilter] = useState<ScheduleFilter>('all')
+    const [dismissingTaskIds, setDismissingTaskIds] = useState<Record<string, true>>({})
+    const [dismissedTaskIds, setDismissedTaskIds] = useState<Record<string, true>>({})
+    const [dismissedDueTodayQuizIds, setDismissedDueTodayQuizIds] = useState<Record<string, true>>({})
 
     const { data: stats } = useLearningStats();
     const { data: weeklyProgress } = useWeeklyProgress();
@@ -189,6 +192,30 @@ export function LearningPathCalendar({
         )
     }
 
+    const routeToQuizzesWithHighlight = (quizId?: string, taskId?: string) => {
+        if (taskId) {
+            setDismissingTaskIds((prev) => ({ ...prev, [taskId]: true }))
+            window.setTimeout(() => {
+                setDismissedTaskIds((prev) => ({ ...prev, [taskId]: true }))
+                setDismissingTaskIds((prev) => {
+                    const next = { ...prev }
+                    delete next[taskId]
+                    return next
+                })
+            }, 480)
+        }
+
+        if (quizId) {
+            setDismissedDueTodayQuizIds((prev) => ({ ...prev, [quizId]: true }))
+        }
+
+        window.setTimeout(() => {
+            navigate('/quizzes', {
+                state: quizId ? { highlightQuizId: quizId } : undefined,
+            })
+        }, taskId ? 180 : 0)
+    }
+
     const renderCalendarItem = (item: LearningPathPlanItem, compact = false) => {
         if (item.kind === "planned_review") {
             return compact ? renderMonthSessionBadge(item) : renderSessionBadge(item)
@@ -205,7 +232,7 @@ export function LearningPathCalendar({
                 return (
                     <button
                         type="button"
-                        onClick={() => item.quizId && navigate(`/quizzes/${item.quizId}`)}
+                        onClick={() => item.quizId && routeToQuizzesWithHighlight(item.quizId)}
                         className={`w-full mt-1 text-[10px] font-bold p-1.5 rounded-md truncate border flex items-center gap-1 ${colors} hover:opacity-90 transition-opacity shadow-sm ${item.quizId ? 'cursor-pointer' : 'cursor-default'}`}
                         title={`${item.title} (fixed milestone)`}
                     >
@@ -219,7 +246,7 @@ export function LearningPathCalendar({
             return (
                 <button
                     type="button"
-                    onClick={() => item.quizId && navigate(`/quizzes/${item.quizId}`)}
+                    onClick={() => item.quizId && routeToQuizzesWithHighlight(item.quizId)}
                     className={`w-full text-left p-3 rounded-xl border text-xs mb-2 ${colors} hover:opacity-90 transition-opacity shadow-sm ${item.quizId ? 'cursor-pointer' : 'cursor-default'}`}
                     title={`${label} goal (fixed milestone)`}
                 >
@@ -259,15 +286,13 @@ export function LearningPathCalendar({
         const openTask = () => {
              if (task.type === 'quiz') {
                  if (task.quizId) {
-                     navigate(task.status === 'ready' || isCompleted ? `/quizzes/${task.quizId}` : '/quizzes', {
-                         state: task.quizId ? { highlightQuizId: task.quizId } : undefined,
-                     })
+                     routeToQuizzesWithHighlight(task.quizId, task.id)
                  } else {
                      if (task.status === 'generating') {
                          toast.info('Your adaptive quiz is still being prepared. Check the Quizzes page in a moment.')
                          navigate('/quizzes')
                      } else {
-                         toast.info('This adaptive quiz is not ready yet. It should auto-generate after upload.')
+                         toast.info('This adaptive quiz is not ready yet. It auto-generates after document processing completes.')
                          navigate('/quizzes')
                      }
                  }
@@ -296,7 +321,7 @@ export function LearningPathCalendar({
                     }))
                     e.dataTransfer.effectAllowed = 'move'
                 }}
-                className={`${compact ? 'mt-1 text-[10px] p-1.5 rounded-md' : 'p-3 rounded-xl mb-2'} w-full border text-xs shadow-sm ${colors} text-left transition-colors ${isCompleted ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'} hover:shadow-md flex items-center gap-2`}
+                className={`${compact ? 'mt-1 text-[10px] p-1.5 rounded-md' : 'p-3 rounded-xl mb-2'} w-full border text-xs shadow-sm ${colors} text-left transition-all duration-500 ${isCompleted ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'} hover:shadow-md flex items-center gap-2 ${dismissingTaskIds[task.id] ? 'opacity-0 scale-[0.98]' : ''}`}
                 title={`${task.title}. ${isCompleted ? 'Completed. Click to retake.' : 'Drag to move or click to open.'}`}
             >
                 <div className={`p-1.5 rounded-md shrink-0 ${isCompleted ? 'bg-green-100/50' : 'bg-white/60'}`}>
@@ -492,14 +517,15 @@ export function LearningPathCalendar({
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="p-4">
-                    {!dueTodayQuizzes || dueTodayQuizzes.length === 0 ? (
+                    {(!dueTodayQuizzes || dueTodayQuizzes.filter((quiz) => !dismissedDueTodayQuizIds[quiz.id]).length === 0) ? (
                         <p className="text-sm text-muted-foreground font-medium">No quizzes scheduled for today. Enjoy your day or work ahead!</p>
                     ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {dueTodayQuizzes.map((quiz) => (
-                                <Link
+                            {dueTodayQuizzes.filter((quiz) => !dismissedDueTodayQuizIds[quiz.id]).map((quiz) => (
+                                <button
                                     key={quiz.id}
-                                    to={`/quizzes/${quiz.id}`}
+                                    type="button"
+                                    onClick={() => routeToQuizzesWithHighlight(quiz.id)}
                                     className="flex items-center justify-between rounded-lg border bg-card p-3 shadow-sm transition-all hover:border-primary/40 hover:shadow"
                                 >
                                     <div className="min-w-0 pr-2">
@@ -509,7 +535,7 @@ export function LearningPathCalendar({
                                         ) : null}
                                     </div>
                                     <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-                                </Link>
+                                </button>
                             ))}
                         </div>
                     )}
@@ -612,6 +638,7 @@ export function LearningPathCalendar({
                             {weekDays.map((dateObj, idx) => {
                                 const dateStr = formatDateToLocalString(dateObj)
                                 let dayItems = getLearningPathItemsForDate(plan.items, dateStr)
+                                dayItems = dayItems.filter((item) => !(item.kind === "adaptive_task" && item.task.type === "quiz" && dismissedTaskIds[item.task.id]))
                                 
                                 // Apply focus filter
                                 if (focusFilter !== 'all') {
@@ -676,6 +703,7 @@ export function LearningPathCalendar({
                                     const dayDate = new Date(now.getFullYear(), now.getMonth(), i + 1);
                                     const dateStr = formatDateToLocalString(dayDate);
                                     let dayItems = getLearningPathItemsForDate(plan.items, dateStr)
+                                    dayItems = dayItems.filter((item) => !(item.kind === "adaptive_task" && item.task.type === "quiz" && dismissedTaskIds[item.task.id]))
 
                                     if (focusFilter !== 'all') {
                                         if (focusFilter === 'due') {
