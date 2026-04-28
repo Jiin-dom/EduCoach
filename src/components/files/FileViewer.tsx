@@ -25,6 +25,7 @@ export function FileViewer() {
     const [highlightTarget, setHighlightTarget] = useState<{ type: 'pdf'; page: number } | { type: 'docx'; id: string } | null>(null)
     const [tutorPrompt, setTutorPrompt] = useState<string | null>(null)
     const [showMobileDoc, setShowMobileDoc] = useState(false)
+    const [isDocFullscreen, setIsDocFullscreen] = useState(false)
 
     const { data: document, isLoading: docLoading, error: docError, refetch: refetchDoc } = useDocument(id)
     const { data: concepts, isLoading: conceptsLoading } = useDocumentConcepts(id)
@@ -200,39 +201,39 @@ export function FileViewer() {
             )}
 
             {/* Two-pane layout */}
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-8 transition-opacity duration-300" style={isProcessing ? { opacity: 0.4, pointerEvents: 'none' } : undefined}>
+            <div className={`grid grid-cols-1 ${isDocFullscreen ? 'lg:grid-cols-1' : 'lg:grid-cols-5'} gap-6 lg:gap-8 transition-opacity duration-300`} style={isProcessing ? { opacity: 0.4, pointerEvents: 'none' } : undefined}>
                 {/* Left pane: study content */}
-                <div className={`lg:col-span-3 flex flex-col gap-6 ${showMobileDoc ? 'hidden lg:flex' : 'flex'}`}>
+                <div className={`${isDocFullscreen ? 'hidden' : 'lg:col-span-3'} flex flex-col gap-6 ${showMobileDoc ? 'hidden lg:flex' : 'flex'} transition-all duration-300`}>
                     <Tabs value={activeTab} onValueChange={(value) => {
                         const nextParams = new URLSearchParams(searchParams)
                         nextParams.set('tab', value)
                         setSearchParams(nextParams, { replace: true })
                     }} className="flex-1 flex flex-col">
-                        <TabsList className="flex w-full overflow-x-auto justify-start no-scrollbar bg-muted/40 p-1.5 rounded-xl h-auto border border-border/50 shadow-sm">
+                        <TabsList className="flex w-full overflow-x-auto justify-start no-scrollbar bg-muted/40 p-1.5 rounded-xl h-auto border border-border/50 shadow-sm backdrop-blur-sm">
                             <TabsTrigger 
                                 value="guide" 
-                                className="gap-2 text-sm whitespace-nowrap px-5 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary text-muted-foreground hover:text-foreground transition-all"
+                                className="gap-2 text-sm whitespace-nowrap px-5 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary text-muted-foreground hover:text-foreground transition-all duration-300 data-[state=active]:scale-[1.01]"
                             >
                                 <BookOpen className="w-4 h-4" />
                                 <span className="font-medium">Guide</span>
                             </TabsTrigger>
                             <TabsTrigger 
                                 value="concepts" 
-                                className="gap-2 text-sm whitespace-nowrap px-5 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary text-muted-foreground hover:text-foreground transition-all"
+                                className="gap-2 text-sm whitespace-nowrap px-5 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary text-muted-foreground hover:text-foreground transition-all duration-300 data-[state=active]:scale-[1.01]"
                             >
                                 <Brain className="w-4 h-4" />
                                 <span className="font-medium">Concepts</span>
                             </TabsTrigger>
                             <TabsTrigger 
                                 value="flashcards" 
-                                className="gap-2 text-sm whitespace-nowrap px-5 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary text-muted-foreground hover:text-foreground transition-all"
+                                className="gap-2 text-sm whitespace-nowrap px-5 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary text-muted-foreground hover:text-foreground transition-all duration-300 data-[state=active]:scale-[1.01]"
                             >
                                 <Layers className="w-4 h-4" />
                                 <span className="font-medium">Flashcards</span>
                             </TabsTrigger>
                             <TabsTrigger 
                                 value="notes" 
-                                className="gap-2 text-sm whitespace-nowrap px-5 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary text-muted-foreground hover:text-foreground transition-all"
+                                className="gap-2 text-sm whitespace-nowrap px-5 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-primary text-muted-foreground hover:text-foreground transition-all duration-300 data-[state=active]:scale-[1.01]"
                             >
                                 <StickyNote className="w-4 h-4" />
                                 <span className="font-medium">Notes</span>
@@ -240,7 +241,7 @@ export function FileViewer() {
                         </TabsList>
 
                         <div className="flex-1 mt-6 relative">
-                            <TabsContent value="guide" className="m-0 focus-visible:outline-none focus-visible:ring-0">
+                            <TabsContent value="guide" className="m-0 focus-visible:outline-none focus-visible:ring-0 animate-in fade-in-50 duration-300">
                                 <GuideTab
                                     summary={document.summary}
                                     structuredSummary={document.structured_summary}
@@ -249,7 +250,7 @@ export function FileViewer() {
                                 />
                             </TabsContent>
 
-                            <TabsContent value="concepts" className="m-0 focus-visible:outline-none focus-visible:ring-0">
+                            <TabsContent value="concepts" className="m-0 focus-visible:outline-none focus-visible:ring-0 animate-in fade-in-50 duration-300">
                                 <ConceptsTab
                                     concepts={concepts || []}
                                     isLoading={conceptsLoading}
@@ -260,14 +261,14 @@ export function FileViewer() {
                                 />
                             </TabsContent>
 
-                            <TabsContent value="flashcards" className="m-0 focus-visible:outline-none focus-visible:ring-0">
+                            <TabsContent value="flashcards" className="m-0 focus-visible:outline-none focus-visible:ring-0 animate-in fade-in-50 duration-300">
                                 <FlashcardsTab
                                     documentId={document.id}
                                     documentStatus={document.status}
                                 />
                             </TabsContent>
 
-                            <TabsContent value="notes" className="m-0 focus-visible:outline-none focus-visible:ring-0">
+                            <TabsContent value="notes" className="m-0 focus-visible:outline-none focus-visible:ring-0 animate-in fade-in-50 duration-300">
                                 <NotesTab
                                     documentId={document.id}
                                     concepts={concepts || []}
@@ -279,13 +280,15 @@ export function FileViewer() {
                 </div>
 
                 {/* Right pane: document viewer */}
-                <div className={`lg:col-span-2 mt-6 lg:mt-0 ${showMobileDoc ? 'block' : 'hidden lg:block'}`}>
+                <div className={`${isDocFullscreen ? 'lg:col-span-1' : 'lg:col-span-2'} mt-6 lg:mt-0 ${showMobileDoc || isDocFullscreen ? 'block' : 'hidden lg:block'}`}>
                     <DocumentPane
                         document={document}
                         currentPage={currentPage}
                         onPageChange={setCurrentPage}
                         highlightTarget={highlightTarget}
                         onHighlightTargetHandled={() => setHighlightTarget(null)}
+                        isFullscreen={isDocFullscreen}
+                        onToggleFullscreen={() => setIsDocFullscreen((prev) => !prev)}
                     />
                 </div>
             </div>

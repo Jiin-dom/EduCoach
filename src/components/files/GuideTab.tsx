@@ -108,26 +108,40 @@ export function GuideTab({ summary, structuredSummary, concepts, onPageJump }: G
         )
     }
 
+    const sectionCount = ss?.detailed?.length ?? 0
+    const keyPointCount = allBullets.length
+
     return (
         <div className="space-y-6">
             {/* Header controls */}
-            <div className="flex items-center justify-end">
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setHighlightKeywords(p => !p)}
-                    className="h-8 gap-1.5 text-xs"
-                >
-                    {highlightKeywords ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                    Terms
-                </Button>
+            <div className="sticky top-20 z-[5] rounded-xl border border-border/50 bg-background/85 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+                <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Study Guide</p>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setHighlightKeywords(p => !p)}
+                        className="h-8 gap-1.5 rounded-lg text-xs transition-all hover:scale-[1.02]"
+                    >
+                        {highlightKeywords ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                        {highlightKeywords ? 'Hide Terms' : 'Show Terms'}
+                    </Button>
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                    <Badge variant="outline" className="rounded-full bg-muted/40 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {sectionCount} sections
+                    </Badge>
+                    <Badge variant="outline" className="rounded-full bg-muted/40 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {keyPointCount} key points
+                    </Badge>
+                </div>
             </div>
 
             {/* Short summary intro */}
             {ss?.short && (
-                <div className="text-muted-foreground leading-relaxed">
+                <div className="rounded-2xl border border-primary/10 bg-gradient-to-br from-primary/[0.05] via-background to-background p-5 text-muted-foreground leading-relaxed shadow-sm transition-all duration-300 hover:border-primary/20 hover:shadow-md">
                     {cleanDisplayText(ss.short).split(/\n\n+/).filter(Boolean).map((para, idx) => (
-                        <p key={idx} className="mb-2">{renderText(para)}</p>
+                        <p key={idx} className="mb-2 last:mb-0">{renderText(para)}</p>
                     ))}
                 </div>
             )}
@@ -142,7 +156,7 @@ export function GuideTab({ summary, structuredSummary, concepts, onPageJump }: G
                         const sectionId = `guide-section-${section.title.toLowerCase().replace(/\s+/g, '-')}`
 
                         return (
-                            <div key={idx} id={sectionId} className={`relative overflow-hidden rounded-2xl border ${colorClass.split(' ').slice(1).join(' ').replace('300', '200')} bg-card shadow-sm hover:shadow-md transition-shadow scroll-mt-32`}>
+                            <div key={idx} id={sectionId} className={`relative overflow-hidden rounded-2xl border ${colorClass.split(' ').slice(1).join(' ').replace('300', '200')} bg-card/90 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md scroll-mt-32`}>
                                 <div className={`absolute top-0 left-0 w-1.5 h-full bg-current ${textColor}`} />
                                 <div className="p-5 sm:p-6">
                                     <div className="flex items-center justify-between mb-4">
@@ -155,8 +169,8 @@ export function GuideTab({ summary, structuredSummary, concepts, onPageJump }: G
                                             </h4>
                                         </div>
                                         {section.pages && section.pages.length > 0 && (
-                                            <button onClick={() => handlePageClick(section.pages?.[0])}>
-                                                <Badge variant="outline" className="text-xs gap-1.5 px-2.5 py-1 cursor-pointer hover:bg-accent shadow-sm rounded-lg font-bold">
+                                            <button onClick={() => handlePageClick(section.pages?.[0])} className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+                                                <Badge variant="outline" className="text-xs gap-1.5 px-2.5 py-1 cursor-pointer hover:bg-accent shadow-sm rounded-lg font-bold transition-colors">
                                                     <BookOpen className="w-3.5 h-3.5 text-muted-foreground" />
                                                     p.{section.pages.join(', ')}
                                                 </Badge>
@@ -175,9 +189,9 @@ export function GuideTab({ summary, structuredSummary, concepts, onPageJump }: G
 
             {/* Fallback when no structured summary */}
             {!ss?.detailed?.length && !ss?.short && summary && (
-                <div className="text-muted-foreground leading-relaxed">
+                <div className="rounded-2xl border border-border/60 bg-card/60 p-5 text-muted-foreground leading-relaxed shadow-sm transition-all duration-300 hover:bg-card/80 hover:shadow-md">
                     {cleanDisplayText(summary).split(/\n\n+/).filter(Boolean).map((para, idx) => (
-                        <p key={idx} className="mb-2">{renderText(para)}</p>
+                        <p key={idx} className="mb-2 last:mb-0">{renderText(para)}</p>
                     ))}
                 </div>
             )}
@@ -192,7 +206,7 @@ export function GuideTab({ summary, structuredSummary, concepts, onPageJump }: G
                     {visibleBullets.map((bullet, idx) => {
                         const labelColor = BULLET_LABEL_COLORS[bullet.label] || 'bg-gray-50 text-gray-700 border-gray-200'
                         return (
-                            <div key={idx} className="group flex items-start gap-4 p-4 rounded-2xl bg-muted/30 hover:bg-muted/50 border border-border/50 transition-all shadow-sm">
+                            <div key={idx} className="group flex items-start gap-4 p-4 rounded-2xl bg-muted/25 hover:bg-muted/55 border border-border/50 transition-all duration-300 hover:-translate-y-0.5 shadow-sm hover:shadow-md">
                                 <div className="mt-1 p-1.5 rounded-full bg-background shadow-sm border border-border">
                                     <CheckCircle2 className="w-4 h-4 text-primary" />
                                 </div>
@@ -202,8 +216,8 @@ export function GuideTab({ summary, structuredSummary, concepts, onPageJump }: G
                                             {bullet.label}
                                         </Badge>
                                         {bullet.page != null && (
-                                            <button onClick={() => handlePageClick(bullet.page)}>
-                                                <Badge variant="outline" className="text-xs gap-1 cursor-pointer hover:bg-accent rounded-lg">
+                                            <button onClick={() => handlePageClick(bullet.page)} className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+                                                <Badge variant="outline" className="text-xs gap-1 cursor-pointer hover:bg-accent rounded-lg transition-colors">
                                                     <BookOpen className="w-3 h-3 text-muted-foreground" />
                                                     p.{bullet.page}
                                                 </Badge>
@@ -221,7 +235,7 @@ export function GuideTab({ summary, structuredSummary, concepts, onPageJump }: G
                         <Button
                             variant="outline"
                             size="sm"
-                            className="gap-2 text-xs w-full rounded-xl mt-2 font-bold bg-muted/30 hover:bg-muted/60"
+                            className="gap-2 text-xs w-full rounded-xl mt-2 font-bold bg-muted/30 hover:bg-muted/60 transition-all duration-300 hover:shadow-sm"
                             onClick={() => setExpandedBullets(p => !p)}
                         >
                             {expandedBullets ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
