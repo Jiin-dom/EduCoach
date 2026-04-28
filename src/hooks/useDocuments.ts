@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { learningKeys } from '@/hooks/useLearning'
 import { adaptiveStudyKeys } from '@/hooks/useAdaptiveStudy'
 import { quizKeys } from '@/hooks/useQuizzes'
+import { ensureAdaptiveReviewQuizForDocument } from '@/services/adaptiveStudy'
 
 export interface SummarySection {
     title: string
@@ -174,6 +175,22 @@ export async function processDocumentRequest(input: ProcessDocumentInput) {
         processingTimeMs: data?.processingTimeMs,
         conceptCount: data?.conceptCount
     })
+
+    // Kick off baseline/adaptive review quiz generation only after processing succeeds.
+    // This keeps bulk-uploaded pending files from generating quizzes before they are processed.
+    try {
+        await ensureAdaptiveReviewQuizForDocument({
+            userId: session.user.id,
+            documentId,
+        })
+        console.log('[DocumentProcessing] ✅ Adaptive review quiz sync completed', { documentId })
+    } catch (adaptiveQuizError) {
+        // Non-blocking: document processing is still successful even if quiz sync fails.
+        console.warn('[DocumentProcessing] ⚠️ Adaptive review quiz sync failed', {
+            documentId,
+            error: adaptiveQuizError instanceof Error ? adaptiveQuizError.message : adaptiveQuizError,
+        })
+    }
 
     return data
 }
@@ -393,8 +410,10 @@ export function useProcessDocument() {
                 responseData: data
             })
 
-            // Invalidate documents to refresh status
+            // Invalidate dependent caches after processing + adaptive quiz sync.
             queryClient.invalidateQueries({ queryKey: documentKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
+            queryClient.invalidateQueries({ queryKey: quizKeys.all })
 
             console.log('[DocumentProcessing] 🔄 Document cache invalidated')
         },
