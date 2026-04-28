@@ -15,12 +15,11 @@ Scope checked:
 
 ## Executive Verdict
 
-The current Learning Path implementation is **largely aligned in core adaptive logic** (topic-level tracking, incremental mastery, weak-topic prioritization, and adaptive replanning), but there are **important gaps** against your intended behavior:
+The current Learning Path implementation is **largely aligned in core adaptive logic** (topic-level tracking, incremental mastery, weak-topic prioritization, adaptive replanning, and reinforcement inclusion), but there are still **important gaps** against your intended behavior:
 
-1. **Preferred study time window is not used in scheduler logic** (only study days + daily minutes are used).
-2. **“All topics always in rotation” is not strictly enforced at adaptive task level** (adaptive concept selection is capped).
-3. **Output labeling differs** from your intended weak/medium/strong priority labels (system uses `reason` + numeric priority).
-4. **Some behavioral docs inside `docs/implementation/` describe stricter behavior than current code guarantees** (especially session checkpoint stability and full availability-time-window use).
+1. **Preferred study time window is not used in scheduler logic** (scheduler remains day/date-capacity based).
+2. **Output labeling differs** from your intended weak/medium/strong priority labels (system uses `reason` + numeric priority).
+3. **Some behavioral docs inside `docs/implementation/` describe stricter behavior than current code guarantees** (especially session checkpoint stability and full availability-time-window use).
 
 ---
 
@@ -104,15 +103,19 @@ The current Learning Path implementation is **largely aligned in core adaptive l
 **Current Implementation**
 - Priority score uses weakness + deadline pressure + low-practice penalty.
 - SM-2 updates `repetition`, `interval_days`, `due_date`, `ease_factor`.
-- Adaptive tasks focus top actionable concepts (capped set).
+- Adaptive concept selection now uses a bounded mixed policy:
+  - up to 5 urgent concepts (`due_today`/`needs_review`/`developing`)
+  - plus up to 1 reinforcement concept (`developing`/`mastered`, future due)
 
 **Evidence**
 - `src/lib/learningAlgorithms.ts`
 - `src/hooks/useLearning.ts`
-- `supabase/migrations/030_restore_adaptive_sync_guards_on_document_delete.sql`
+- `supabase/migrations/031_adaptive_reinforcement_slot_selection.sql`
+- `src/services/adaptiveStudy.ts`
+- `educoach-mobile/src/services/adaptiveStudy.ts`
 
-**Status:** Partially aligned  
-**Gap:** Strong topics are not guaranteed to appear in every adaptive projection cycle because adaptive concept selection is capped.
+**Status:** Aligned (with bounded reinforcement policy)  
+**Note:** Strong/developing reinforcement is guaranteed when eligible concepts exist.
 
 ---
 
@@ -230,7 +233,7 @@ The current Learning Path implementation is **largely aligned in core adaptive l
    - Current behavior relies on query invalidation patterns and selective invalidation controls; there is no single authoritative checkpoint subsystem visible in inspected implementation.
 
 3. **“All topics always in rotation” is stated as a hard rule in intent docs**
-   - Adaptive task projection currently prioritizes top actionable concepts (bounded scope), which can exclude some strong topics in a given cycle.
+   - Current implementation now guarantees a bounded reinforcement slot, but still does not imply full all-topic inclusion per cycle.
 
 ---
 
@@ -241,9 +244,6 @@ The current Learning Path implementation is **largely aligned in core adaptive l
   - Impact: schedule may be valid by day but not by intended study-time constraints.
 
 ## P1 (Medium Impact)
-- **Adaptive rotation cap can conflict with strict all-topics-in-rotation expectation**
-  - Impact: students may not see explicit reinforcement tasks for some strong topics in adaptive queue cycles.
-
 - **Priority label mismatch (`weak/medium/strong` vs `reason` + numeric score)**
   - Impact: product language and user-facing explanation can drift from intended model.
 
@@ -266,9 +266,7 @@ The current Learning Path implementation is **largely aligned in core adaptive l
 ## Recommended Next Actions
 
 1. **Implement scheduler support for preferred study time window** (or revise intent docs to clarify “date-only scheduling”).
-2. **Decide product rule for strong-topic reinforcement visibility**:
-   - strict all-topic rotation in adaptive queue, or
-   - bounded adaptive queue + separate reinforcement stream.
+2. **Decide whether bounded reinforcement is final policy** or if strict all-topic rotation is still required by product.
 3. **Standardize priority semantics across docs/UI/data**:
    - either expose `weak/medium/strong` labels in UI/data model, or
    - update docs to formalize `reason` + numeric priority.
