@@ -8,8 +8,39 @@ export interface AdaptiveReviewQuizSyncResult {
     quizId?: string
 }
 
+type MasterySelectionRow = {
+    concept_id: string | null
+    mastery_level: 'needs_review' | 'developing' | 'mastered'
+    due_date: string
+    priority_score: number
+    last_attempt_at: string | null
+}
+
 function buildReviewQuestionCount(conceptCount: number) {
     return Math.max(5, Math.min(12, conceptCount * 2))
+}
+
+function pickFocusConceptIds(rows: MasterySelectionRow[]): string[] {
+    const today = new Date().toISOString().split('T')[0]
+
+    const actionable = rows.filter((row) => !!row.concept_id)
+    const urgent = actionable
+        .filter((row) =>
+            row.due_date <= today ||
+            row.mastery_level === 'needs_review' ||
+            row.mastery_level === 'developing',
+        )
+        .slice(0, 5)
+
+    const urgentIds = new Set(urgent.map((row) => row.concept_id as string))
+    const reinforcement = actionable.find((row) =>
+        !urgentIds.has(row.concept_id as string) &&
+        row.due_date > today &&
+        (row.mastery_level === 'developing' || row.mastery_level === 'mastered'),
+    )
+
+    const selected = reinforcement ? [...urgent, reinforcement] : urgent
+    return selected.map((row) => row.concept_id as string)
 }
 
 export async function ensureAdaptiveReviewQuizForDocument(params: {
@@ -17,7 +48,6 @@ export async function ensureAdaptiveReviewQuizForDocument(params: {
     documentId: string
 }): Promise<AdaptiveReviewQuizSyncResult> {
     const { userId, documentId } = params
-    const today = new Date().toISOString().split('T')[0]
 
     const { data: masteryRows, error: masteryError } = await supabase
         .from('user_concept_mastery')
@@ -30,14 +60,8 @@ export async function ensureAdaptiveReviewQuizForDocument(params: {
         throw new Error(masteryError.message)
     }
 
-    const reviewable = (masteryRows || [])
-        .filter((row) => row.concept_id)
-        .filter((row) =>
-            row.due_date <= today ||
-            row.mastery_level === 'needs_review' ||
-            row.mastery_level === 'developing',
-        )
-        .slice(0, 6)
+    const focusConceptIds = pickFocusConceptIds((masteryRows || []) as MasterySelectionRow[])
+    const reviewable = (masteryRows || []).filter((row) => row.concept_id && focusConceptIds.includes(row.concept_id))
 
     if (reviewable.length === 0) {
         return { status: 'skipped' }
@@ -83,7 +107,6 @@ export async function ensureAdaptiveReviewQuizForDocument(params: {
         return { status: 'skipped' }
     }
 
-    const focusConceptIds = reviewable.map((row) => row.concept_id as string)
     const questionCount = buildReviewQuestionCount(focusConceptIds.length)
     const { data, error } = await supabase.functions.invoke('generate-quiz', {
         body: {
