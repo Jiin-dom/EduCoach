@@ -13,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useDocuments } from "@/hooks/useDocuments"
 import { useConceptMasteryList } from "@/hooks/useLearning"
+import { useAdaptiveStudyTasks } from "@/hooks/useAdaptiveStudy"
 import { useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
 import { useStudyGoals } from "@/hooks/useStudyGoals"
 import {
@@ -32,6 +33,7 @@ export default function LearningPathPage() {
     const requestedId = searchParams.get("id")
 
     const { data: quizzes = [] } = useQuizzes()
+    const { data: adaptiveTasks = [] } = useAdaptiveStudyTasks()
     const { data: attempts = [] } = useUserAttempts()
     const { data: documents = [] } = useDocuments()
     const { data: studyGoals = [] } = useStudyGoals()
@@ -63,17 +65,32 @@ export default function LearningPathPage() {
         const latestQuizIdByDocument = buildLatestQuizIdByDocument(quizzes)
         const documentsWithExplicitQuizDeadlines = buildDocumentsWithExplicitQuizDeadlines(quizzes)
 
-        return quizzes
+        // 1. Get all quizzes that could be due today
+        const allQuizzesForToday = quizzes
             .filter((quiz) => quiz.status === "ready")
             .filter((quiz) => matchesQuizScope(quiz, scopeFilter))
             .map((quiz) => {
                 const document = docsById.get(quiz.document_id)
+                const task = adaptiveTasks.find(t => t.quizId === quiz.id)
+                
+                // Priority 1: Use the adaptive task's scheduled date if it exists
+                if (task) {
+                    return {
+                        id: quiz.id,
+                        title: task.title,
+                        documentTitle: document?.title ?? null,
+                        dueDate: task.scheduledDate,
+                    }
+                }
+
+                // Priority 2: Use the effective quiz deadline
                 const dueDate = getEffectiveQuizDeadline({
                     quiz,
                     latestQuizIdByDocument,
                     documentDeadline: document?.deadline ?? null,
                     documentsWithExplicitQuizDeadlines,
                 })?.split("T")[0] ?? null
+                
                 return {
                     id: quiz.id,
                     title: quiz.title,
@@ -82,8 +99,25 @@ export default function LearningPathPage() {
                 }
             })
             .filter((quiz) => quiz.dueDate === todayLocal)
+
+        // 2. Add any adaptive quiz tasks that might not have been in the quizzes list yet
+        const adaptiveQuizTasks = adaptiveTasks
+            .filter((task) => task.type === "quiz" && task.status === "ready" && task.quizId)
+            .filter((task) => task.scheduledDate === todayLocal)
+            .map((task) => ({
+                id: task.quizId!,
+                title: task.title,
+                documentTitle: task.documentTitle,
+                dueDate: task.scheduledDate,
+            }))
+
+        const combined = new Map<string, typeof allQuizzesForToday[0]>()
+        allQuizzesForToday.forEach(q => combined.set(q.id, q))
+        adaptiveQuizTasks.forEach(q => combined.set(q.id, q))
+
+        return Array.from(combined.values())
             .sort((a, b) => a.title.localeCompare(b.title))
-    }, [documents, quizzes, scopeFilter])
+    }, [documents, quizzes, adaptiveTasks, scopeFilter])
 
     const isSelectorView = !requestedScope
     const hasInvalidScope = isScopedRoute && !resolvedScope
