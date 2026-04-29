@@ -65,6 +65,88 @@ export type ProcessDocumentInput =
         processor?: DocumentProcessor
     }
 
+function buildBaselineQuestionTargets(questionCount: number) {
+    const fillInBlank = Math.max(1, Math.floor(questionCount * 0.1))
+    const remaining = questionCount - fillInBlank
+    const multipleChoice = Math.ceil(remaining * 0.4)
+    const trueFalse = Math.ceil(remaining * 0.3)
+    const identification = remaining - multipleChoice - trueFalse
+
+    return {
+        multiple_choice: multipleChoice,
+        true_false: trueFalse,
+        identification,
+        fill_in_blank: fillInBlank,
+    }
+}
+
+async function ensureBaselineQuizForDocument(params: {
+    documentId: string
+    userId: string
+}) {
+    const { documentId, userId } = params
+
+    const { data: existingQuizzes, error: existingQuizError } = await supabase
+        .from('quizzes')
+        .select('id, title, status')
+        .eq('user_id', userId)
+        .eq('document_id', documentId)
+        .in('status', ['generating', 'ready'])
+        .order('created_at', { ascending: false })
+
+    if (existingQuizError) {
+        throw new Error(existingQuizError.message)
+    }
+
+    const hasBaselineQuiz = (existingQuizzes || []).some((quiz) =>
+        !String(quiz.title || '').startsWith('Review Quiz:'),
+    )
+
+    if (hasBaselineQuiz) {
+        console.log('[DocumentProcessing] Baseline quiz already exists, skipping auto-generation', { documentId })
+        return { status: 'reused' as const }
+    }
+
+    const { count: conceptCount, error: conceptCountError } = await supabase
+        .from('concepts')
+        .select('id', { count: 'exact', head: true })
+        .eq('document_id', documentId)
+
+    if (conceptCountError) {
+        throw new Error(conceptCountError.message)
+    }
+
+    const questionCount = Math.max(10, Math.min(20, (conceptCount ?? 0) * 2 || 10))
+    const questionTypeTargets = buildBaselineQuestionTargets(questionCount)
+
+    console.log('[DocumentProcessing] Auto-generating baseline quiz after processing', {
+        documentId,
+        questionCount,
+        conceptCount,
+    })
+
+    const { data, error } = await supabase.functions.invoke('generate-quiz', {
+        body: {
+            documentId,
+            questionCount,
+            difficulty: 'mixed',
+            questionTypes: ['multiple_choice', 'true_false', 'identification', 'fill_in_blank'],
+            questionTypeTargets,
+            enhanceWithLlm: true,
+            userId,
+        },
+    })
+
+    if (error) {
+        throw new Error(error.message)
+    }
+
+    return {
+        status: 'generated' as const,
+        quizId: (data as { quizId?: string } | null)?.quizId,
+    }
+}
+
 export async function processDocumentRequest(input: ProcessDocumentInput) {
     const payload = typeof input === 'string' ? { documentId: input } : input
     const { documentId, processor } = payload
@@ -131,6 +213,17 @@ export async function processDocumentRequest(input: ProcessDocumentInput) {
 
         if (currentStatus === 'ready') {
             console.log('[DocumentProcessing] ✅ Edge Function already completed (recovered from client timeout)')
+            try {
+                await ensureBaselineQuizForDocument({
+                    documentId,
+                    userId: session.user.id,
+                })
+            } catch (baselineQuizError) {
+                console.warn('[DocumentProcessing] Baseline quiz auto-generation failed', {
+                    documentId,
+                    error: baselineQuizError instanceof Error ? baselineQuizError.message : baselineQuizError,
+                })
+            }
             return { success: true, message: 'Document processed successfully (recovered from timeout)' }
         }
 
@@ -174,6 +267,19 @@ export async function processDocumentRequest(input: ProcessDocumentInput) {
         processingTimeMs: data?.processingTimeMs,
         conceptCount: data?.conceptCount
     })
+
+    try {
+        await ensureBaselineQuizForDocument({
+            documentId,
+            userId: session.user.id,
+        })
+    } catch (baselineQuizError) {
+        // Non-blocking: the document is ready even if the first quiz fails.
+        console.warn('[DocumentProcessing] Baseline quiz auto-generation failed', {
+            documentId,
+            error: baselineQuizError instanceof Error ? baselineQuizError.message : baselineQuizError,
+        })
+    }
 
     return data
 }
