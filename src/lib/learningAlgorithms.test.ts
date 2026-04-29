@@ -552,8 +552,9 @@ describe("todayUTC", () => {
         expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     })
 
-    it("matches today's UTC date", () => {
-        const expected = new Date().toISOString().split("T")[0]
+    it("matches today's local app date", () => {
+        const now = new Date()
+        const expected = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
         expect(todayUTC()).toBe(expected)
     })
 })

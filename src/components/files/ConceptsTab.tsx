@@ -4,12 +4,15 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Search, Brain, ArrowUpDown, X, Sparkles, MessageCircle, FileText, Loader2 } from 'lucide-react'
+import { Search, Brain, ArrowUpDown, X, Sparkles, MessageCircle, FileText, Loader2, CheckCircle2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import type { Concept } from '@/hooks/useConcepts'
 import { getDifficultyColor, getImportanceColor } from '@/hooks/useConcepts'
+import { useConceptMasteryByDocument, useMarkConceptReviewed } from '@/hooks/useLearning'
 import { useGenerateQuiz } from '@/hooks/useQuizzes'
 import { cleanDisplayText } from '@/lib/studyUtils'
+import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 
 interface ConceptsTabProps {
     concepts: Concept[]
@@ -18,18 +21,26 @@ interface ConceptsTabProps {
     onPageJump?: (page: number) => void
     onAskTutor?: (prompt: string) => void
     documentId?: string
+    focusedConceptId?: string
 }
 
 type SortField = 'importance' | 'difficulty' | 'name'
 
 const DIFFICULTY_ORDER: Record<string, number> = { beginner: 0, intermediate: 1, advanced: 2 }
 
-export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, onAskTutor, documentId }: ConceptsTabProps) {
+export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, onAskTutor, documentId, focusedConceptId }: ConceptsTabProps) {
     const navigate = useNavigate()
     const generateQuiz = useGenerateQuiz()
+    const markConceptReviewed = useMarkConceptReviewed()
+    const { data: conceptMastery = [] } = useConceptMasteryByDocument(documentId)
     const [search, setSearch] = useState('')
     const [sortBy, setSortBy] = useState<SortField>('importance')
     const [selectedConcept, setSelectedConcept] = useState<Concept | null>(null)
+    const todayIso = useMemo(() => new Date().toISOString().split('T')[0], [])
+    const masteryByConceptId = useMemo(
+        () => new Map(conceptMastery.map((row) => [row.concept_id, row])),
+        [conceptMastery],
+    )
 
     const filtered = useMemo(() => {
         let list = [...concepts]
@@ -48,14 +59,47 @@ export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, o
             if (sortBy === 'difficulty') return (DIFFICULTY_ORDER[b.difficulty_level || 'intermediate'] || 1) - (DIFFICULTY_ORDER[a.difficulty_level || 'intermediate'] || 1)
             return a.name.localeCompare(b.name)
         })
+        const focusedIndex = list.findIndex((concept) => concept.id === focusedConceptId)
+        if (focusedIndex > 0) {
+            list.unshift(...list.splice(focusedIndex, 1))
+        }
 
         return list
-    }, [concepts, search, sortBy])
+    }, [concepts, search, sortBy, focusedConceptId])
 
     const cycleSortField = () => {
         const order: SortField[] = ['importance', 'difficulty', 'name']
         const idx = order.indexOf(sortBy)
         setSortBy(order[(idx + 1) % order.length])
+    }
+
+    const handleMarkReviewed = (concept: Concept) => {
+        const mastery = masteryByConceptId.get(concept.id)
+        if (!mastery) {
+            toast.info('Review not tracked yet', {
+                description: 'Take a quiz first so EduCoach can start tracking this concept.',
+            })
+            return
+        }
+
+        markConceptReviewed.mutate(
+            {
+                conceptId: mastery.concept_id,
+                masteryScore: Number(mastery.mastery_score) || 0,
+                confidence: Number(mastery.confidence) || 0,
+                repetition: Number(mastery.repetition) || 0,
+                intervalDays: Number(mastery.interval_days) || 1,
+                easeFactor: Number(mastery.ease_factor) || 2.5,
+            },
+            {
+                onSuccess: () => toast.success('Concept reviewed', {
+                    description: `${cleanDisplayText(concept.name)} is scheduled for later.`,
+                }),
+                onError: (error) => toast.error('Could not mark reviewed', {
+                    description: error instanceof Error ? error.message : 'Please try again.',
+                }),
+            },
+        )
     }
 
     if (documentStatus === 'pending' || documentStatus === 'processing') {
@@ -113,12 +157,28 @@ export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, o
                     const name = cleanDisplayText(concept.name)
                     const desc = cleanDisplayText(concept.description || '')
                     const firstSentence = desc.split(/[.!?]/)[0]?.trim()
+                    const mastery = masteryByConceptId.get(concept.id)
+                    const isFocusedConcept = concept.id === focusedConceptId
+                    const isDue = !!mastery && mastery.due_date <= todayIso
+                    const showReviewAction = isFocusedConcept || isDue
 
                     return (
-                        <button
+                        <div
                             key={concept.id}
+                            role="button"
+                            tabIndex={0}
                             onClick={() => setSelectedConcept(concept)}
-                            className="w-full text-left p-3 rounded-lg border hover:bg-accent/50 transition-colors group"
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault()
+                                    setSelectedConcept(concept)
+                                }
+                            }}
+                            className={cn(
+                                "cursor-pointer",
+                                "w-full text-left p-3 rounded-lg border hover:bg-accent/50 transition-colors group",
+                                isFocusedConcept && "border-primary bg-primary/5",
+                            )}
                         >
                             <div className="flex items-start gap-3">
                                 <div className={`w-2 h-2 rounded-full flex-shrink-0 ${getImportanceColor(concept.importance)}`} />
@@ -155,11 +215,27 @@ export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, o
                                         )}
                                     </div>
                                 </div>
-                                <div className="w-16 flex-shrink-0 pt-1">
-                                    <Progress value={concept.importance * 10} className="h-1.5" />
+                                <div className="w-28 flex-shrink-0 pt-1 flex flex-col items-end gap-2">
+                                    <Progress value={concept.importance * 10} className="h-1.5 w-16" />
+                                    {showReviewAction && (
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 gap-1.5 px-2 text-[11px]"
+                                            disabled={markConceptReviewed.isPending}
+                                            onClick={(event) => {
+                                                event.stopPropagation()
+                                                handleMarkReviewed(concept)
+                                            }}
+                                        >
+                                            <CheckCircle2 className="h-3.5 w-3.5" />
+                                            Mark Reviewed
+                                        </Button>
+                                    )}
                                 </div>
                             </div>
-                        </button>
+                        </div>
                     )
                 })}
             </div>

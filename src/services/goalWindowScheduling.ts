@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase'
-import { calculatePriorityScore, todayUTC } from '@/lib/learningAlgorithms'
+import { calculatePriorityScore } from '@/lib/learningAlgorithms'
 import type { LearningConfig } from '@/hooks/useLearning'
 
 type StudyDayId = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
@@ -22,6 +22,14 @@ const DEFAULT_LEARNING_CONFIG: LearningConfig = {
     mastery_threshold_mastered: 80,
     mastery_threshold_developing: 60,
     confidence_threshold_mastered: 0.67,
+}
+
+function todayLocalDateString(): string {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const day = String(now.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
 }
 
 function mapUtcDayToStudyDayId(utcDayIndex: number): StudyDayId {
@@ -130,7 +138,7 @@ export async function scheduleDocumentGoalWindow(params: {
 
     const effectiveCfg = learningConfig ?? DEFAULT_LEARNING_CONFIG
 
-    const windowStart = todayUTC()
+    const windowStart = todayLocalDateString()
     const windowEnd = examDate.split('T')[0]
 
     if (!windowEnd) return { updated: 0, createdPlaceholders: 0 }
@@ -358,7 +366,7 @@ export async function alignFutureDueDatesToAvailability(params: {
 }) {
     const { userId, availableStudyDays, learningConfig } = params
     const effectiveCfg = learningConfig ?? DEFAULT_LEARNING_CONFIG
-    const today = todayUTC()
+    const today = todayLocalDateString()
 
     const { data: masteryRows, error: masteryErr } = await supabase
         .from('user_concept_mastery')

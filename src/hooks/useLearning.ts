@@ -377,6 +377,73 @@ export function useRescheduleConceptDueDate() {
 }
 
 /**
+ * Mark one concept review as completed from the document Concepts tab.
+ *
+ * This advances only the tapped concept's schedule and leaves quiz-derived
+ * mastery untouched.
+ */
+export function useMarkConceptReviewed() {
+    const queryClient = useQueryClient()
+    const { user } = useAuth()
+    const { data: learningConfig } = useLearningConfig()
+
+    return useMutation({
+        mutationFn: async (input: {
+            conceptId: string
+            masteryScore: number
+            confidence: number
+            repetition: number
+            intervalDays: number
+            easeFactor: number
+        }) => {
+            if (!user) throw new Error('Not authenticated')
+
+            const cfg = learningConfig ?? DEFAULT_CONFIG
+            const reviewedAt = new Date().toISOString()
+            const nextConfidence = Math.min(1, Math.round((Number(input.confidence) + 0.1) * 100) / 100)
+            const schedule = calculateSM2({
+                quality: 4,
+                repetition: Number(input.repetition) || 0,
+                interval: Number(input.intervalDays) || 1,
+                easeFactor: Number(input.easeFactor) || cfg.sm2_default_ef,
+            })
+            const priority = calculatePriorityScore(
+                Number(input.masteryScore) || 0,
+                schedule.dueDate,
+                nextConfidence,
+                {
+                    weakness: cfg.priority_w_weakness,
+                    deadline: cfg.priority_w_deadline,
+                    practice: cfg.priority_w_practice,
+                },
+            )
+
+            const { error } = await supabase
+                .from('user_concept_mastery')
+                .update({
+                    last_reviewed_at: reviewedAt,
+                    due_date: schedule.dueDate,
+                    interval_days: schedule.interval,
+                    repetition: schedule.repetition,
+                    ease_factor: schedule.easeFactor,
+                    confidence: nextConfidence,
+                    priority_score: priority.priorityScore,
+                })
+                .eq('user_id', user.id)
+                .eq('concept_id', input.conceptId)
+
+            if (error) throw new Error(error.message)
+
+            return { conceptId: input.conceptId, dueDate: schedule.dueDate, lastReviewedAt: reviewedAt }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: learningKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
+        },
+    })
+}
+
+/**
  * Aggregated learning statistics for the current user.
  */
 export function useLearningStats() {
