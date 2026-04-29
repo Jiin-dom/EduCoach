@@ -465,6 +465,63 @@ export function useGenerateReviewQuiz() {
                 throw new Error('Your session has expired — please log in again')
             }
 
+            // De-dup guard:
+            // Reuse an in-flight review quiz first, then reuse the latest unattempted
+            // ready review quiz for the same document. This prevents duplicate
+            // "Review Quiz: <doc>" records when auto-generation and manual click overlap.
+            const { data: existingReviewQuizzes, error: existingQuizError } = await supabase
+                .from('quizzes')
+                .select('id, status, question_count, created_at')
+                .eq('user_id', session.user.id)
+                .eq('document_id', input.documentId)
+                .ilike('title', 'Review Quiz:%')
+                .in('status', ['generating', 'ready'])
+                .order('created_at', { ascending: false })
+
+            if (existingQuizError) {
+                throw new Error(existingQuizError.message)
+            }
+
+            const existingRows = (existingReviewQuizzes || []) as Array<{
+                id: string
+                status: 'generating' | 'ready'
+                question_count: number | null
+                created_at: string
+            }>
+
+            const generatingQuiz = existingRows.find((q) => q.status === 'generating')
+            if (generatingQuiz) {
+                console.log('[Quiz] Reusing generating review quiz:', generatingQuiz.id)
+                return {
+                    success: true,
+                    quizId: generatingQuiz.id,
+                    questionCount: generatingQuiz.question_count ?? input.questionCount ?? 0,
+                }
+            }
+
+            const latestReadyQuiz = existingRows.find((q) => q.status === 'ready')
+            if (latestReadyQuiz) {
+                const { count: completedAttemptCount, error: attemptsError } = await supabase
+                    .from('attempts')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('user_id', session.user.id)
+                    .eq('quiz_id', latestReadyQuiz.id)
+                    .not('completed_at', 'is', null)
+
+                if (attemptsError) {
+                    throw new Error(attemptsError.message)
+                }
+
+                if ((completedAttemptCount ?? 0) === 0) {
+                    console.log('[Quiz] Reusing ready unattempted review quiz:', latestReadyQuiz.id)
+                    return {
+                        success: true,
+                        quizId: latestReadyQuiz.id,
+                        questionCount: latestReadyQuiz.question_count ?? input.questionCount ?? 0,
+                    }
+                }
+            }
+
             const { data, error } = await supabase.functions.invoke('generate-quiz', {
                 body: {
                     documentId: input.documentId,

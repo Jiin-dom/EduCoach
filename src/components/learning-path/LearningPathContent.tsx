@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/dialog"
 import type { ConceptMasteryWithDetails } from "@/hooks/useLearning"
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
-import { useGenerateReviewQuiz, useQuizzes } from "@/hooks/useQuizzes"
+import { useGenerateReviewQuiz, useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
 import { useDocuments } from "@/hooks/useDocuments"
 import type { AdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { useLearningPathPlan } from "@/hooks/useLearningPathPlan"
@@ -467,6 +467,7 @@ export function LearningPathContent({
     const { data: weeklyProgress } = useWeeklyProgress()
     const { data: documents } = useDocuments()
     const { data: quizzes } = useQuizzes()
+    const { data: attempts = [] } = useUserAttempts()
     const generateReview = useGenerateReviewQuiz()
     const navigate = useNavigate()
 
@@ -476,6 +477,19 @@ export function LearningPathContent({
         () => (quizzes || []).filter((quiz) => matchesQuizScope(quiz, scopeFilter)),
         [quizzes, scopeFilter],
     )
+    const completedQuizIds = useMemo(
+        () => new Set(attempts.filter((a) => !!a.completed_at).map((a) => a.quiz_id)),
+        [attempts],
+    )
+    const reusableReadyQuizIdByDocument = useMemo(() => {
+        const map = new Map<string, string>()
+        for (const quiz of scopedQuizzes) {
+            if (quiz.status !== 'ready') continue
+            if (completedQuizIds.has(quiz.id)) continue
+            if (!map.has(quiz.document_id)) map.set(quiz.document_id, quiz.id)
+        }
+        return map
+    }, [completedQuizIds, scopedQuizzes])
 
     const performanceMasteryList = useMemo(
         () => plan.performancePlannedReviews.map((item) => item.mastery as ConceptMasteryWithDetails),
@@ -592,12 +606,18 @@ export function LearningPathContent({
 
     const handleAdaptiveTaskAction = useCallback((task: AdaptiveStudyTask) => {
         if (task.type === 'quiz') {
-            if (task.status === 'ready' && task.quizId) {
-                navigate(`/quizzes/${task.quizId}`)
+            const fallbackQuizId = reusableReadyQuizIdByDocument.get(task.documentId)
+            const effectiveQuizId = task.quizId ?? fallbackQuizId
+            if (task.status === 'ready' && effectiveQuizId) {
+                navigate(`/quizzes/${effectiveQuizId}`)
                 return
             }
-            if (task.status === 'generating' && task.quizId) {
-                navigate('/quizzes', { state: { highlightQuizId: task.quizId } })
+            if (task.status === 'generating' && effectiveQuizId) {
+                navigate('/quizzes', { state: { highlightQuizId: effectiveQuizId } })
+                return
+            }
+            if (effectiveQuizId) {
+                navigate(`/quizzes/${effectiveQuizId}`)
                 return
             }
             if (task.status === 'generating' && !task.quizId) {
@@ -634,7 +654,7 @@ export function LearningPathContent({
         }
 
         navigate(`/files/${task.documentId}?tab=concepts`)
-    }, [generateReview, navigate])
+    }, [generateReview, navigate, reusableReadyQuizIdByDocument])
 
     const isLoading = plan.isLoading
     

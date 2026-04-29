@@ -162,12 +162,40 @@ export default function LearningPathPage() {
         const today = new Date()
         const todayLocal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
 
-        // Only auto-generate quizzes for future scheduled days (tomorrow+).
-        // This prevents same-day quiz regeneration after the student completes the currently assigned quiz.
+        // Allow same-day auto-generation for documents that have not had a quiz
+        // completed today (e.g., newly uploaded files). But after a same-day completion,
+        // do not auto-spawn another quiz for that same document.
+        const completedQuizIdsToday = new Set(
+            attempts
+                .filter((a) => a.completed_at?.split("T")[0] === todayLocal)
+                .map((a) => a.quiz_id),
+        )
+        const completedDocumentIdsToday = new Set(
+            quizzes
+                .filter((quiz) => completedQuizIdsToday.has(quiz.id))
+                .map((quiz) => quiz.document_id),
+        )
+        const completedQuizIds = new Set(
+            attempts
+                .filter((a) => !!a.completed_at)
+                .map((a) => a.quiz_id),
+        )
+        const hasReusableReadyQuizForDocument = (documentId: string) =>
+            quizzes.some(
+                (quiz) =>
+                    quiz.document_id === documentId &&
+                    quiz.status === "ready" &&
+                    !completedQuizIds.has(quiz.id),
+            )
+
         const nextQuizTask = adaptiveTasks
             .filter((task) => task.type === "quiz" && task.status === "needs_generation" && !!task.scheduledDate)
+            .filter((task) => !hasReusableReadyQuizForDocument(task.documentId))
             .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate))
-            .find((task) => task.scheduledDate! > todayLocal)
+            .find((task) =>
+                task.scheduledDate! > todayLocal ||
+                !completedDocumentIdsToday.has(task.documentId),
+            )
 
         if (!nextQuizTask) return
         if (generateReview.isPending) return
@@ -190,7 +218,7 @@ export default function LearningPathPage() {
                 },
             },
         )
-    }, [adaptiveTasks, generateReview])
+    }, [adaptiveTasks, attempts, generateReview, quizzes])
 
 
 
