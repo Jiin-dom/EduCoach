@@ -71,6 +71,7 @@ function dueLabel(dueDateStr: string): string {
 
 interface TopicSections {
     dueToday: ConceptMasteryWithDetails[]
+    completedToday: ConceptMasteryWithDetails[]
     needsReview: ConceptMasteryWithDetails[]
     developing: ConceptMasteryWithDetails[]
     mastered: ConceptMasteryWithDetails[]
@@ -321,11 +322,13 @@ function SectionBlock({
                     <Badge variant="secondary" className="px-1.5 bg-background border shadow-sm ml-auto">{items.length}</Badge>
                 </CardTitle>
             </CardHeader>
-            <CardContent className="pt-4 flex-1 flex flex-col justify-center">
+            <CardContent className="pt-4 flex-1 flex flex-col min-h-0">
                 {items.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-6 italic">{emptyMessage}</p>
+                    <div className="flex-1 flex items-center justify-center py-6">
+                        <p className="text-sm text-muted-foreground italic">{emptyMessage}</p>
+                    </div>
                 ) : (
-                    <div className="space-y-3 h-full">
+                    <div className="space-y-3 pr-1 overflow-y-auto max-h-[400px] scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/30">
                         {items.map((topic) => (
                             <TopicCard key={topic.id} topic={topic} onSelect={onSelect} />
                         ))}
@@ -452,11 +455,13 @@ interface QuizItem {
 interface LearningPathContentProps {
     scopeFilter?: LearningPathPlanScopeFilter
     dueTodayQuizzes?: QuizItem[]
+    completedTodayQuizzes?: QuizItem[]
 }
 
 export function LearningPathContent({
     scopeFilter,
     dueTodayQuizzes = [],
+    completedTodayQuizzes = [],
 }: LearningPathContentProps) {
     const plan = useLearningPathPlan(scopeFilter)
     const { data: weeklyProgress } = useWeeklyProgress()
@@ -517,19 +522,27 @@ export function LearningPathContent({
 
         const dueTodayIds = new Set(dueToday.map((m) => m.id))
 
+        const completedToday = filtered.filter((m) => {
+            if (!m.last_reviewed_at) return false
+            const lastRev = m.last_reviewed_at.split('T')[0]
+            return lastRev === today && m.due_date > today
+        }).sort((a, b) => b.display_mastery_score - a.display_mastery_score)
+
+        const completedTodayIds = new Set(completedToday.map((m) => m.id))
+
         const needsReview = filtered.filter(
-            (m) => m.display_mastery_level === 'needs_review' && !dueTodayIds.has(m.id),
+            (m) => m.display_mastery_level === 'needs_review' && !dueTodayIds.has(m.id) && !completedTodayIds.has(m.id),
         ).sort((a, b) => a.display_mastery_score - b.display_mastery_score)
 
         const developing = filtered.filter(
-            (m) => m.display_mastery_level === 'developing' && !dueTodayIds.has(m.id),
+            (m) => m.display_mastery_level === 'developing' && !dueTodayIds.has(m.id) && !completedTodayIds.has(m.id),
         ).sort((a, b) => a.display_mastery_score - b.display_mastery_score)
 
         const mastered = filtered.filter(
-            (m) => m.display_mastery_level === 'mastered' && !dueTodayIds.has(m.id),
+            (m) => m.display_mastery_level === 'mastered' && !dueTodayIds.has(m.id) && !completedTodayIds.has(m.id),
         ).sort((a, b) => b.display_mastery_score - a.display_mastery_score)
 
-        return { dueToday, needsReview, developing, mastered }
+        return { dueToday, completedToday, needsReview, developing, mastered }
     }, [performanceMasteryList, searchQuery])
 
     const handleStartReview = useCallback(() => {
@@ -834,34 +847,69 @@ export function LearningPathContent({
                         </div>
 
                         {/* Due Today Quizzes Section - More compact and integrated */}
-                        {dueTodayQuizzes && dueTodayQuizzes.length > 0 && (
-                            <Card className="border-red-200 bg-red-50/10 shadow-sm overflow-hidden">
+                        {((dueTodayQuizzes && dueTodayQuizzes.length > 0) || (completedTodayQuizzes && completedTodayQuizzes.length > 0)) && (
+                            <Card className="border-red-200 bg-red-50/10 shadow-sm overflow-hidden mb-6">
                                 <CardContent className="p-0">
-                                    <div className="flex flex-col sm:flex-row items-stretch">
-                                        <div className="bg-red-500 text-white p-4 flex flex-col justify-center items-center sm:w-40 shrink-0">
-                                            <Target className="w-8 h-8 mb-1" />
-                                            <span className="text-xl font-black">{dueTodayQuizzes.length}</span>
-                                            <span className="text-[10px] uppercase font-bold tracking-tighter">Due Today</span>
-                                        </div>
-                                        <div className="p-4 flex-1 overflow-x-auto">
-                                            <div className="flex gap-3 min-w-max sm:min-w-0 sm:grid sm:grid-cols-2 lg:grid-cols-3">
-                                                {dueTodayQuizzes.map((quiz) => (
-                                                    <Link
-                                                        key={quiz.id}
-                                                        to={`/quizzes/${quiz.id}`}
-                                                        className="flex items-center justify-between rounded-lg border bg-background p-2.5 shadow-sm transition-all hover:border-red-400 hover:shadow-md group min-w-[200px] sm:min-w-0"
-                                                    >
-                                                        <div className="min-w-0 pr-2">
-                                                            <p className="truncate font-bold text-xs tracking-tight group-hover:text-red-600 transition-colors">{quiz.title}</p>
-                                                            {quiz.documentTitle ? (
-                                                                <p className="truncate text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
-                                                            ) : null}
-                                                        </div>
-                                                        <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 group-hover:text-red-500" />
-                                                    </Link>
-                                                ))}
+                                    <div className="flex flex-col lg:flex-row items-stretch divide-y lg:divide-y-0 lg:divide-x divide-white/20">
+                                        {/* Due Today Section */}
+                                        {dueTodayQuizzes.length > 0 && (
+                                            <div className="flex flex-col sm:flex-row items-stretch flex-1">
+                                                <div className="bg-red-500 text-white p-4 flex flex-col justify-center items-center sm:w-32 shrink-0">
+                                                    <Target className="w-6 h-6 mb-1" />
+                                                    <span className="text-xl font-black">{dueTodayQuizzes.length}</span>
+                                                    <span className="text-[9px] uppercase font-bold tracking-tighter">Due Today</span>
+                                                </div>
+                                                <div className="p-4 flex-1 overflow-y-auto max-h-[200px] bg-red-50/30 scrollbar-thin">
+                                                    <div className="flex flex-col gap-2">
+                                                        {dueTodayQuizzes.map((quiz) => (
+                                                            <Link
+                                                                key={quiz.id}
+                                                                to={`/quizzes/${quiz.id}`}
+                                                                className="flex items-center justify-between rounded-lg border bg-background p-2 shadow-sm transition-all hover:border-red-400 hover:shadow-md group min-w-[180px] sm:min-w-0"
+                                                            >
+                                                                <div className="min-w-0 pr-2">
+                                                                    <p className="truncate font-bold text-[11px] tracking-tight group-hover:text-red-600 transition-colors">{quiz.title}</p>
+                                                                    {quiz.documentTitle ? (
+                                                                        <p className="truncate text-[8px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
+                                                                    ) : null}
+                                                                </div>
+                                                                <ArrowUpRight className="h-3 w-3 shrink-0 text-muted-foreground/60 group-hover:text-red-500" />
+                                                            </Link>
+                                                        ))}
+                                                    </div>
+                                                </div>
                                             </div>
-                                        </div>
+                                        )}
+
+                                        {/* Completed Today Section */}
+                                        {completedTodayQuizzes.length > 0 && (
+                                            <div className="flex flex-col sm:flex-row items-stretch flex-1">
+                                                <div className="bg-green-500 text-white p-4 flex flex-col justify-center items-center sm:w-32 shrink-0">
+                                                    <CheckCircle2 className="w-6 h-6 mb-1" />
+                                                    <span className="text-xl font-black">{completedTodayQuizzes.length}</span>
+                                                    <span className="text-[9px] uppercase font-bold tracking-tighter">Completed</span>
+                                                </div>
+                                                <div className="p-4 flex-1 overflow-y-auto max-h-[200px] bg-green-50/30 scrollbar-thin">
+                                                    <div className="flex flex-col gap-2">
+                                                        {completedTodayQuizzes.map((quiz) => (
+                                                            <Link
+                                                                key={quiz.id}
+                                                                to={`/quizzes/${quiz.id}`}
+                                                                className="flex items-center justify-between rounded-lg border bg-background p-2 shadow-sm transition-all hover:border-green-400 hover:shadow-md group min-w-[180px] sm:min-w-0"
+                                                            >
+                                                                <div className="min-w-0 pr-2">
+                                                                    <p className="truncate font-bold text-[11px] tracking-tight group-hover:text-green-600 transition-colors">{quiz.title}</p>
+                                                                    {quiz.documentTitle ? (
+                                                                        <p className="truncate text-[8px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
+                                                                    ) : null}
+                                                                </div>
+                                                                <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500" />
+                                                            </Link>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 </CardContent>
                             </Card>
@@ -971,6 +1019,14 @@ export function LearningPathContent({
                                     icon={<Target className="w-6 h-6 text-red-500" />}
                                     items={sections.dueToday}
                                     emptyMessage="Nothing due today — you're caught up!"
+                                    onSelect={setSelectedConcept}
+                                />
+
+                                <SectionBlock
+                                    title="Completed Today"
+                                    icon={<CheckCircle2 className="w-6 h-6 text-green-500" />}
+                                    items={sections.completedToday}
+                                    emptyMessage="No tasks completed today yet."
                                     onSelect={setSelectedConcept}
                                 />
 
