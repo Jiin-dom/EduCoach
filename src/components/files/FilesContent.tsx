@@ -7,6 +7,7 @@ import { Link, useNavigate } from "react-router-dom"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/contexts/AuthContext"
+import { BrandedLoader } from "@/components/ui/branded-loader"
 import { useDocuments, useDeleteDocument, useProcessDocument, processDocumentRequest, type Document } from "@/hooks/useDocuments"
 import { formatFileSize } from "@/lib/storage"
 import { FREE_DOCUMENT_LIMIT, canUploadMoreDocuments } from "@/lib/subscription"
@@ -296,10 +297,7 @@ export function FilesContent() {
                 </div>
                 <Card>
                     <CardContent className="flex items-center justify-center py-16">
-                        <div className="flex flex-col items-center gap-4">
-                            <Loader2 className="w-8 h-8 text-primary animate-spin" />
-                            <p className="text-muted-foreground">Loading your documents...</p>
-                        </div>
+                        <BrandedLoader message="Loading your documents..." size="md" />
                     </CardContent>
                 </Card>
             </div>

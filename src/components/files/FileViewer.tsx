@@ -7,6 +7,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useDocument, useProcessDocument } from '@/hooks/useDocuments'
 import { useDocumentConcepts } from '@/hooks/useConcepts'
 import { AiTutorChat } from '@/components/shared/AiTutorChat'
+import { BrandedLoader } from '@/components/ui/branded-loader'
 import { StudyHeader } from './StudyHeader'
 import { GuideTab } from './GuideTab'
 import { ConceptsTab } from './ConceptsTab'
@@ -66,10 +67,7 @@ export function FileViewer() {
                 </div>
                 <Card className="border-border/50 shadow-sm">
                     <CardContent className="flex items-center justify-center py-32">
-                        <div className="flex flex-col items-center gap-4">
-                            <Loader2 className="w-10 h-10 text-primary animate-spin" />
-                            <p className="text-sm text-muted-foreground animate-pulse">Loading document...</p>
-                        </div>
+                        <BrandedLoader message="Loading document..." size="lg" />
                     </CardContent>
                 </Card>
             </div>
