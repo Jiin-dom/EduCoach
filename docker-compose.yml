@@ -30,6 +30,14 @@ services:
       - KEYBERT_TOP_N=${KEYBERT_TOP_N:-12}
       - KEYBERT_USE_MAXSUM=${KEYBERT_USE_MAXSUM:-false}
       - TEXTRANK_TOP_N=${TEXTRANK_TOP_N:-12}
+      - AQG_MAX_CONCURRENT=${AQG_MAX_CONCURRENT:-2}
+
+      # ---- Targeted Gemini QA / repair for weak quiz candidates ----
+      # Hosted NLP deployments must receive the same env vars.
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_QA_ENABLED=${GEMINI_QA_ENABLED:-true}
+      - GEMINI_QA_TIMEOUT_SECONDS=${GEMINI_QA_TIMEOUT_SECONDS:-20}
+      - GEMINI_QA_THRESHOLD=${GEMINI_QA_THRESHOLD:-0.6}
 
       # ---- Thread caps (important if sentence-transformers/PyTorch is used) ----
       - OMP_NUM_THREADS=${OMP_NUM_THREADS:-2}
