@@ -11,8 +11,7 @@ import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { adaptiveStudyKeys } from '@/hooks/useAdaptiveStudy'
-import { scheduleDocumentGoalWindow } from '@/services/goalWindowScheduling'
-import { ensureAdaptiveReviewQuizForDocument } from '@/services/adaptiveStudy'
+import { alignFutureDueDatesToAvailability, scheduleDocumentGoalWindow } from '@/services/goalWindowScheduling'
 import {
     computeMastery,
     calculateSM2,
@@ -1157,14 +1156,11 @@ export function useProcessQuizResults() {
                 })
             }
 
-            try {
-                await ensureAdaptiveReviewQuizForDocument({
-                    userId: user.id,
-                    documentId,
-                })
-            } catch (adaptiveQuizError) {
-                console.warn('[Learning] Adaptive review quiz sync failed:', adaptiveQuizError)
-            }
+            await alignFutureDueDatesToAvailability({
+                userId: user.id,
+                availableStudyDays: profile?.available_study_days ?? null,
+                learningConfig,
+            })
 
             return { processedConcepts: conceptAnswers.size }
         },

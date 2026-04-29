@@ -26,7 +26,7 @@ import {
 } from "@/hooks/useLearning"
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
 import { useNavigate } from "react-router-dom"
-import { useUserAttempts } from "@/hooks/useQuizzes"
+import { useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
 import { useLearningPathPlan } from "@/hooks/useLearningPathPlan"
 import { useRescheduleAdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { getLearningPathItemsForDate, type LearningPathPlanItem, type PlannedReviewPlanItem } from "@/lib/learningPathPlan"
@@ -83,7 +83,21 @@ export function LearningPathCalendar({
     const rescheduleAdaptiveTask = useRescheduleAdaptiveStudyTask()
     const replanLearningPath = useReplanLearningPath()
     const { data: attempts = [] } = useUserAttempts()
+    const { data: quizzes = [] } = useQuizzes()
     const { profile } = useAuth()
+    const completedQuizIds = new Set(
+        attempts
+            .filter((a) => !!a.completed_at)
+            .map((a) => a.quiz_id),
+    )
+    const reusableReadyQuizIdByDocument = new Map<string, string>()
+    for (const quiz of quizzes) {
+        if (quiz.status !== 'ready') continue
+        if (completedQuizIds.has(quiz.id)) continue
+        if (!reusableReadyQuizIdByDocument.has(quiz.document_id)) {
+            reusableReadyQuizIdByDocument.set(quiz.document_id, quiz.id)
+        }
+    }
 
     const scopedStats = {
         masteredCount: plan.performancePlannedReviews.filter((item) => item.mastery.display_mastery_level === "mastered").length,
@@ -291,8 +305,10 @@ export function LearningPathCalendar({
 
         const openTask = () => {
              if (task.type === 'quiz') {
-                 if (task.quizId) {
-                     routeToQuizzesWithHighlight(task.quizId, task.id)
+                 const fallbackQuizId = reusableReadyQuizIdByDocument.get(task.documentId)
+                 const effectiveQuizId = task.quizId ?? fallbackQuizId
+                 if (effectiveQuizId) {
+                     routeToQuizzesWithHighlight(effectiveQuizId, task.id)
                  } else {
                      if (task.status === 'generating') {
                          toast.info('Your adaptive quiz is still being prepared. Check the Quizzes page in a moment.')
