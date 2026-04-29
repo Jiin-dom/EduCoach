@@ -119,6 +119,38 @@ export default function LearningPathPage() {
             .sort((a, b) => a.title.localeCompare(b.title))
     }, [documents, quizzes, adaptiveTasks, scopeFilter])
 
+    const completedTodayQuizzes = useMemo(() => {
+        const today = new Date()
+        const todayLocal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
+        
+        // Find all attempts completed today
+        const completedToday = attempts.filter(a => {
+            if (!a.completed_at) return false
+            return a.completed_at.split('T')[0] === todayLocal
+        })
+
+        // Map them to the QuizItem structure
+        const results = completedToday.map(a => {
+            const quiz = quizzes.find(q => q.id === a.quiz_id)
+            const doc = documents.find(d => d.id === quiz?.document_id)
+            return {
+                id: a.quiz_id,
+                title: quiz?.title ?? "Completed Quiz",
+                documentTitle: doc?.title ?? null,
+                dueDate: todayLocal,
+                completedAt: a.completed_at
+            }
+        })
+
+        // Remove duplicates if the user took the same quiz twice today
+        const seen = new Set<string>()
+        return results.filter(q => {
+            if (seen.has(q.id)) return false
+            seen.add(q.id)
+            return true
+        })
+    }, [attempts, quizzes, documents])
+
     const isSelectorView = !requestedScope
     const hasInvalidScope = isScopedRoute && !resolvedScope
 
@@ -188,6 +220,7 @@ export default function LearningPathPage() {
                                 <LearningPathCalendar
                                     scopeFilter={scopeFilter}
                                     dueTodayQuizzes={dueTodayQuizzes}
+                                    completedTodayQuizzes={completedTodayQuizzes}
                                 />
                             </div>
                         </TabsContent>
@@ -196,6 +229,7 @@ export default function LearningPathPage() {
                             <LearningPathContent
                                 scopeFilter={scopeFilter}
                                 dueTodayQuizzes={dueTodayQuizzes}
+                                completedTodayQuizzes={completedTodayQuizzes}
                             />
                         </TabsContent>
 
