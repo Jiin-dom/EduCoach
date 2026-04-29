@@ -17,6 +17,9 @@ export interface AttemptLogEntry {
     question_difficulty: DifficultyLevel | null
     time_spent_seconds: number | null
     attempted_at: string
+    source_type?: 'quiz' | 'flashcard'
+    attempt_id?: string | null
+    flashcard_id?: string | null
 }
 
 export interface SM2Input {
@@ -190,9 +193,14 @@ export function getMasteryLevel(
  * Entries should be sorted newest-first.
  * `confidenceK` controls how many attempts are needed for full confidence (default 3).
  */
-export function computeMastery(attempts: AttemptLogEntry[], confidenceK = 3): MasteryResult {
+export function computeMastery(
+    attempts: AttemptLogEntry[],
+    confidenceK = 3,
+    confidenceEvidenceCount?: number,
+): MasteryResult {
     const rawMastery = calculateTopicMastery(attempts)
-    const confidence = calculateConfidence(attempts.length, confidenceK)
+    const evidenceCount = confidenceEvidenceCount ?? attempts.length
+    const confidence = calculateConfidence(evidenceCount, confidenceK)
     const finalMastery = calculateFinalMastery(rawMastery, confidence)
     const masteryLevel = getMasteryLevel(finalMastery, confidence)
 

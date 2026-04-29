@@ -878,7 +878,7 @@ export async function recomputeConceptMastery(
 ) {
     const { data: allLogs, error: logsError } = await supabase
         .from('question_attempt_log')
-        .select('is_correct, question_difficulty, time_spent_seconds, attempted_at')
+        .select('is_correct, question_difficulty, time_spent_seconds, attempted_at, source_type, attempt_id, flashcard_id')
         .eq('user_id', userId)
         .eq('concept_id', conceptId)
         .order('attempted_at', { ascending: false })
@@ -894,9 +894,28 @@ export async function recomputeConceptMastery(
         question_difficulty: l.question_difficulty as AttemptLogEntry['question_difficulty'],
         time_spent_seconds: l.time_spent_seconds,
         attempted_at: l.attempted_at,
+        source_type: l.source_type as AttemptLogEntry['source_type'],
+        attempt_id: (l as { attempt_id?: string | null }).attempt_id ?? null,
+        flashcard_id: (l as { flashcard_id?: string | null }).flashcard_id ?? null,
     }))
 
-    const wmsResult = computeMastery(attemptLogs, config.confidence_k)
+    const confidenceEvidenceKeys = new Set<string>()
+    for (const log of attemptLogs) {
+        if (log.source_type === 'quiz') {
+            confidenceEvidenceKeys.add(log.attempt_id ? `quiz:${log.attempt_id}` : `quiz-time:${log.attempted_at}`)
+            continue
+        }
+        if (log.source_type === 'flashcard') {
+            confidenceEvidenceKeys.add(log.flashcard_id ? `flashcard:${log.flashcard_id}:${log.attempted_at}` : `flashcard-time:${log.attempted_at}`)
+            continue
+        }
+        confidenceEvidenceKeys.add(`legacy:${log.attempted_at}`)
+    }
+
+    // Confidence should reflect distinct learning events, not raw question count,
+    // so one quiz attempt with many same-topic questions cannot instantly "master" a topic.
+    const confidenceEvidenceCount = Math.max(1, confidenceEvidenceKeys.size)
+    const wmsResult = computeMastery(attemptLogs, config.confidence_k, confidenceEvidenceCount)
     const masteryLevel: ConceptMasteryRow['mastery_level'] =
         wmsResult.finalMastery >= config.mastery_threshold_mastered && wmsResult.confidence >= config.confidence_threshold_mastered
             ? 'mastered'
