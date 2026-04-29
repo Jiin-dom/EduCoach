@@ -31,6 +31,10 @@ Quiz generation was slow on both web and mobile because the shared `generate-qui
 - Tightened NLP scoring for lesson-objective sentences, code artifacts, and identification questions that contain blanks.
 - Added an edge safety gate for severe NLP failure reasons before database insert.
 - Added a Gemini-unavailable quality guard: if targeted QA cannot run, candidates below the QA confidence threshold are dropped instead of being saved as weak NLP-only questions.
+- Added deterministic readability gates for incoherent student-facing stems, including pronoun-led true/false statements, subject-verb mismatch, and noun-phrase definition fragments.
+- Reworded identification templates from source-excerpt prompts such as "Read the following" to direct student-facing questions.
+- Added a `described_as_fragment` guard so direct identification prompts still reject noun-phrase fragments such as "Which topic is described as the integration of...".
+- Added a `quoted_excerpt_prompt` guard so questions that still look like copied source excerpts are rejected before saving.
 
 ## Files/modules/screens/components/services affected
 
@@ -58,6 +62,7 @@ Quiz generation was slow on both web and mobile because the shared `generate-qui
 ## User-facing behavior changes
 
 - New quiz questions no longer show internal source clues to students because those clues can reveal answers.
+- Identification questions now use direct wording instead of quoted source-excerpt formatting.
 - Old quizzes with `question_context = null` render normally.
 - Normal quiz generation should avoid the slow full-quiz Gemini enhancement and validation sequence.
 
@@ -68,6 +73,8 @@ Quiz generation was slow on both web and mobile because the shared `generate-qui
 - `AQG_MAX_CONCURRENT` defaults to `2`, allowing bounded parallel quiz generation without the old global AQG serialization.
 - Hosted NLP service deployments must receive `GEMINI_API_KEY`, `GEMINI_QA_ENABLED`, `GEMINI_QA_TIMEOUT_SECONDS`, `GEMINI_QA_THRESHOLD`, and `AQG_MAX_CONCURRENT`.
 - A Gemini `503 Service Unavailable` is treated as provider unavailability, not successful QA. The NLP response reports `geminiQaUnavailable` and `qa_min_confidence`, and the edge function mirrors those values in quality metrics.
+- Gemini QA is treated as repair assistance, not the only safety layer. The NLP service and edge function both reject severe readability failures before insert.
+- Rewriting every question with Gemini is intentionally avoided by default because it would make every quiz dependent on LLM latency, especially for 10, 15, and 20 question quizzes.
 
 ## Testing/verification performed
 
@@ -82,6 +89,7 @@ Quiz generation was slow on both web and mobile because the shared `generate-qui
 - If Gemini QA is unavailable or times out, only deterministic candidates at or above `GEMINI_QA_THRESHOLD` continue; weaker candidates are dropped.
 - The edge fallback still uses Gemini only when NLP returns zero usable questions.
 - Severe NLP failures such as lesson objectives, code artifacts, and identification blanks are blocked before insert even if Gemini QA is unavailable.
+- Some source decks may produce fewer than the requested number of questions if the available text is mostly fragments or vague pronoun-led statements.
 
 ## Follow-up tasks or recommended next steps
 

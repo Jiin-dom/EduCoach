@@ -26,6 +26,11 @@ const SEVERE_FAILURE_REASONS = new Set([
     'code_artifact_source',
     'identification_blank_shape',
     'invalid_type_shape',
+    'pronoun_led_statement',
+    'subject_verb_mismatch',
+    'definition_fragment',
+    'described_as_fragment',
+    'quoted_excerpt_prompt',
 ])
 const BASE_DELAY_MS = 2000
 const QUIZ_PRIORITY_PREMIUM = 2

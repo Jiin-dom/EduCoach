@@ -1640,20 +1640,20 @@ class GenerateQuestionsResponse(BaseModel):
     error: Optional[str] = None
 
 _IDENTIFICATION_TEMPLATES_BEGINNER = [
-    'Read the following:\n\n"{sentence}"\n\nWhat is the term being described?',
-    'From the text:\n\n"{sentence}"\n\nWhat concept is this about?',
-    'Read the following:\n\n"{sentence}"\n\nWhat does this passage refer to?',
+    'Which term is described by this statement: {sentence}?',
+    'Which concept matches this description: {sentence}?',
+    'What topic is being described here: {sentence}?',
 ]
 _IDENTIFICATION_TEMPLATES_INTERMEDIATE = [
-    'Based on the following:\n\n"{sentence}"\n\nWhat term is being described?',
-    'Based on the following:\n\n"{sentence}"\n\nWhich concept matches this description?',
-    'Based on the following:\n\n"{sentence}"\n\nWhat is the name of the concept discussed here?',
+    'Which term is described by this statement: {sentence}?',
+    'Which concept matches this description: {sentence}?',
+    'What is the name of the concept described here: {sentence}?',
 ]
 _IDENTIFICATION_TEMPLATES_ADVANCED = [
-    'Consider the following:\n\n"{sentence}"\n\nWhich topic best matches this description?',
-    'Consider the following:\n\n"{sentence}"\n\nWhat concept is being referenced?',
-    'Consider the following:\n\n"{sentence}"\n\nName the concept described in this statement.',
-    'Consider the following:\n\n"{sentence}"\n\nIdentify the key term discussed here.',
+    'Which topic best matches this description: {sentence}?',
+    'What concept is being referenced by this statement: {sentence}?',
+    'Name the concept described in this statement: {sentence}.',
+    'Identify the key term discussed here: {sentence}.',
 ]
 
 IDENTIFICATION_MAX_WORDS = 8
@@ -1783,7 +1783,8 @@ def _generate_identification(sentence_text: str, keyphrase: str,
         templates = _IDENTIFICATION_TEMPLATES_INTERMEDIATE
 
     masked_sentence = _mask_keyphrase_in_sentence(sentence_text, keyphrase)
-    q_text = random.choice(templates).format(kp=keyphrase, sentence=masked_sentence)
+    prompt_sentence = _sanitize_for_embedding(masked_sentence)
+    q_text = random.choice(templates).format(kp=keyphrase, sentence=prompt_sentence)
     return GeneratedQuestion(
         chunk_id=chunk_id,
         question_type="identification",
@@ -1963,6 +1964,59 @@ _ARTIFACT_RE = re.compile(
     r'[\u2022\u2023\u25cf\u25cb\u25aa\u25ab\u00b7\u2219\u25b6\u25ba\u25c6\u25c7\u25e6]'
 )
 _STARTS_WITH_LIST_MARKER_RE = re.compile(r'^[\-\*]\s|^\d+\.\s')
+_PRONOUN_LED_STATEMENT_RE = re.compile(r"^(it|this|that|they|these|those)\b", re.IGNORECASE)
+_SUBJECT_VERB_MISMATCH_RE = re.compile(
+    r"\b(?:the\s+)?(?:decisions|actions|states|rewards|outcomes|columns|rows|techniques)\s+"
+    r"(?:learns|works|interacts|receives|updates|takes|gets|represents|is)\b",
+    re.IGNORECASE,
+)
+_DEFINITION_FRAGMENT_RE = re.compile(
+    r"^(?:the\s+)?(?:integration|combination|use|application|process|method|technique|concept|ability|idea)\s+of\b",
+    re.IGNORECASE,
+)
+_DESCRIBED_AS_FRAGMENT_RE = re.compile(
+    r"\b(?:described as|described by|refers to|matches this description:)\s+(.+?)[\?\.]?$",
+    re.IGNORECASE,
+)
+_QUOTED_EXCERPT_PROMPT_RE = re.compile(
+    r"\b(?:following|description|described by|described as|refers to)\b[^.!?]*[\"“][^\"”]{8,220}[\"”]",
+    re.IGNORECASE,
+)
+
+
+def _has_finite_verb(text: str) -> bool:
+    """True when text has a real finite verb, not only gerunds like 'Learning'."""
+    doc = nlp(text[:500])
+    return any(tok.pos_ in ("VERB", "AUX") and tok.tag_ not in ("VBG", "VBN") for tok in doc)
+
+
+def _first_quoted_segment(text: str) -> str:
+    match = re.search(r'["“]([^"”]{8,220})["”]', text or "")
+    return match.group(1).strip() if match else ""
+
+
+def _is_definition_fragment(text: str) -> bool:
+    """Reject noun-phrase definitions that are not complete student-readable statements."""
+    raw = (text or "").strip()
+    candidate = raw
+    described_as = _DESCRIBED_AS_FRAGMENT_RE.search(raw)
+    if described_as:
+        candidate = described_as.group(1)
+        candidate = re.sub(r"^the following:\s*", "", candidate, flags=re.IGNORECASE).strip()
+    elif _first_quoted_segment(raw):
+        candidate = _first_quoted_segment(raw)
+    candidate = candidate.strip(" .:;\"“”")
+    if described_as:
+        try:
+            return not _has_finite_verb(candidate)
+        except Exception:
+            return True
+    if not _DEFINITION_FRAGMENT_RE.match(candidate):
+        return False
+    try:
+        return not _has_finite_verb(candidate)
+    except Exception:
+        return True
 
 
 def _validate_question(q: GeneratedQuestion) -> bool:
@@ -1975,7 +2029,17 @@ def _validate_question(q: GeneratedQuestion) -> bool:
         return False
     if _STARTS_WITH_LIST_MARKER_RE.match(q.question_text) or _STARTS_WITH_LIST_MARKER_RE.match(q.correct_answer):
         return False
+    if _PRONOUN_LED_STATEMENT_RE.match(q.question_text.strip()):
+        return False
+    if _SUBJECT_VERB_MISMATCH_RE.search(q.question_text):
+        return False
+    if _QUOTED_EXCERPT_PROMPT_RE.search(q.question_text):
+        return False
     if q.question_type == "identification":
+        if _is_definition_fragment(q.question_text) or _is_definition_fragment(q.question_context or ""):
+            return False
+        if not q.question_text.strip().endswith("?") and not re.match(r"^(identify|name)\b", q.question_text.strip(), re.IGNORECASE):
+            return False
         if re.search(r"_{3,}|____", q.question_text):
             return False
         answer_words = [word for word in q.correct_answer.strip().split() if word]
@@ -2053,6 +2117,8 @@ def _is_weak_source_text(text: str) -> bool:
         return True
     if _SINGLE_LETTER_ARTIFACT_RE.match(clean):
         return True
+    if _is_definition_fragment(clean):
+        return True
     if _CODE_IDENTIFIER_RE.search(clean):
         return True
     if _URL_RE.sub("", clean).strip() == "":
@@ -2122,6 +2188,26 @@ def _score_candidate(q: GeneratedQuestion) -> GeneratedQuestion:
     if q.question_type == "identification" and re.search(r"_{3,}|____", q.question_text or ""):
         score -= 0.45
         reasons.append("identification_blank_shape")
+
+    if _PRONOUN_LED_STATEMENT_RE.match((q.question_text or "").strip()):
+        score -= 0.55
+        reasons.append("pronoun_led_statement")
+
+    if _SUBJECT_VERB_MISMATCH_RE.search(q.question_text or ""):
+        score -= 0.55
+        reasons.append("subject_verb_mismatch")
+
+    if _QUOTED_EXCERPT_PROMPT_RE.search(q.question_text or ""):
+        score -= 0.55
+        reasons.append("quoted_excerpt_prompt")
+
+    if q.question_type == "identification" and (
+        _is_definition_fragment(q.question_text or "") or _is_definition_fragment(context)
+    ):
+        score -= 0.55
+        reasons.append("definition_fragment")
+        if _DESCRIBED_AS_FRAGMENT_RE.search(q.question_text or ""):
+            reasons.append("described_as_fragment")
 
     if _LESSON_OBJECTIVE_RE.search(context) or _LESSON_OBJECTIVE_RE.search(q.question_text or ""):
         score -= 0.55
@@ -2216,6 +2302,9 @@ Rules:
 - For multiple_choice, options must be exactly 4 distinct same-category strings and include correct_answer.
 - For true_false, question_text must be a declarative statement.
 - For identification, question_text must be understandable with the provided context clue.
+- Reject pronoun-led true/false statements such as "It works..." when the subject is unclear.
+- Reject ungrammatical stems such as plural subjects with singular verbs, for example "The decisions learns...".
+- Reject identification prompts based only on noun-phrase fragments such as "The integration of X with Y".
 
 Questions:
 {json.dumps(review_payload, ensure_ascii=False)}
@@ -2304,14 +2393,14 @@ def _generate_slide_questions(
         return questions
 
     _SLIDE_IDENT_TEMPLATES = [
-        'Based on the following:\n\n"{desc}"\n\nWhat concept is being described?',
-        'Read the following:\n\n"{desc}"\n\nWhat topic does this refer to?',
-        'Consider this description:\n\n"{desc}"\n\nIdentify the concept.',
+        'Which concept refers to {desc}?',
+        'Which topic is described as {desc}?',
+        'Identify the concept described as {desc}.',
     ]
 
     _SLIDE_MCQ_STEM_TEMPLATES = [
-        'Which concept is described by the following:\n\n"{desc}"',
-        'What topic does this description refer to:\n\n"{desc}"',
+        'Which concept is best described as {desc}?',
+        'Which topic does this description refer to: {desc}?',
     ]
 
     sorted_concepts = sorted(concepts, key=lambda c: c.importance, reverse=True)
