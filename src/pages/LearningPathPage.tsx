@@ -107,6 +107,7 @@ export default function LearningPathPage() {
             .filter((task) => task.type === "quiz" && task.status === "ready" && task.quizId)
             .filter((task) => matchesQuizScope({ id: task.quizId!, document_id: task.documentId }, scopeFilter))
             .filter((task) => task.scheduledDate === todayLocal)
+            .filter((task) => matchesQuizScope({ id: task.quizId!, document_id: task.documentId }, scopeFilter))
             .map((task) => ({
                 id: task.quizId!,
                 title: task.title,
@@ -135,6 +136,14 @@ export default function LearningPathPage() {
         // Map them to the QuizItem structure
         const results = completedToday.map(a => {
             const quiz = quizzes.find(q => q.id === a.quiz_id)
+            
+            // If we are in a scoped view (e.g. looking at a specific file), 
+            // we must be able to verify the quiz belongs to that scope.
+            if (scopeFilter && !quiz) return null
+
+            // Only include quizzes that match the current scope (e.g., specific file)
+            if (quiz && !matchesQuizScope(quiz, scopeFilter)) return null
+
             const doc = documents.find(d => d.id === quiz?.document_id)
             return {
                 id: a.quiz_id,
@@ -143,7 +152,7 @@ export default function LearningPathPage() {
                 dueDate: todayLocal,
                 completedAt: a.completed_at
             }
-        })
+        }).filter((q): q is NonNullable<typeof q> => q !== null)
 
         // Remove duplicates if the user took the same quiz twice today
         const seen = new Set<string>()
@@ -152,7 +161,7 @@ export default function LearningPathPage() {
             seen.add(q.id)
             return true
         })
-    }, [attempts, quizzes, documents])
+    }, [attempts, quizzes, documents, scopeFilter])
 
     const isSelectorView = !requestedScope
     const hasInvalidScope = isScopedRoute && !resolvedScope
