@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { adaptiveStudyKeys } from '@/hooks/useAdaptiveStudy'
+import { alignFutureDueDatesToAvailability } from '@/services/goalWindowScheduling'
 import {
     recomputeConceptMastery,
     learningKeys,
@@ -174,7 +175,7 @@ function computeSM2(card: Flashcard, rating: ReviewRating) {
 
 export function useReviewFlashcard() {
     const queryClient = useQueryClient()
-    const { user } = useAuth()
+    const { user, profile } = useAuth()
 
     return useMutation({
         mutationFn: async ({
@@ -244,6 +245,11 @@ export function useReviewFlashcard() {
                     learningConfig.quality_thresholds,
                 )
                 await recomputeConceptMastery(user.id, card.concept_id, card.document_id ?? null, sm2Quality, learningConfig)
+                await alignFutureDueDatesToAvailability({
+                    userId: user.id,
+                    availableStudyDays: profile?.available_study_days ?? null,
+                    learningConfig,
+                })
             }
 
             return { ...card, ...updates }
