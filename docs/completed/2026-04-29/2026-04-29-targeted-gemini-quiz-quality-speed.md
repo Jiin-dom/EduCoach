@@ -35,6 +35,10 @@ Quiz generation was slow on both web and mobile because the shared `generate-qui
 - Reworded identification templates from source-excerpt prompts such as "Read the following" to direct student-facing questions.
 - Added a `described_as_fragment` guard so direct identification prompts still reject noun-phrase fragments such as "Which topic is described as the integration of...".
 - Added a `quoted_excerpt_prompt` guard so questions that still look like copied source excerpts are rejected before saving.
+- Added guards for deployed screenshot regressions where slide definitions were grafted into prompts, such as "Which concept refers to Gradient Descent is...".
+- Added guards for dangling conjunction stems such as sentences ending with "and." and vague demonstrative references such as "this cost function".
+- Replaced slide concept templates with definition-clause prompts that strip the leading concept name and verb before embedding the definition.
+- Added NLP candidate QA logging with confidence score, review threshold, failure reasons, and question text before and after Gemini QA.
 
 ## Files/modules/screens/components/services affected
 
@@ -58,6 +62,7 @@ Quiz generation was slow on both web and mobile because the shared `generate-qui
 - Auth changes: none.
 - Storage changes: none.
 - API/query changes: `generate-quiz` inserts `question_context`; existing `select('*')` quiz question queries remain backward-compatible.
+- Edge safety filtering now treats `embedded_sentence_prompt`, `dangling_conjunction`, and `vague_demonstrative_reference` as severe NLP failure reasons.
 
 ## User-facing behavior changes
 
@@ -65,6 +70,8 @@ Quiz generation was slow on both web and mobile because the shared `generate-qui
 - Identification questions now use direct wording instead of quoted source-excerpt formatting.
 - Old quizzes with `question_context = null` render normally.
 - Normal quiz generation should avoid the slow full-quiz Gemini enhancement and validation sequence.
+- Slide-derived questions should no longer show prompts that paste a full definition sentence after "refers to" or "best described as".
+- Bad stems with dangling endings or vague "this/that" references are rejected instead of shown to students.
 
 ## Developer notes or architectural decisions
 
@@ -75,10 +82,13 @@ Quiz generation was slow on both web and mobile because the shared `generate-qui
 - A Gemini `503 Service Unavailable` is treated as provider unavailability, not successful QA. The NLP response reports `geminiQaUnavailable` and `qa_min_confidence`, and the edge function mirrors those values in quality metrics.
 - Gemini QA is treated as repair assistance, not the only safety layer. The NLP service and edge function both reject severe readability failures before insert.
 - Rewriting every question with Gemini is intentionally avoided by default because it would make every quiz dependent on LLM latency, especially for 10, 15, and 20 question quizzes.
+- `geminiQaReviewed: 0` means no candidate fell below the NLP-side `GEMINI_QA_THRESHOLD`; the new candidate logs are intended to make that decision visible in server logs.
 
 ## Testing/verification performed
 
 - `python3 -m py_compile educoach/nlp-service/main.py`
+- `cd educoach && npm test -- src/test/targetedGeminiQuizPipelineSource.test.ts`
+- `cd educoach && npm test -- src/test/generateQuizEdgeFunctionImport.test.ts src/test/targetedGeminiQuizPipelineSource.test.ts`
 - `cd educoach && npm test`
 - `cd educoach && npm run build` was attempted but failed on pre-existing unrelated TypeScript issues in analytics, learning-path, and `mammoth/mammoth.browser` declarations.
 - `cd educoach-mobile && npx tsc --noEmit` was attempted but failed on pre-existing unrelated mobile TypeScript issues.
