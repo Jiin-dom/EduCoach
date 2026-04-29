@@ -9,6 +9,7 @@ import os
 import time
 import re
 import random
+import json
 import requests
 import spacy
 import pytextrank
@@ -16,11 +17,11 @@ import numpy as np
 import ftfy
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from keybert import KeyBERT
 from sentence_transformers import SentenceTransformer
-from threading import Lock
+from threading import Lock, Semaphore
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics.pairwise import cosine_distances
 from bs4 import BeautifulSoup
@@ -1550,7 +1551,35 @@ def generate_flashcards(input: GenerateFlashcardsInput):
 # Per Obj3 sections 6-8, upgraded in Phase 4.2.
 # ============================================
 
-AQG_LOCK = Lock()
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    try:
+        parsed = int(os.getenv(name, str(default)))
+        return max(minimum, parsed)
+    except Exception:
+        return default
+
+
+def _env_float(name: str, default: float, minimum: float, maximum: float) -> float:
+    try:
+        parsed = float(os.getenv(name, str(default)))
+        return max(minimum, min(maximum, parsed))
+    except Exception:
+        return default
+
+
+AQG_MAX_CONCURRENT = _env_int("AQG_MAX_CONCURRENT", 2, minimum=1)
+AQG_SEMAPHORE = Semaphore(AQG_MAX_CONCURRENT)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_QA_ENABLED = _env_bool("GEMINI_QA_ENABLED", True)
+GEMINI_QA_TIMEOUT_SECONDS = _env_int("GEMINI_QA_TIMEOUT_SECONDS", 20, minimum=3)
+GEMINI_QA_THRESHOLD = _env_float("GEMINI_QA_THRESHOLD", 0.6, 0.0, 1.0)
 _AMBIGUOUS_QUALIFIERS = re.compile(
     r"\b(sometimes|often|usually|may|might|could|perhaps|occasionally|rarely|"
     r"probably|generally|typically|possibly|approximately|almost|nearly)\b",
@@ -1600,6 +1629,9 @@ class GeneratedQuestion(BaseModel):
     correct_answer: str
     difficulty_label: str = "intermediate"
     explanation: Optional[str] = None
+    question_context: Optional[str] = None
+    confidence_score: Optional[float] = None
+    failure_reasons: List[str] = Field(default_factory=list)
 
 class GenerateQuestionsResponse(BaseModel):
     success: bool
@@ -1608,20 +1640,20 @@ class GenerateQuestionsResponse(BaseModel):
     error: Optional[str] = None
 
 _IDENTIFICATION_TEMPLATES_BEGINNER = [
-    'Read the following:\n\n"{sentence}"\n\nWhat is the term being described?',
-    'From the text:\n\n"{sentence}"\n\nWhat concept is this about?',
-    'Read the following:\n\n"{sentence}"\n\nWhat does this passage refer to?',
+    'Which term is described by this statement: {sentence}?',
+    'Which concept matches this description: {sentence}?',
+    'What topic is being described here: {sentence}?',
 ]
 _IDENTIFICATION_TEMPLATES_INTERMEDIATE = [
-    'Based on the following:\n\n"{sentence}"\n\nWhat term is being described?',
-    'Based on the following:\n\n"{sentence}"\n\nWhich concept matches this description?',
-    'Based on the following:\n\n"{sentence}"\n\nWhat is the name of the concept discussed here?',
+    'Which term is described by this statement: {sentence}?',
+    'Which concept matches this description: {sentence}?',
+    'What is the name of the concept described here: {sentence}?',
 ]
 _IDENTIFICATION_TEMPLATES_ADVANCED = [
-    'Consider the following:\n\n"{sentence}"\n\nWhich topic best matches this description?',
-    'Consider the following:\n\n"{sentence}"\n\nWhat concept is being referenced?',
-    'Consider the following:\n\n"{sentence}"\n\nName the concept described in this statement.',
-    'Consider the following:\n\n"{sentence}"\n\nIdentify the key term discussed here.',
+    'Which topic best matches this description: {sentence}?',
+    'What concept is being referenced by this statement: {sentence}?',
+    'Name the concept described in this statement: {sentence}.',
+    'Identify the key term discussed here: {sentence}.',
 ]
 
 IDENTIFICATION_MAX_WORDS = 8
@@ -1706,6 +1738,16 @@ def _build_explanation(sentence_text: str, keyphrase: str = "") -> str:
     return f"According to the document: {clean}"
 
 
+def _source_excerpt(text: str, max_chars: int = 240) -> str:
+    """Short source clue shown to students and used by Gemini QA for grounding."""
+    clean = _sanitize_sentence(text)
+    if not clean:
+        return ""
+    if len(clean) <= max_chars:
+        return clean
+    return clean[:max_chars].rsplit(" ", 1)[0].rstrip(" ,;:") + "..."
+
+
 def _select_difficulty_label(target_difficulty: str, question_type: str) -> str:
     """Pick a difficulty label consistent with the target and question type."""
     if target_difficulty in ("beginner", "intermediate", "advanced"):
@@ -1741,7 +1783,8 @@ def _generate_identification(sentence_text: str, keyphrase: str,
         templates = _IDENTIFICATION_TEMPLATES_INTERMEDIATE
 
     masked_sentence = _mask_keyphrase_in_sentence(sentence_text, keyphrase)
-    q_text = random.choice(templates).format(kp=keyphrase, sentence=masked_sentence)
+    prompt_sentence = _sanitize_for_embedding(masked_sentence)
+    q_text = random.choice(templates).format(kp=keyphrase, sentence=prompt_sentence)
     return GeneratedQuestion(
         chunk_id=chunk_id,
         question_type="identification",
@@ -1749,6 +1792,7 @@ def _generate_identification(sentence_text: str, keyphrase: str,
         correct_answer=answer,
         difficulty_label=diff_label,
         explanation=_build_explanation(sentence_text, keyphrase),
+        question_context=_source_excerpt(sentence_text),
     )
 
 
@@ -1776,6 +1820,7 @@ def _generate_true_false(sentence_text: str, chunk_id: str,
             correct_answer="true",
             difficulty_label=diff_label,
             explanation=_build_explanation(sentence_text),
+            question_context=_source_excerpt(sentence_text),
         )
 
     # Strategy 1: Entity/keyphrase swapping (more natural)
@@ -1788,6 +1833,7 @@ def _generate_true_false(sentence_text: str, chunk_id: str,
             correct_answer="false",
             difficulty_label=diff_label,
             explanation=f"This statement is false. {_build_explanation(sentence_text)}",
+            question_context=_source_excerpt(sentence_text),
         )
 
     # Strategy 2: Verb negation fallback
@@ -1810,6 +1856,7 @@ def _generate_true_false(sentence_text: str, chunk_id: str,
         correct_answer="false",
         difficulty_label=diff_label,
         explanation=f"This statement is false because 'not' changes the meaning. {_build_explanation(sentence_text)}",
+        question_context=_source_excerpt(sentence_text),
     )
 
 
@@ -1874,6 +1921,7 @@ def _generate_mcq(sentence_text: str, keyphrase: str, chunk_keyphrases: List[str
         correct_answer=clean_answer,
         difficulty_label=diff_label,
         explanation=_build_explanation(sentence_text, keyphrase),
+        question_context=_source_excerpt(sentence_text),
     )
 
 
@@ -1895,6 +1943,7 @@ def _generate_fill_in_blank(sentence_text: str, keyphrase: str,
         correct_answer=clean_answer,
         difficulty_label=diff_label,
         explanation=_build_explanation(sentence_text, keyphrase),
+        question_context=_source_excerpt(sentence_text),
     )
 
 
@@ -1915,6 +1964,59 @@ _ARTIFACT_RE = re.compile(
     r'[\u2022\u2023\u25cf\u25cb\u25aa\u25ab\u00b7\u2219\u25b6\u25ba\u25c6\u25c7\u25e6]'
 )
 _STARTS_WITH_LIST_MARKER_RE = re.compile(r'^[\-\*]\s|^\d+\.\s')
+_PRONOUN_LED_STATEMENT_RE = re.compile(r"^(it|this|that|they|these|those)\b", re.IGNORECASE)
+_SUBJECT_VERB_MISMATCH_RE = re.compile(
+    r"\b(?:the\s+)?(?:decisions|actions|states|rewards|outcomes|columns|rows|techniques)\s+"
+    r"(?:learns|works|interacts|receives|updates|takes|gets|represents|is)\b",
+    re.IGNORECASE,
+)
+_DEFINITION_FRAGMENT_RE = re.compile(
+    r"^(?:the\s+)?(?:integration|combination|use|application|process|method|technique|concept|ability|idea)\s+of\b",
+    re.IGNORECASE,
+)
+_DESCRIBED_AS_FRAGMENT_RE = re.compile(
+    r"\b(?:described as|described by|refers to|matches this description:)\s+(.+?)[\?\.]?$",
+    re.IGNORECASE,
+)
+_QUOTED_EXCERPT_PROMPT_RE = re.compile(
+    r"\b(?:following|description|described by|described as|refers to)\b[^.!?]*[\"“][^\"”]{8,220}[\"”]",
+    re.IGNORECASE,
+)
+
+
+def _has_finite_verb(text: str) -> bool:
+    """True when text has a real finite verb, not only gerunds like 'Learning'."""
+    doc = nlp(text[:500])
+    return any(tok.pos_ in ("VERB", "AUX") and tok.tag_ not in ("VBG", "VBN") for tok in doc)
+
+
+def _first_quoted_segment(text: str) -> str:
+    match = re.search(r'["“]([^"”]{8,220})["”]', text or "")
+    return match.group(1).strip() if match else ""
+
+
+def _is_definition_fragment(text: str) -> bool:
+    """Reject noun-phrase definitions that are not complete student-readable statements."""
+    raw = (text or "").strip()
+    candidate = raw
+    described_as = _DESCRIBED_AS_FRAGMENT_RE.search(raw)
+    if described_as:
+        candidate = described_as.group(1)
+        candidate = re.sub(r"^the following:\s*", "", candidate, flags=re.IGNORECASE).strip()
+    elif _first_quoted_segment(raw):
+        candidate = _first_quoted_segment(raw)
+    candidate = candidate.strip(" .:;\"“”")
+    if described_as:
+        try:
+            return not _has_finite_verb(candidate)
+        except Exception:
+            return True
+    if not _DEFINITION_FRAGMENT_RE.match(candidate):
+        return False
+    try:
+        return not _has_finite_verb(candidate)
+    except Exception:
+        return True
 
 
 def _validate_question(q: GeneratedQuestion) -> bool:
@@ -1927,7 +2029,19 @@ def _validate_question(q: GeneratedQuestion) -> bool:
         return False
     if _STARTS_WITH_LIST_MARKER_RE.match(q.question_text) or _STARTS_WITH_LIST_MARKER_RE.match(q.correct_answer):
         return False
+    if _PRONOUN_LED_STATEMENT_RE.match(q.question_text.strip()):
+        return False
+    if _SUBJECT_VERB_MISMATCH_RE.search(q.question_text):
+        return False
+    if _QUOTED_EXCERPT_PROMPT_RE.search(q.question_text):
+        return False
     if q.question_type == "identification":
+        if _is_definition_fragment(q.question_text) or _is_definition_fragment(q.question_context or ""):
+            return False
+        if not q.question_text.strip().endswith("?") and not re.match(r"^(identify|name)\b", q.question_text.strip(), re.IGNORECASE):
+            return False
+        if re.search(r"_{3,}|____", q.question_text):
+            return False
         answer_words = [word for word in q.correct_answer.strip().split() if word]
         if len(q.correct_answer.strip()) > IDENTIFICATION_MAX_CHARS:
             return False
@@ -1982,6 +2096,285 @@ def _has_verb(text: str) -> bool:
     return any(tok.pos_ in ("VERB", "AUX") for tok in doc)
 
 
+_GENERIC_IDENTIFICATION_RE = re.compile(
+    r"\b(what|which|identify|name)\b.*\b(term|concept|topic|passage|statement|description)\b",
+    re.IGNORECASE,
+)
+_PRONOUN_RE = re.compile(r"\b(it|this|that|they|these|those|he|she|them|their|its)\b", re.IGNORECASE)
+_LESSON_OBJECTIVE_RE = re.compile(
+    r"\b(by the end of (this )?(session|lesson)|you('| wi)ll understand|specifically,\s+you will)\b",
+    re.IGNORECASE,
+)
+_CODE_IDENTIFIER_RE = re.compile(r"\b[a-z][a-z0-9]+_[a-z0-9_]+\b|\[[\d\.,\s-]+\]|\b(print|policy|class|def|return)\b", re.IGNORECASE)
+_SINGLE_LETTER_ARTIFACT_RE = re.compile(r"^[A-Z]\s+(?=[A-Za-z_])")
+
+
+def _is_weak_source_text(text: str) -> bool:
+    clean = _sanitize_sentence(text or "")
+    if len(clean) < 25:
+        return True
+    if _LESSON_OBJECTIVE_RE.search(clean):
+        return True
+    if _SINGLE_LETTER_ARTIFACT_RE.match(clean):
+        return True
+    if _is_definition_fragment(clean):
+        return True
+    if _CODE_IDENTIFIER_RE.search(clean):
+        return True
+    if _URL_RE.sub("", clean).strip() == "":
+        return True
+    if _STARTS_WITH_LIST_MARKER_RE.match(clean):
+        return True
+    words = re.findall(r"[A-Za-z]+", clean)
+    if len(words) < 5:
+        return True
+    pronouns = _PRONOUN_RE.findall(clean)
+    if len(pronouns) >= 3 and len(pronouns) / max(1, len(words)) > 0.25:
+        return True
+    try:
+        if not _has_verb(clean):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _is_answer_grounded(q: GeneratedQuestion) -> bool:
+    if q.question_type == "true_false":
+        return bool((q.question_context or "").strip())
+    answer = _sanitize_answer(q.correct_answer).lower()
+    if not answer:
+        return False
+    haystack = " ".join([
+        q.question_context or "",
+        q.question_text or "",
+        q.explanation or "",
+    ]).lower()
+    return answer in haystack
+
+
+def _has_weak_distractors(q: GeneratedQuestion) -> bool:
+    if q.question_type != "multiple_choice":
+        return False
+    if not q.options or len(q.options) != 4:
+        return True
+    normalized = [re.sub(r"\s+", " ", option.lower().strip()) for option in q.options if option and option.strip()]
+    if len(set(normalized)) != 4:
+        return True
+    if q.correct_answer.lower().strip() not in set(normalized):
+        return True
+    lengths = [len(option.split()) for option in normalized]
+    return max(lengths) - min(lengths) > 8
+
+
+def _score_candidate(q: GeneratedQuestion) -> GeneratedQuestion:
+    """Score a generated candidate before any LLM repair is attempted."""
+    score = 1.0
+    reasons: List[str] = []
+    context = q.question_context or ""
+
+    if not _validate_question(q):
+        score -= 0.45
+        reasons.append("invalid_type_shape")
+
+    if _is_weak_source_text(context):
+        score -= 0.25
+        reasons.append("source_fragment")
+
+    if q.question_type == "identification" and _GENERIC_IDENTIFICATION_RE.search(q.question_text or "") and not context.strip():
+        score -= 0.45
+        reasons.append("generic_identification_without_context")
+
+    if q.question_type == "identification" and re.search(r"_{3,}|____", q.question_text or ""):
+        score -= 0.45
+        reasons.append("identification_blank_shape")
+
+    if _PRONOUN_LED_STATEMENT_RE.match((q.question_text or "").strip()):
+        score -= 0.55
+        reasons.append("pronoun_led_statement")
+
+    if _SUBJECT_VERB_MISMATCH_RE.search(q.question_text or ""):
+        score -= 0.55
+        reasons.append("subject_verb_mismatch")
+
+    if _QUOTED_EXCERPT_PROMPT_RE.search(q.question_text or ""):
+        score -= 0.55
+        reasons.append("quoted_excerpt_prompt")
+
+    if q.question_type == "identification" and (
+        _is_definition_fragment(q.question_text or "") or _is_definition_fragment(context)
+    ):
+        score -= 0.55
+        reasons.append("definition_fragment")
+        if _DESCRIBED_AS_FRAGMENT_RE.search(q.question_text or ""):
+            reasons.append("described_as_fragment")
+
+    if _LESSON_OBJECTIVE_RE.search(context) or _LESSON_OBJECTIVE_RE.search(q.question_text or ""):
+        score -= 0.55
+        reasons.append("lesson_objective_source")
+
+    if (
+        _SINGLE_LETTER_ARTIFACT_RE.match(q.question_text or "")
+        or _SINGLE_LETTER_ARTIFACT_RE.match(context)
+        or _CODE_IDENTIFIER_RE.search(q.question_text or "")
+        or _CODE_IDENTIFIER_RE.search(context)
+    ):
+        score -= 0.55
+        reasons.append("code_artifact_source")
+
+    if not _is_answer_grounded(q):
+        score -= 0.25
+        reasons.append("answer_not_grounded")
+
+    if _has_weak_distractors(q):
+        score -= 0.25
+        reasons.append("weak_distractors")
+
+    if len((q.question_text or "").split()) > 80 or _ARTIFACT_RE.search(q.question_text or ""):
+        score -= 0.15
+        reasons.append("hard_to_read")
+
+    q.confidence_score = round(max(0.0, min(1.0, score)), 3)
+    q.failure_reasons = list(dict.fromkeys(reasons))
+    return q
+
+
+def _score_candidates(questions: List[GeneratedQuestion]) -> List[GeneratedQuestion]:
+    return [_score_candidate(q) for q in questions]
+
+
+def _extract_json_like(raw: str) -> str:
+    text = (raw or "").strip()
+    if "```json" in text:
+        text = text.split("```json", 1)[1].split("```", 1)[0].strip()
+    elif "```" in text:
+        text = text.split("```", 1)[1].split("```", 1)[0].strip()
+    first = min([idx for idx in [text.find("{"), text.find("[")] if idx >= 0], default=-1)
+    last = max(text.rfind("}"), text.rfind("]"))
+    if first >= 0 and last > first:
+        return text[first:last + 1]
+    return text
+
+
+def _run_gemini_qa(questions: List[GeneratedQuestion]):
+    """Repair only low-confidence questions with Gemini; never block the whole quiz."""
+    low_confidence = [
+        (idx, q) for idx, q in enumerate(questions)
+        if (q.confidence_score if q.confidence_score is not None else 1.0) < GEMINI_QA_THRESHOLD
+    ]
+    stats = {
+        "geminiQaReviewed": len(low_confidence),
+        "geminiQaRewritten": 0,
+        "geminiQaRejected": 0,
+        "geminiQaUnavailable": False,
+    }
+    if not GEMINI_QA_ENABLED or not GEMINI_API_KEY:
+        stats["geminiQaUnavailable"] = bool(low_confidence)
+        return questions, stats
+
+    if not low_confidence:
+        return questions, stats
+
+    review_payload = [
+        {
+            "index": idx,
+            "question_text": q.question_text,
+            "question_type": q.question_type,
+            "correct_answer": q.correct_answer,
+            "options": q.options,
+            "source_excerpt": q.question_context,
+            "question_context": q.question_context,
+            "concept_name": q.correct_answer if q.question_type == "identification" else "",
+            "confidence_score": q.confidence_score,
+            "failure_reasons": q.failure_reasons,
+        }
+        for idx, q in low_confidence
+    ]
+
+    prompt = f"""You are a strict quiz QA reviewer for students.
+Review only these low-confidence generated quiz questions. Return JSON only.
+
+Rules:
+- action must be "keep", "rewrite", or "reject".
+- Never change correct_answer.
+- Rewrites must be grounded only in source_excerpt/question_context.
+- Keep question_type unchanged unless the original shape is invalid and a rewrite can fix it.
+- For multiple_choice, options must be exactly 4 distinct same-category strings and include correct_answer.
+- For true_false, question_text must be a declarative statement.
+- For identification, question_text must be understandable with the provided context clue.
+- Reject pronoun-led true/false statements such as "It works..." when the subject is unclear.
+- Reject ungrammatical stems such as plural subjects with singular verbs, for example "The decisions learns...".
+- Reject identification prompts based only on noun-phrase fragments such as "The integration of X with Y".
+
+Questions:
+{json.dumps(review_payload, ensure_ascii=False)}
+
+Return:
+{{"results":[{{"index":0,"action":"keep|rewrite|reject","question_text":null,"options":null,"explanation":null,"question_context":null,"reason":"brief"}}]}}
+"""
+
+    try:
+        response = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}",
+            headers={"Content-Type": "application/json"},
+            json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.2,
+                    "maxOutputTokens": 4096,
+                    "responseMimeType": "application/json",
+                },
+            },
+            timeout=GEMINI_QA_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        content = response.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        parsed = json.loads(_extract_json_like(content))
+        results = parsed.get("results", []) if isinstance(parsed, dict) else []
+    except Exception as exc:
+        stats["geminiQaUnavailable"] = True
+        print(f"[nlp-service] Gemini QA unavailable; low-confidence candidates will be dropped: {exc}", flush=True)
+        return questions, stats
+
+    by_index = {}
+    for item in results:
+        if not isinstance(item, dict) or item.get("index") is None:
+            continue
+        try:
+            by_index[int(item.get("index"))] = item
+        except Exception:
+            continue
+    repaired: List[GeneratedQuestion] = []
+    for idx, q in enumerate(questions):
+        verdict = by_index.get(idx)
+        if not verdict:
+            repaired.append(q)
+            continue
+
+        action = str(verdict.get("action", "keep")).lower()
+        if action == "reject":
+            stats["geminiQaRejected"] += 1
+            continue
+
+        if action == "rewrite":
+            new_question_text = str(verdict.get("question_text") or q.question_text).strip()
+            new_context = str(verdict.get("question_context") or q.question_context or "").strip() or q.question_context
+            new_options = verdict.get("options") if isinstance(verdict.get("options"), list) else q.options
+            candidate = q.copy(update={
+                "question_text": new_question_text,
+                "options": new_options,
+                "explanation": verdict.get("explanation") or q.explanation,
+                "question_context": new_context,
+            })
+            if candidate.correct_answer.strip() == q.correct_answer.strip() and _validate_question(candidate):
+                stats["geminiQaRewritten"] += 1
+                repaired.append(candidate)
+                continue
+        repaired.append(q)
+
+    return repaired, stats
+
+
 def _generate_slide_questions(
     concepts: List[ConceptInput],
     all_keyphrases: List[str],
@@ -2000,14 +2393,14 @@ def _generate_slide_questions(
         return questions
 
     _SLIDE_IDENT_TEMPLATES = [
-        'Based on the following:\n\n"{desc}"\n\nWhat concept is being described?',
-        'Read the following:\n\n"{desc}"\n\nWhat topic does this refer to?',
-        'Consider this description:\n\n"{desc}"\n\nIdentify the concept.',
+        'Which concept refers to {desc}?',
+        'Which topic is described as {desc}?',
+        'Identify the concept described as {desc}.',
     ]
 
     _SLIDE_MCQ_STEM_TEMPLATES = [
-        'Which concept is described by the following:\n\n"{desc}"',
-        'What topic does this description refer to:\n\n"{desc}"',
+        'Which concept is best described as {desc}?',
+        'Which topic does this description refer to: {desc}?',
     ]
 
     sorted_concepts = sorted(concepts, key=lambda c: c.importance, reverse=True)
@@ -2049,6 +2442,7 @@ def _generate_slide_questions(
                 correct_answer=name,
                 difficulty_label=_select_difficulty_label(difficulty, "identification"),
                 explanation=f"The answer is '{name}'. According to the document: {_truncate_to_sentence_boundary(desc, 150)}",
+                question_context=_source_excerpt(desc),
             )
             if _validate_question(q):
                 questions.append(q)
@@ -2068,6 +2462,7 @@ def _generate_slide_questions(
                     correct_answer=name,
                     difficulty_label=_select_difficulty_label(difficulty, "multiple_choice"),
                     explanation=f"'{name}' matches this description: {_truncate_to_sentence_boundary(desc, 150)}",
+                    question_context=_source_excerpt(desc),
                 )
                 if _validate_question(q):
                     questions.append(q)
@@ -2084,6 +2479,7 @@ def _generate_slide_questions(
                     correct_answer=name,
                     difficulty_label=_select_difficulty_label(difficulty, "fill_in_blank"),
                     explanation=f"The answer is '{name}'. {_truncate_to_sentence_boundary(desc, 120)}",
+                    question_context=_source_excerpt(desc),
                 )
                 if _validate_question(q):
                     questions.append(q)
@@ -2110,6 +2506,7 @@ def _generate_slide_questions(
                         correct_answer="false",
                         difficulty_label=diff_label,
                         explanation=f"This statement is false. The description actually refers to '{name}', not '{replacement}'.",
+                        question_context=_source_excerpt(desc),
                     )
                     if _validate_question(q):
                         questions.append(q)
@@ -2123,6 +2520,7 @@ def _generate_slide_questions(
                             correct_answer="false",
                             difficulty_label=diff_label,
                             explanation=f"This statement is false. {_build_explanation(desc_short)}",
+                            question_context=_source_excerpt(desc),
                         )
                         if _validate_question(q):
                             questions.append(q)
@@ -2134,6 +2532,7 @@ def _generate_slide_questions(
                     correct_answer="true",
                     difficulty_label=diff_label,
                     explanation=f"This statement is true. {_build_explanation(desc_short)}",
+                    question_context=_source_excerpt(desc),
                 )
                 if _validate_question(q):
                     questions.append(q)
@@ -2237,7 +2636,7 @@ def generate_questions(input: GenerateQuestionsInput):
     """
     try:
         start = time.time()
-        AQG_LOCK.acquire()
+        AQG_SEMAPHORE.acquire()
         acquired = True
 
         difficulty = input.difficulty or "mixed"
@@ -2247,6 +2646,7 @@ def generate_questions(input: GenerateQuestionsInput):
         # Optional: type quotas. Filter to selected question_types and normalize to non-negative ints.
         remaining_by_type: Optional[Dict[str, int]] = None
         target_total = input.max_total_questions
+        requested_type_targets: Optional[Dict[str, int]] = None
         if input.question_type_targets:
             filtered: Dict[str, int] = {}
             for qt in input.question_types:
@@ -2260,12 +2660,19 @@ def generate_questions(input: GenerateQuestionsInput):
                 if n > 0:
                     filtered[qt] = n
             if filtered:
-                remaining_by_type = dict(filtered)
+                requested_type_targets = dict(filtered)
                 target_total = min(input.max_total_questions, sum(filtered.values()))
+
+        candidate_budget = min(60, max(target_total * 2, target_total + 6))
+        if requested_type_targets:
+            remaining_by_type = {
+                qt: max(n, n * 2)
+                for qt, n in requested_type_targets.items()
+            }
 
         print(f"[nlp-service] /generate-questions start chunks={len(input.chunks)} "
               f"types={input.question_types} difficulty={difficulty} "
-              f"max_total={target_total} concepts={len(input.concepts)} "
+              f"max_total={target_total} candidate_budget={candidate_budget} concepts={len(input.concepts)} "
               f"mastery_ctx={len(input.mastery_context or [])}", flush=True)
 
         all_questions: List[GeneratedQuestion] = []
@@ -2273,14 +2680,21 @@ def generate_questions(input: GenerateQuestionsInput):
         used_keyphrases: set = set()
 
         for chunk in input.chunks:
-            if len(all_questions) >= target_total * 2:
+            if len(all_questions) >= candidate_budget:
                 break
 
             chunk_questions: List[GeneratedQuestion] = []
+            per_chunk_budget = min(
+                8,
+                max(
+                    input.max_questions_per_chunk,
+                    (candidate_budget + max(1, len(input.chunks)) - 1) // max(1, len(input.chunks)) + 2,
+                ),
+            )
             chunk_max_questions = (
                 chunk.max_questions
                 if chunk.max_questions is not None and chunk.max_questions > 0
-                else input.max_questions_per_chunk
+                else per_chunk_budget
             )
             text = chunk.text.strip()
             if len(text) < 50:
@@ -2386,14 +2800,30 @@ def generate_questions(input: GenerateQuestionsInput):
                 input.all_keyphrases,
                 difficulty,
                 input.question_types,
-                max(3, target_total - len(all_questions)),
+                max(3, candidate_budget - len(all_questions)),
             )
             all_questions.extend(slide_questions)
             if slide_questions:
                 print(f"[nlp-service] added {len(slide_questions)} slide-specific questions", flush=True)
 
-        # Validation: dedup, quality filter, concept balancing
+        # Validation: dedup, deterministic score, targeted Gemini QA, concept balancing.
         all_questions = _deduplicate_questions(all_questions)
+        all_questions = _score_candidates(all_questions)
+        all_questions, gemini_qa_stats = _run_gemini_qa(all_questions)
+        all_questions = _score_candidates(all_questions)
+        qa_min_confidence = GEMINI_QA_THRESHOLD if gemini_qa_stats.get("geminiQaUnavailable") else 0.35
+        before_quality_filter_count = len(all_questions)
+        all_questions = [
+            q for q in all_questions
+            if _validate_question(q) and (q.confidence_score if q.confidence_score is not None else 0) >= qa_min_confidence
+        ]
+        if gemini_qa_stats.get("geminiQaUnavailable") and before_quality_filter_count > len(all_questions):
+            print(
+                f"[nlp-service] dropped {before_quality_filter_count - len(all_questions)} "
+                "low-confidence questions because Gemini QA was unavailable",
+                flush=True,
+            )
+        all_questions.sort(key=lambda q: q.confidence_score or 0, reverse=True)
 
         concept_names = [c.name for c in input.concepts] if input.concepts else []
         all_questions = _balance_by_concept_coverage(
@@ -2419,6 +2849,9 @@ def generate_questions(input: GenerateQuestionsInput):
                 "by_type": by_type,
                 "difficulty": difficulty,
                 "requested_type_targets": input.question_type_targets or None,
+                "candidate_budget": candidate_budget,
+                "qa_min_confidence": qa_min_confidence,
+                **gemini_qa_stats,
             },
         )
 
@@ -2432,7 +2865,7 @@ def generate_questions(input: GenerateQuestionsInput):
     finally:
         try:
             if 'acquired' in locals() and acquired:
-                AQG_LOCK.release()
+                AQG_SEMAPHORE.release()
         except Exception:
             pass
 
