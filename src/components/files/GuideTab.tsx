@@ -22,6 +22,7 @@ import type { StructuredSummary } from '@/hooks/useDocuments'
 import type { Concept } from '@/hooks/useConcepts'
 import { cleanDisplayText, escapeRegExp, buildKeywordPool, splitIntoSentences } from '@/lib/studyUtils'
 import { KeyTermsGroup } from './KeyTermsGroup'
+import { Skeleton } from '@/components/ui/skeleton'
 
 const SECTION_ICON_MAP: Record<string, React.ElementType> = {
     play: Play, sparkles: Sparkles, grid: Grid3X3, layers: Layers, zap: Zap,
@@ -55,9 +56,10 @@ interface GuideTabProps {
     structuredSummary?: StructuredSummary | null
     concepts: Concept[]
     onPageJump?: (page: number) => void
+    isLoading?: boolean
 }
 
-export function GuideTab({ summary, structuredSummary, concepts, onPageJump }: GuideTabProps) {
+export function GuideTab({ summary, structuredSummary, concepts, onPageJump, isLoading = false }: GuideTabProps) {
     const [highlightKeywords, setHighlightKeywords] = useState(true)
     const [expandedBullets, setExpandedBullets] = useState(false)
 
@@ -98,6 +100,46 @@ export function GuideTab({ summary, structuredSummary, concepts, onPageJump }: G
     const visibleBullets = expandedBullets ? allBullets : allBullets.slice(0, 5)
 
     const hasContent = ss || summary
+
+    if (isLoading) {
+        return (
+            <div className="space-y-6">
+                <div className="rounded-xl border border-border/50 bg-background/85 px-3 py-2">
+                    <div className="flex items-center justify-between">
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-8 w-24 rounded-lg" />
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                        <Skeleton className="h-5 w-20 rounded-full" />
+                        <Skeleton className="h-5 w-24 rounded-full" />
+                    </div>
+                </div>
+
+                <div className="rounded-2xl border border-border/50 p-5 space-y-2.5">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-11/12" />
+                    <Skeleton className="h-4 w-10/12" />
+                </div>
+
+                {Array.from({ length: 2 }).map((_, idx) => (
+                    <div key={idx} className="rounded-2xl border border-border/50 p-5 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <Skeleton className="h-10 w-10 rounded-xl" />
+                                <Skeleton className="h-5 w-40" />
+                            </div>
+                            <Skeleton className="h-6 w-16 rounded-lg" />
+                        </div>
+                        <div className="space-y-2">
+                            <Skeleton className="h-4 w-full" />
+                            <Skeleton className="h-4 w-11/12" />
+                            <Skeleton className="h-4 w-9/12" />
+                        </div>
+                    </div>
+                ))}
+            </div>
+        )
+    }
 
     if (!hasContent) {
         return (
