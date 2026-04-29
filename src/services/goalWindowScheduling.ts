@@ -53,6 +53,34 @@ function computeCapacityPerDay(dailyStudyMinutes: number): number {
     return Math.max(1, Math.round(safe / minutesPerSession))
 }
 
+function parseTimeToMinutes(value: string | null | undefined): number | null {
+    if (!value) return null
+    const trimmed = value.trim()
+    const match = /^(\d{1,2}):(\d{2})/.exec(trimmed)
+    if (!match) return null
+    const hours = Number(match[1])
+    const minutes = Number(match[2])
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
+    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null
+    return (hours * 60) + minutes
+}
+
+function computeEffectiveDailyStudyMinutes(params: {
+    dailyStudyMinutes: number
+    preferredStudyTimeStart?: string | null
+    preferredStudyTimeEnd?: string | null
+}): number {
+    const { dailyStudyMinutes, preferredStudyTimeStart, preferredStudyTimeEnd } = params
+    const startMinutes = parseTimeToMinutes(preferredStudyTimeStart)
+    const endMinutes = parseTimeToMinutes(preferredStudyTimeEnd)
+    const safeDailyMinutes = Number.isFinite(dailyStudyMinutes) ? dailyStudyMinutes : 30
+    if (startMinutes == null || endMinutes == null || endMinutes <= startMinutes) {
+        return safeDailyMinutes
+    }
+    const preferredWindowMinutes = endMinutes - startMinutes
+    return Math.max(15, Math.min(safeDailyMinutes, preferredWindowMinutes))
+}
+
 function buildAvailableDateSlots(params: {
     windowStart: string // UTC YYYY-MM-DD
     windowEnd: string // UTC YYYY-MM-DD
@@ -85,9 +113,20 @@ export async function scheduleDocumentGoalWindow(params: {
     examDate: string // ISO or YYYY-MM-DD
     availableStudyDays: string[] | null | undefined
     dailyStudyMinutes: number
+    preferredStudyTimeStart?: string | null
+    preferredStudyTimeEnd?: string | null
     learningConfig?: LearningConfig
 }) {
-    const { userId, documentId, examDate, availableStudyDays, dailyStudyMinutes, learningConfig } = params
+    const {
+        userId,
+        documentId,
+        examDate,
+        availableStudyDays,
+        dailyStudyMinutes,
+        preferredStudyTimeStart,
+        preferredStudyTimeEnd,
+        learningConfig,
+    } = params
 
     const effectiveCfg = learningConfig ?? DEFAULT_LEARNING_CONFIG
 
@@ -174,7 +213,12 @@ export async function scheduleDocumentGoalWindow(params: {
         availableStudyDays,
     })
 
-    const capacityPerDay = computeCapacityPerDay(dailyStudyMinutes)
+    const effectiveDailyMinutes = computeEffectiveDailyStudyMinutes({
+        dailyStudyMinutes,
+        preferredStudyTimeStart,
+        preferredStudyTimeEnd,
+    })
+    const capacityPerDay = computeCapacityPerDay(effectiveDailyMinutes)
 
     // 4) Decide which concepts need goal-window due-date reassignment:
     // - placeholders (no attempts yet)

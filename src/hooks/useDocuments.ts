@@ -215,14 +215,15 @@ export async function processDocumentRequest(input: ProcessDocumentInput) {
         if (currentStatus === 'ready') {
             console.log('[DocumentProcessing] ✅ Edge Function already completed (recovered from client timeout)')
             try {
-                await ensureBaselineQuizForDocument({
-                    documentId,
+                await ensureAdaptiveReviewQuizForDocument({
                     userId: session.user.id,
-                })
-            } catch (baselineQuizError) {
-                console.warn('[DocumentProcessing] Baseline quiz auto-generation failed', {
                     documentId,
-                    error: baselineQuizError instanceof Error ? baselineQuizError.message : baselineQuizError,
+                })
+                console.log('[DocumentProcessing] ✅ Adaptive review quiz sync completed after timeout recovery', { documentId })
+            } catch (adaptiveQuizError) {
+                console.warn('[DocumentProcessing] ⚠️ Adaptive review quiz sync failed after timeout recovery', {
+                    documentId,
+                    error: adaptiveQuizError instanceof Error ? adaptiveQuizError.message : adaptiveQuizError,
                 })
             }
             return { success: true, message: 'Document processed successfully (recovered from timeout)' }
