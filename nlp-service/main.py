@@ -145,6 +145,10 @@ _LEADING_BULLET_CHAR_RE = re.compile(
 _DOUBLE_PERIOD_RE = re.compile(r'\.{2,}$')
 _ORPHAN_PAREN_START_RE = re.compile(r'^\([^)]*\)\s*')
 _ORPHAN_PAREN_END_RE = re.compile(r'\s*\([^)]*\)$')
+_LEADING_TRANSITION_RE = re.compile(
+    r'^(?:next|then|finally|after that|afterwards|subsequently|therefore|thus|also)\s*,?\s+',
+    re.IGNORECASE,
+)
 
 
 def _strip_leading_title_echo(text: str) -> str:
@@ -176,6 +180,8 @@ def _sanitize_sentence(text: str) -> str:
     result = _strip_leading_title_echo(result)
     # Strip numbered step prefix: "1. Initialize..." -> "Initialize..."
     result = re.sub(r'^(?:step\s+)?\d+[\.\)]\s*', '', result, flags=re.IGNORECASE).strip()
+    # Strip slide sequence markers: "Next, the weights..." / "Then, the loss..."
+    result = _LEADING_TRANSITION_RE.sub('', result).strip()
     if not result:
         return result
     result = result[0].upper() + result[1:]
@@ -1640,20 +1646,19 @@ class GenerateQuestionsResponse(BaseModel):
     error: Optional[str] = None
 
 _IDENTIFICATION_TEMPLATES_BEGINNER = [
-    'Which term is described by this statement: {sentence}?',
-    'Which concept matches this description: {sentence}?',
-    'What topic is being described here: {sentence}?',
+    'Based on the following description, what is the term being referred to: {sentence}?',
+    'What term matches the following description: {sentence}?',
+    'What concept is described here: {sentence}?',
 ]
 _IDENTIFICATION_TEMPLATES_INTERMEDIATE = [
-    'Which term is described by this statement: {sentence}?',
-    'Which concept matches this description: {sentence}?',
-    'What is the name of the concept described here: {sentence}?',
+    'What is the term for {sentence}?',
+    'Which concept is characterized by {sentence}?',
+    'What concept does this describe: {sentence}?',
 ]
 _IDENTIFICATION_TEMPLATES_ADVANCED = [
-    'Which topic best matches this description: {sentence}?',
-    'What concept is being referenced by this statement: {sentence}?',
-    'Name the concept described in this statement: {sentence}.',
-    'Identify the key term discussed here: {sentence}.',
+    'What concept is characterized by {sentence}?',
+    'Based on the following, identify the concept: {sentence}.',
+    'What term is defined by this: {sentence}?',
 ]
 
 IDENTIFICATION_MAX_WORDS = 8
@@ -1873,7 +1878,8 @@ def _try_entity_swap(sentence_text: str, keyphrases: List[str]) -> Optional[str]
         same_type = [e for e in entities if e[3] == label and e[0] != target_text]
         if same_type:
             replacement = random.choice(same_type)[0]
-            return sentence_text[:start] + replacement + sentence_text[end:]
+            swapped = sentence_text[:start] + replacement + sentence_text[end:]
+            return _fix_article_agreement(swapped)
 
     # Try keyphrase swapping
     sent_lower = sentence_text.lower()
@@ -1887,7 +1893,8 @@ def _try_entity_swap(sentence_text: str, keyphrases: List[str]) -> Optional[str]
         if others:
             replacement = random.choice(others)
             pattern = re.compile(re.escape(target_kp), re.IGNORECASE)
-            return pattern.sub(replacement, sentence_text, count=1)
+            swapped = pattern.sub(replacement, sentence_text, count=1)
+            return _fix_article_agreement(swapped)
 
     return None
 
@@ -1934,6 +1941,8 @@ def _generate_fill_in_blank(sentence_text: str, keyphrase: str,
         return None
 
     blanked = _sanitize_sentence(pattern.sub("__________", sentence_text, count=1).strip())
+    # Truncate to first sentence to avoid multi-sentence stems
+    blanked = _truncate_to_first_blank_sentence(blanked)
     clean_answer = _sanitize_answer(keyphrase)
     diff_label = _select_difficulty_label(difficulty, "fill_in_blank")
     return GeneratedQuestion(
@@ -1982,6 +1991,53 @@ _QUOTED_EXCERPT_PROMPT_RE = re.compile(
     r"\b(?:following|description|described by|described as|refers to)\b[^.!?]*[\"“][^\"”]{8,220}[\"”]",
     re.IGNORECASE,
 )
+_EMBEDDED_SENTENCE_PROMPT_RE = re.compile(
+    r"\b(?:[Ww]hich\s+(?:concept|topic|term|of the following)\s+(?:refers to|is best described as|is defined as|best describes|involves)|"
+    r"[Ww]hat\s+(?:is the term for|concept (?:is characterized by|does this describe|involves))|"
+    r"[Ii]dentify the concept described as)\s*:?\s+[A-Za-z][^?]{2,120}\b(?:is|are|was|were|involves|uses|utilizes|consist|consists|introduces|allows|focuses)\b",
+)
+_DANGLING_CONJUNCTION_RE = re.compile(r"\b(?:and|or|but)\s*[\.\?!]?$", re.IGNORECASE)
+_VAGUE_DEMONSTRATIVE_REFERENCE_RE = re.compile(
+    r"\b(?:this|that|these|those)\s+"
+    r"(?:cost function|function|method|process|approach|system|model|value|concept|algorithm|network|layer|architecture)\b",
+    re.IGNORECASE,
+)
+_RISKY_TRUE_FALSE_SWAP_RE = re.compile(
+    r"\b(?:feature extraction|deep neural network|activation function|backpropagation|gradient descent)\b"
+    r"[^.!?]{0,120}\b(?:Feature extraction is the ability|ability of a computer to perform tasks commonly associated with intelligent beings|simulation of human intelligence processes by machines)\b",
+    re.IGNORECASE,
+)
+_MISSING_PARTICIPLE_RE = re.compile(
+    r"\bwhat concept is characterized by\s+structured\b|"
+    r"\bwhich concept involves\s+an?\s+[^?]{2,80}\b(?:introduces|allows|focuses)\b",
+    re.IGNORECASE,
+)
+_PERIPHERAL_CONCEPT_RE = re.compile(
+    r"\bfundamental unit of the nervous system\b",
+    re.IGNORECASE,
+)
+_COURSE_ANCHOR_RE = re.compile(
+    r"\b(?:artificial|neural network|deep neural|DNN|machine learning|AI)\b",
+    re.IGNORECASE,
+)
+_TOO_SHORT_STEM_PATTERNS = [
+    re.compile(r"(?:defined as|described as|matches this definition|concept is):?\s+(.+?)\??$", re.IGNORECASE),
+    re.compile(r"(?:the term for|characterized by|described here|does this describe):?\s+(.+?)\??$", re.IGNORECASE),
+]
+_MIN_STEM_DESCRIPTION_WORDS = 8
+_GEMINI_QA_FORCE_REVIEW_REASONS = frozenset({
+    "answer_not_grounded",
+    "article_mismatch",
+    "embedded_sentence_prompt",
+    "invalid_type_shape",
+    "multiple_choice_blank_shape",
+    "missing_participle",
+    "peripheral_concept",
+    "risky_entity_swap",
+    "source_fragment",
+    "too_short_stem",
+    "weak_distractors",
+})
 
 
 def _has_finite_verb(text: str) -> bool:
@@ -2019,6 +2075,111 @@ def _is_definition_fragment(text: str) -> bool:
         return True
 
 
+def _has_peripheral_concept_without_course_anchor(text: str) -> bool:
+    """Reject broad source facts unless the stem ties them back to the course topic."""
+    candidate = text or ""
+    return bool(_PERIPHERAL_CONCEPT_RE.search(candidate) and not _COURSE_ANCHOR_RE.search(candidate))
+
+
+def _fix_article_agreement(text: str) -> str:
+    """Fix a/an agreement after entity swaps. E.g. 'An Backpropagation' → 'A Backpropagation'."""
+    _VOWEL_LETTERS = frozenset('aeiouAEIOU')
+    def _fix_match(match):
+        article = match.group(1)
+        space = match.group(2)
+        next_char = match.group(3)
+        if not next_char:
+            return match.group(0)
+        needs_an = next_char[0] in _VOWEL_LETTERS
+        if needs_an:
+            correct = 'An' if article[0].isupper() else 'an'
+        else:
+            correct = 'A' if article[0].isupper() else 'a'
+        return correct + space + next_char
+    return re.sub(r'\b(An?|an?)\b(\s+)([A-Za-z])', _fix_match, text)
+
+
+def _truncate_to_first_blank_sentence(text: str) -> str:
+    """Keep only the sentence containing the blank, discard trailing sentences."""
+    if '________' not in text:
+        return text
+    # Split on sentence boundaries
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    # Find the sentence containing the blank
+    for sent in sentences:
+        if '________' in sent:
+            return sent.strip()
+    # Fallback: return the first sentence
+    return sentences[0].strip() if sentences else text
+
+
+def _description_to_question_clause(desc: str, concept_name: str) -> str:
+    """Convert a concept definition sentence into a clause that fits inside a question.
+    Returns empty string if the result is too short/generic to make a good question."""
+    clean = _sanitize_for_embedding(desc)
+    original = clean
+    name = _sanitize_answer(concept_name)
+    stripped = False
+    if name:
+        escaped_name = re.escape(name)
+        attempt = re.sub(
+            rf"^{escaped_name}(?:\s*\([^)]+\))?\s+(?:is|are|refers to|describes|represents|involves)\s+",
+            "",
+            clean,
+            count=1,
+            flags=re.IGNORECASE,
+        ).strip()
+        if attempt != clean:
+            clean = attempt
+            stripped = True
+
+        # Fallback: try partial concept name prefixes
+        # e.g. concept="Weights and Bias" but desc starts with "Weights are..."
+        if not stripped:
+            name_words = name.split()
+            for prefix_len in range(len(name_words) - 1, 0, -1):
+                prefix = " ".join(name_words[:prefix_len])
+                escaped_prefix = re.escape(prefix)
+                attempt = re.sub(
+                    rf"^{escaped_prefix}(?:\s*\([^)]+\))?\s+(?:is|are|refers to|describes|represents|involves|consist of|consists of)\s+",
+                    "",
+                    clean,
+                    count=1,
+                    flags=re.IGNORECASE,
+                ).strip()
+                if attempt != clean:
+                    clean = attempt
+                    stripped = True
+                    break
+
+    # Final fallback: strip any leading [Subject] [linking verb] pattern
+    if not stripped:
+        attempt = re.sub(
+            r"^[A-Za-z][A-Za-z\s,()]{0,60}?\b(?:is|are|refers to|describes|represents|involves|consist of|consists of)\s+",
+            "",
+            clean,
+            count=1,
+            flags=re.IGNORECASE,
+        ).strip()
+        if attempt and len(attempt) > 20 and attempt != clean:
+            clean = attempt
+
+    # Truncate to first sentence to avoid multi-sentence clauses
+    first_sent_match = re.match(r'^(.+?[.!?])\s+[A-Z]', clean)
+    if first_sent_match:
+        candidate = first_sent_match.group(1).strip()
+        if len(candidate) > 30:
+            clean = candidate
+
+    clean = clean[:1].lower() + clean[1:] if clean else clean
+    result = clean.strip(" .:;")
+    # Reject clauses that are too short/generic to uniquely identify a concept
+    content_words = [w for w in re.findall(r'[A-Za-z]+', result) if w.lower() not in _CONJUNCTION_PREPS and len(w) > 1]
+    if len(content_words) < _MIN_STEM_DESCRIPTION_WORDS:
+        return ""
+    return result
+
+
 def _validate_question(q: GeneratedQuestion) -> bool:
     """Quality gate: reject questions that are too short, trivial, or malformed."""
     if len(q.question_text) < 15:
@@ -2034,6 +2195,18 @@ def _validate_question(q: GeneratedQuestion) -> bool:
     if _SUBJECT_VERB_MISMATCH_RE.search(q.question_text):
         return False
     if _QUOTED_EXCERPT_PROMPT_RE.search(q.question_text):
+        return False
+    if _EMBEDDED_SENTENCE_PROMPT_RE.search(q.question_text):
+        return False
+    if _RISKY_TRUE_FALSE_SWAP_RE.search(q.question_text):
+        return False
+    if _MISSING_PARTICIPLE_RE.search(q.question_text):
+        return False
+    if _has_peripheral_concept_without_course_anchor(q.question_text):
+        return False
+    if _DANGLING_CONJUNCTION_RE.search(q.question_text.strip()):
+        return False
+    if _VAGUE_DEMONSTRATIVE_REFERENCE_RE.search(q.question_text):
         return False
     if q.question_type == "identification":
         if _is_definition_fragment(q.question_text) or _is_definition_fragment(q.question_context or ""):
@@ -2062,6 +2235,9 @@ def _validate_question(q: GeneratedQuestion) -> bool:
         if len(text.split()) < 6:
             return False
     if q.question_type == "multiple_choice":
+        # MCQ options must not contain blanks; blank stems belong to fill_in_blank.
+        if "__________" in q.question_text:
+            return False
         if not q.options or len(q.options) < 3:
             return False
         unique_opts = set(o.lower().strip() for o in q.options)
@@ -2201,6 +2377,55 @@ def _score_candidate(q: GeneratedQuestion) -> GeneratedQuestion:
         score -= 0.55
         reasons.append("quoted_excerpt_prompt")
 
+    if _EMBEDDED_SENTENCE_PROMPT_RE.search(q.question_text or ""):
+        score -= 0.55
+        reasons.append("embedded_sentence_prompt")
+
+    if _RISKY_TRUE_FALSE_SWAP_RE.search(q.question_text or ""):
+        score -= 0.55
+        reasons.append("risky_entity_swap")
+
+    if _MISSING_PARTICIPLE_RE.search(q.question_text or ""):
+        score -= 0.55
+        reasons.append("missing_participle")
+
+    if _has_peripheral_concept_without_course_anchor(q.question_text or ""):
+        score -= 0.45
+        reasons.append("peripheral_concept")
+
+    if _DANGLING_CONJUNCTION_RE.search((q.question_text or "").strip()):
+        score -= 0.55
+        reasons.append("dangling_conjunction")
+
+    if _VAGUE_DEMONSTRATIVE_REFERENCE_RE.search(q.question_text or ""):
+        score -= 0.35
+        reasons.append("vague_demonstrative_reference")
+
+    # Detect broken article agreement after entity swaps (e.g. "An Backpropagation")
+    _article_mismatch = re.search(
+        r'\b(An?)\s+([A-Za-z])',
+        (q.question_text or "")[:60],
+    )
+    if _article_mismatch:
+        article_text = _article_mismatch.group(1).lower()
+        next_char = _article_mismatch.group(2)
+        next_is_vowel = next_char.lower() in 'aeiou'
+        if (article_text == 'an' and not next_is_vowel) or (article_text == 'a' and next_is_vowel):
+            score -= 0.55
+            reasons.append("article_mismatch")
+
+    # Penalize question stems with very short/generic descriptive clauses
+    stem_text = q.question_text or ""
+    for pat in _TOO_SHORT_STEM_PATTERNS:
+        m = pat.search(stem_text)
+        if m:
+            desc_part = m.group(1).strip()
+            desc_words = [w for w in re.findall(r'[A-Za-z]+', desc_part) if w.lower() not in _CONJUNCTION_PREPS and len(w) > 1]
+            if len(desc_words) < _MIN_STEM_DESCRIPTION_WORDS:
+                score -= 0.45
+                reasons.append("too_short_stem")
+            break
+
     if q.question_type == "identification" and (
         _is_definition_fragment(q.question_text or "") or _is_definition_fragment(context)
     ):
@@ -2230,6 +2455,10 @@ def _score_candidate(q: GeneratedQuestion) -> GeneratedQuestion:
         score -= 0.25
         reasons.append("weak_distractors")
 
+    if q.question_type == "multiple_choice" and "__________" in (q.question_text or ""):
+        score -= 0.45
+        reasons.append("multiple_choice_blank_shape")
+
     if len((q.question_text or "").split()) > 80 or _ARTIFACT_RE.search(q.question_text or ""):
         score -= 0.15
         reasons.append("hard_to_read")
@@ -2241,6 +2470,30 @@ def _score_candidate(q: GeneratedQuestion) -> GeneratedQuestion:
 
 def _score_candidates(questions: List[GeneratedQuestion]) -> List[GeneratedQuestion]:
     return [_score_candidate(q) for q in questions]
+
+
+def _should_gemini_review(q: GeneratedQuestion) -> bool:
+    confidence = q.confidence_score if q.confidence_score is not None else 1.0
+    if confidence < GEMINI_QA_THRESHOLD:
+        return True
+    return any(reason in _GEMINI_QA_FORCE_REVIEW_REASONS for reason in q.failure_reasons)
+
+
+def _log_scored_candidates(questions: List[GeneratedQuestion], stage: str) -> None:
+    """Log QA scoring details so deployed runs reveal why Gemini did or did not review a candidate."""
+    for idx, q in enumerate(questions):
+        confidence = q.confidence_score if q.confidence_score is not None else 0
+        reasons = ",".join(q.failure_reasons or []) or "none"
+        forced_review = any(reason in _GEMINI_QA_FORCE_REVIEW_REASONS for reason in q.failure_reasons)
+        review = _should_gemini_review(q)
+        question = _MULTISPACE_RE.sub(" ", (q.question_text or "").strip())[:180]
+        print(
+            f"[nlp-service] QA candidate stage={stage} index={idx} "
+            f"type={q.question_type} confidence={confidence:.3f} "
+            f"review_threshold={GEMINI_QA_THRESHOLD:.3f} forced_review={forced_review} review={review} "
+            f"reasons={reasons} question={question}",
+            flush=True,
+        )
 
 
 def _extract_json_like(raw: str) -> str:
@@ -2260,7 +2513,7 @@ def _run_gemini_qa(questions: List[GeneratedQuestion]):
     """Repair only low-confidence questions with Gemini; never block the whole quiz."""
     low_confidence = [
         (idx, q) for idx, q in enumerate(questions)
-        if (q.confidence_score if q.confidence_score is not None else 1.0) < GEMINI_QA_THRESHOLD
+        if _should_gemini_review(q)
     ]
     stats = {
         "geminiQaReviewed": len(low_confidence),
@@ -2393,14 +2646,15 @@ def _generate_slide_questions(
         return questions
 
     _SLIDE_IDENT_TEMPLATES = [
-        'Which concept refers to {desc}?',
-        'Which topic is described as {desc}?',
-        'Identify the concept described as {desc}.',
+        'What is the term for {desc_question}?',
+        'Which concept involves {desc_question}?',
+        'What concept is characterized by {desc_question}?',
     ]
 
     _SLIDE_MCQ_STEM_TEMPLATES = [
-        'Which concept is best described as {desc}?',
-        'Which topic does this description refer to: {desc}?',
+        'Which of the following best describes {desc_question}?',
+        'What is {desc_question}?',
+        'Which concept involves {desc_question}?',
     ]
 
     sorted_concepts = sorted(concepts, key=lambda c: c.importance, reverse=True)
@@ -2418,6 +2672,10 @@ def _generate_slide_questions(
             continue
         if not _has_verb(desc):
             continue
+        # Reject descriptions that are too short/generic after stripping the concept name
+        desc_clause = _description_to_question_clause(desc, name)
+        if not desc_clause or len(desc_clause) < 20:
+            continue
         viable_concepts.append((name, desc))
 
     type_index = 0
@@ -2430,7 +2688,10 @@ def _generate_slide_questions(
         type_index += 1
 
         desc_short = _sanitize_for_embedding(_truncate_to_sentence_boundary(desc))
+        desc_question = _description_to_question_clause(desc_short, name)
         if not desc_short or len(desc_short) < 20:
+            continue
+        if not desc_question or len(desc_question) < 20:
             continue
 
         if qt == "identification":
@@ -2438,7 +2699,7 @@ def _generate_slide_questions(
             q = GeneratedQuestion(
                 chunk_id="",
                 question_type="identification",
-                question_text=template.format(desc=desc_short),
+                question_text=template.format(desc_question=desc_question),
                 correct_answer=name,
                 difficulty_label=_select_difficulty_label(difficulty, "identification"),
                 explanation=f"The answer is '{name}'. According to the document: {_truncate_to_sentence_boundary(desc, 150)}",
@@ -2457,7 +2718,7 @@ def _generate_slide_questions(
                 q = GeneratedQuestion(
                     chunk_id="",
                     question_type="multiple_choice",
-                    question_text=template.format(desc=desc_short),
+                    question_text=template.format(desc_question=desc_question),
                     options=options,
                     correct_answer=name,
                     difficulty_label=_select_difficulty_label(difficulty, "multiple_choice"),
@@ -2471,7 +2732,7 @@ def _generate_slide_questions(
             if name.lower() in desc.lower():
                 pattern = re.compile(re.escape(name), re.IGNORECASE)
                 blanked = _sanitize_sentence(pattern.sub("__________", desc, count=1))
-                blanked = _truncate_to_sentence_boundary(blanked, 300)
+                blanked = _truncate_to_first_blank_sentence(blanked)
                 q = GeneratedQuestion(
                     chunk_id="",
                     question_type="fill_in_blank",
@@ -2498,7 +2759,7 @@ def _generate_slide_questions(
                         re.escape(name), replacement, desc_short,
                         count=1, flags=re.IGNORECASE
                     )
-                    false_stmt = _sanitize_sentence(false_stmt)
+                    false_stmt = _fix_article_agreement(_sanitize_sentence(false_stmt))
                     q = GeneratedQuestion(
                         chunk_id="",
                         question_type="true_false",
@@ -2809,14 +3070,28 @@ def generate_questions(input: GenerateQuestionsInput):
         # Validation: dedup, deterministic score, targeted Gemini QA, concept balancing.
         all_questions = _deduplicate_questions(all_questions)
         all_questions = _score_candidates(all_questions)
+        _log_scored_candidates(all_questions, "pre_gemini_qa")
         all_questions, gemini_qa_stats = _run_gemini_qa(all_questions)
         all_questions = _score_candidates(all_questions)
+        _log_scored_candidates(all_questions, "post_gemini_qa")
         qa_min_confidence = GEMINI_QA_THRESHOLD if gemini_qa_stats.get("geminiQaUnavailable") else 0.35
         before_quality_filter_count = len(all_questions)
-        all_questions = [
-            q for q in all_questions
-            if _validate_question(q) and (q.confidence_score if q.confidence_score is not None else 0) >= qa_min_confidence
-        ]
+        dropped_review_required_count = 0
+        filtered_questions: List[GeneratedQuestion] = []
+        for q in all_questions:
+            review_required_unavailable = gemini_qa_stats.get("geminiQaUnavailable") and _should_gemini_review(q)
+            if review_required_unavailable:
+                dropped_review_required_count += 1
+                continue
+            if _validate_question(q) and (q.confidence_score if q.confidence_score is not None else 0) >= qa_min_confidence:
+                filtered_questions.append(q)
+        all_questions = filtered_questions
+        if dropped_review_required_count > 0:
+            print(
+                f"[nlp-service] dropped {dropped_review_required_count} "
+                "qa_required_unavailable questions because Gemini QA was unavailable",
+                flush=True,
+            )
         if gemini_qa_stats.get("geminiQaUnavailable") and before_quality_filter_count > len(all_questions):
             print(
                 f"[nlp-service] dropped {before_quality_filter_count - len(all_questions)} "

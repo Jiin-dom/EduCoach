@@ -31,6 +31,15 @@ const SEVERE_FAILURE_REASONS = new Set([
     'definition_fragment',
     'described_as_fragment',
     'quoted_excerpt_prompt',
+    'embedded_sentence_prompt',
+    'dangling_conjunction',
+    'vague_demonstrative_reference',
+    'too_short_stem',
+    'article_mismatch',
+    'multiple_choice_blank_shape',
+    'missing_participle',
+    'peripheral_concept',
+    'risky_entity_swap',
 ])
 const BASE_DELAY_MS = 2000
 const QUIZ_PRIORITY_PREMIUM = 2
