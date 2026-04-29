@@ -1,6 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { hasPremiumEntitlement } from '@/lib/subscription'
+import { BrandedLoader } from '@/components/ui/branded-loader'
 
 interface ProtectedRouteProps {
     children: React.ReactNode
@@ -20,12 +21,7 @@ export function ProtectedRoute({
 
     if (loading) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-background">
-                <div className="flex flex-col items-center gap-4">
-                    <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-                    <p className="text-muted-foreground">Loading...</p>
-                </div>
-            </div>
+            <BrandedLoader fullScreen size="lg" message="Loading your workspace..." />
         )
     }
 
@@ -37,12 +33,7 @@ export function ProtectedRoute({
     if (requireAdmin) {
         if (!profile) {
             return (
-                <div className="min-h-screen flex items-center justify-center bg-background">
-                    <div className="flex flex-col items-center gap-4">
-                        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-                        <p className="text-muted-foreground">Loading profile...</p>
-                    </div>
-                </div>
+                <BrandedLoader fullScreen size="lg" message="Loading profile..." />
             )
         }
 
@@ -59,12 +50,7 @@ export function ProtectedRoute({
     if (requirePremium) {
         if (!profile) {
             return (
-                <div className="min-h-screen flex items-center justify-center bg-background">
-                    <div className="flex flex-col items-center gap-4">
-                        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-                        <p className="text-muted-foreground">Loading subscription...</p>
-                    </div>
-                </div>
+                <BrandedLoader fullScreen size="lg" message="Loading subscription..." />
             )
         }
 

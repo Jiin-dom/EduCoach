@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Crown, FolderOpen, Upload, Trash2, Sparkles, FileText, File, Loader2, RefreshCw, AlertCircle, Clock, CheckCircle2 } from "lucide-react"
@@ -7,6 +7,7 @@ import { Link, useNavigate } from "react-router-dom"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/contexts/AuthContext"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useDocuments, useDeleteDocument, useProcessDocument, processDocumentRequest, type Document } from "@/hooks/useDocuments"
 import { formatFileSize } from "@/lib/storage"
 import { FREE_DOCUMENT_LIMIT, canUploadMoreDocuments } from "@/lib/subscription"
@@ -49,6 +50,11 @@ export function FilesContent() {
     const [activeIds, setActiveIds] = useState<string[]>([])
     const [batchSummary, setBatchSummary] = useState<BatchProcessSummary | null>(null)
 
+    const MIN_SKELETON_MS = 350
+    const [showLoadingSkeleton, setShowLoadingSkeleton] = useState(false)
+    const loadingSinceRef = useRef<number | null>(null)
+    const skeletonTimeoutRef = useRef<number | null>(null)
+
     const batchQueueRef = useRef<string[]>([])
     const batchActiveIdsRef = useRef<string[]>([])
     const batchRunIdRef = useRef(0)
@@ -65,6 +71,68 @@ export function FilesContent() {
     const pendingCount = files.filter((file) => file.status === "pending").length
     const isBatchRunning = batchSummary?.mode === "running"
     const queuedCount = Math.max(claimedIds.length - activeIds.length, 0)
+
+    useEffect(() => {
+        if (error) {
+            // If an error happens, skip the skeleton hold.
+            setShowLoadingSkeleton(false)
+            loadingSinceRef.current = null
+            if (skeletonTimeoutRef.current) {
+                window.clearTimeout(skeletonTimeoutRef.current)
+                skeletonTimeoutRef.current = null
+            }
+            return
+        }
+
+        if (isLoading) {
+            loadingSinceRef.current = Date.now()
+            setShowLoadingSkeleton(true)
+            if (skeletonTimeoutRef.current) {
+                window.clearTimeout(skeletonTimeoutRef.current)
+                skeletonTimeoutRef.current = null
+            }
+            return
+        }
+
+        // Loading ended: keep skeleton visible for a minimum time.
+        if (!showLoadingSkeleton) return
+
+        const since = loadingSinceRef.current
+        if (!since) {
+            setShowLoadingSkeleton(false)
+            return
+        }
+
+        const elapsed = Date.now() - since
+        const remaining = Math.max(MIN_SKELETON_MS - elapsed, 0)
+
+        if (skeletonTimeoutRef.current) {
+            window.clearTimeout(skeletonTimeoutRef.current)
+            skeletonTimeoutRef.current = null
+        }
+
+        skeletonTimeoutRef.current = window.setTimeout(() => {
+            setShowLoadingSkeleton(false)
+            loadingSinceRef.current = null
+            skeletonTimeoutRef.current = null
+        }, remaining)
+
+        return () => {
+            if (skeletonTimeoutRef.current) {
+                window.clearTimeout(skeletonTimeoutRef.current)
+                skeletonTimeoutRef.current = null
+            }
+        }
+    }, [error, isLoading, showLoadingSkeleton])
+
+    useEffect(() => {
+        return () => {
+            if (skeletonTimeoutRef.current) {
+                window.clearTimeout(skeletonTimeoutRef.current)
+                skeletonTimeoutRef.current = null
+            }
+        }
+    }, [])
 
     const syncBatchState = () => {
         setClaimedIds([...new Set([...batchQueueRef.current, ...batchActiveIdsRef.current])])
@@ -280,25 +348,61 @@ export function FilesContent() {
         }
     }
 
-    if (isLoading) {
+    if (showLoadingSkeleton && !error) {
         return (
             <div className="space-y-6">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
-                            <FolderOpen className="w-6 h-6 text-primary" />
-                        </div>
-                        <div>
-                            <h1 className="text-3xl font-bold">Study Materials</h1>
-                            <p className="text-muted-foreground">Manage and organize your learning resources</p>
+                        <Skeleton className="h-12 w-12 rounded-xl" />
+                        <div className="space-y-2">
+                            <Skeleton className="h-8 w-52" />
+                            <Skeleton className="h-4 w-72 max-w-[70vw]" />
                         </div>
                     </div>
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <Skeleton className="h-10 w-10 rounded-md" />
+                        <Skeleton className="h-10 flex-1 sm:flex-none sm:w-32 rounded-md" />
+                    </div>
                 </div>
+
+                <Card className="border-primary/10">
+                    <CardHeader className="space-y-2">
+                        <Skeleton className="h-6 w-44" />
+                        <Skeleton className="h-4 w-96 max-w-full" />
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                        <div className="rounded-lg bg-accent/20 p-4">
+                            <Skeleton className="h-4 w-56" />
+                            <Skeleton className="mt-2 h-3 w-72 max-w-full" />
+                        </div>
+                    </CardContent>
+                </Card>
+
                 <Card>
-                    <CardContent className="flex items-center justify-center py-16">
-                        <div className="flex flex-col items-center gap-4">
-                            <Loader2 className="w-8 h-8 text-primary animate-spin" />
-                            <p className="text-muted-foreground">Loading your documents...</p>
+                    <CardHeader className="space-y-2">
+                        <Skeleton className="h-6 w-36" />
+                        <Skeleton className="h-4 w-80 max-w-full" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="space-y-3">
+                            {Array.from({ length: 5 }).map((_, idx) => (
+                                <div key={idx} className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 rounded-lg border bg-card p-4">
+                                    <div className="flex items-start sm:items-center gap-3 sm:gap-4 flex-1 w-full">
+                                        <Skeleton className="h-9 w-9 rounded-md shrink-0" />
+                                        <div className="flex-1 min-w-0 space-y-2">
+                                            <div className="flex items-center gap-2">
+                                                <Skeleton className="h-4 w-40" />
+                                                <Skeleton className="h-5 w-16 rounded-full" />
+                                            </div>
+                                            <Skeleton className="h-3 w-64 max-w-full" />
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                                        <Skeleton className="h-8 w-8 rounded-md" />
+                                        <Skeleton className="h-8 w-8 rounded-md" />
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </CardContent>
                 </Card>
