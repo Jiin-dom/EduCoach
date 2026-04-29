@@ -40,6 +40,7 @@ export interface QuizQuestion {
     options: string[] | null
     correct_answer: string
     explanation: string | null
+    question_context: string | null
     difficulty_level: 'beginner' | 'intermediate' | 'advanced' | null
     order_index: number
     created_at: string

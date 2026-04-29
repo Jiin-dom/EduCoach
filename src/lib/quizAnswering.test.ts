@@ -13,6 +13,7 @@ function makeQuestion(overrides: Partial<QuizQuestion>): QuizQuestion {
         options: null,
         correct_answer: "Activation Function",
         explanation: null,
+        question_context: null,
         difficulty_level: "intermediate",
         order_index: 0,
         created_at: "2026-04-11T00:00:00.000Z",

@@ -12,7 +12,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0"
-import { computeBalancedQuizTypeTargets, countQuestionsByType } from "./quizAllocation.ts"
+import { computeBalancedQuizTypeTargets } from "./quizAllocation.ts"
 import { filterInvalidIdentificationQuestions } from "./identificationContract.ts"
 
 const corsHeaders = {
@@ -21,6 +21,12 @@ const corsHeaders = {
 }
 
 const VALID_QUESTION_TYPES = new Set(['multiple_choice', 'identification', 'true_false', 'fill_in_blank'])
+const SEVERE_FAILURE_REASONS = new Set([
+    'lesson_objective_source',
+    'code_artifact_source',
+    'identification_blank_shape',
+    'invalid_type_shape',
+])
 const BASE_DELAY_MS = 2000
 const QUIZ_PRIORITY_PREMIUM = 2
 const QUIZ_PRIORITY_FREE = 1
@@ -47,6 +53,9 @@ interface NlpQuestion {
     correct_answer: string
     difficulty_label: string
     explanation?: string
+    question_context?: string | null
+    confidence_score?: number | null
+    failure_reasons?: string[]
 }
 
 interface MasteryContextItem {
@@ -164,6 +173,35 @@ function validateAndFilter(questions: NlpQuestion[]): NlpQuestion[] {
     return filtered
 }
 
+function finalSafetyGate(questions: NlpQuestion[]): NlpQuestion[] {
+    return validateAndFilter(dedupByText(questions)).filter((q) => {
+        const text = (q.question_text || '').trim()
+        const answer = (q.correct_answer || '').trim()
+        if (text.length < 15 || answer.length < 1) return false
+        if ((q.failure_reasons || []).some((reason) => SEVERE_FAILURE_REASONS.has(reason))) return false
+
+        if (q.question_type === 'multiple_choice') {
+            const options = q.options || []
+            const normalized = options.map((option) => option.trim().toLowerCase()).filter(Boolean)
+            return options.length === 4
+                && new Set(normalized).size === 4
+                && normalized.includes(answer.toLowerCase())
+        }
+
+        if (q.question_type === 'fill_in_blank') {
+            return text.includes('__________')
+        }
+
+        if (q.question_type === 'identification') {
+            const hasContext = typeof q.question_context === 'string' && q.question_context.trim().length >= 25
+            const hasEmbeddedClue = text.length >= 40 && /["\n:]/.test(text)
+            return hasContext || hasEmbeddedClue
+        }
+
+        return true
+    })
+}
+
 /**
  * Robustly adds new questions to an existing set while preserving uniqueness and respecting a cap.
  */
@@ -221,7 +259,6 @@ serve(async (req) => {
             questionCount = 10,
             difficulty = 'mixed',
             questionTypes = ['multiple_choice', 'identification', 'true_false', 'fill_in_blank'],
-            enhanceWithLlm = true,
             userId: requestUserId,
             focusConceptIds,
         } = body
@@ -471,6 +508,7 @@ serve(async (req) => {
 
         let questions: NlpQuestion[] = []
         let usedNlpService = false
+        let nlpStats: Record<string, unknown> = {}
 
         // 6. Call NLP service (PRIMARY)
         if (nlpServiceUrl) {
@@ -535,6 +573,7 @@ serve(async (req) => {
                     const nlpData = await nlpResponse.json()
                     if (nlpData.success && nlpData.questions?.length > 0) {
                         questions = nlpData.questions
+                        nlpStats = nlpData.stats || {}
                         usedNlpService = true
                         console.log(`✅ NLP service returned ${questions.length} questions in ${Date.now() - nlpStart}ms`)
                     } else {
@@ -550,104 +589,22 @@ serve(async (req) => {
             console.log('ℹ️ NLP_SERVICE_URL not configured, skipping template AQG')
         }
 
-        // If the NLP service returned fewer questions than requested, attempt deterministic supplementation
-        // using the remaining per-type quotas (and then stable-order rebalance) while respecting selected types.
-        if (usedNlpService && nlpServiceUrl && questions.length < questionCount) {
-            for (let attempt = 1; attempt <= 2 && questions.length < questionCount; attempt++) {
-                const actualByType = countQuestionsByType(questions)
-                const missingTotal = questionCount - questions.length
-
-                const supplementalTargets: Record<string, number> = {}
-                let supplementalSum = 0
-                for (const t of stableQuestionTypes) {
-                    const target = (requestedTargetsByType as Record<string, number>)[t] || 0
-                    const actual = actualByType[t] || 0
-                    const remaining = Math.max(0, target - actual)
-                    if (remaining > 0) {
-                        supplementalTargets[t] = remaining
-                        supplementalSum += remaining
-                    }
-                }
-
-                // If we still need more, rebalance across selected types in stable order.
-                if (supplementalSum < missingTotal) {
-                    let toAdd = missingTotal - supplementalSum
-                    for (const t of stableQuestionTypes) {
-                        if (toAdd <= 0) break
-                        supplementalTargets[t] = (supplementalTargets[t] || 0) + 1
-                        toAdd -= 1
-                    }
-                }
-
-                const willRequest = Object.values(supplementalTargets).reduce((a, b) => a + b, 0)
-                if (willRequest <= 0) break
-
-                console.log(`🧩 Supplementing questions (attempt=${attempt}) missing=${missingTotal} targets=${JSON.stringify(supplementalTargets)}`)
-
-                try {
-                    const timeoutMs = parseTimeoutMs(Deno.env.get('NLP_SERVICE_TIMEOUT_MS'), 60000)
-                    const supplementPayload: NlpGenerateQuestionsPayload = {
-                        chunks: nlpChunks,
-                        all_keyphrases: allKeyphrases,
-                        question_types: questionTypes,
-                        question_type_targets: supplementalTargets,
-                        max_questions_per_chunk: Math.min(5, Math.ceil(willRequest / Math.max(1, chunks.length)) + 1),
-                        max_total_questions: willRequest,
-                        difficulty: nlpDifficulty,
-                        concepts: conceptInfo,
-                    }
-                    if (hasSlidePages) supplementPayload.document_type = 'slides'
-                    if (masteryMap.size > 0) {
-                        supplementPayload.mastery_context = activeConceptList.map(c => ({
-                            concept_name: c.name,
-                            mastery_level: masteryMap.get(c.id)?.mastery_level ?? 'unknown',
-                            mastery_score: masteryMap.get(c.id)?.mastery_score ?? null,
-                            adaptive_difficulty: getAdaptiveDifficulty(c.id),
-                        }))
-                    }
-
-                    const resp = await fetchWithTimeout(
-                        `${nlpServiceUrl}/generate-questions`,
-                        {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(supplementPayload),
-                        },
-                        timeoutMs
-                    )
-
-                    if (resp.ok) {
-                        const data = await resp.json()
-                        if (data.success && data.questions?.length) {
-                            questions = dedupByText([...questions, ...data.questions]).slice(0, questionCount)
-                            console.log(`🧩 Supplement added=${data.questions.length} total_now=${questions.length}`)
-                        }
-                    }
-                } catch (e) {
-                    console.warn('⚠️ Supplement attempt failed:', (e as Error).message)
-                    break
-                }
-            }
-        }
-
-        // ─── Pipeline Contract: NLP-first, Gemini enhances + validates ───
+        // ─── Pipeline Contract: NLP scores first, targeted Gemini QA happens inside NLP ───
         //
-        // 1. NLP generates draft questions (above)
-        // 2. If NLP returned zero: Gemini fallback generation (last resort)
-        // 3. If NLP succeeded + enhanceWithLlm: Gemini enhancement pass
-        // 4. Gemini validation pass (post-enhancement quality gate)
-        //
-        // Gemini is NEVER the primary generator when NLP is available.
-        // ──────────────────────────────────────────────────────────────
+        // The edge function no longer runs full-quiz Gemini enhancement or validation
+        // after NLP success. That old double pass was the source of long web/mobile
+        // quiz generation waits. Gemini fallback remains only for zero NLP questions.
+        // ───────────────────────────────────────────────────────────────────────────────
 
         const canUseGemini = Boolean(geminiApiKey)
         let quotaTier: 'green' | 'yellow' | 'red' = canUseGemini ? 'green' : 'red'
         const metrics = {
             nlpGenerated: questions.length,
-            geminiEnhanceRewrites: 0,
-            geminiValidationPassed: 0,
-            geminiValidationFailed: 0,
-            geminiValidationRepaired: 0,
+            geminiQaReviewed: Number(nlpStats.geminiQaReviewed || 0),
+            geminiQaRewritten: Number(nlpStats.geminiQaRewritten || 0),
+            geminiQaRejected: Number(nlpStats.geminiQaRejected || 0),
+            geminiQaUnavailable: Boolean(nlpStats.geminiQaUnavailable),
+            qaMinConfidence: Number(nlpStats.qa_min_confidence || 0),
             geminiCallsMade: 0,
             quotaTier: 'green' as string,
             nlpOnlyFallback: false,
@@ -666,131 +623,17 @@ serve(async (req) => {
                 nlpDifficulty
             )
             metrics.geminiCallsMade++
-        } else if (questions.length > 0 && enhanceWithLlm && quotaTier !== 'red') {
-            console.log('✨ Enhancement pass: improving NLP-generated questions with Gemini 2.5 Flash...')
-            try {
-                const enhanced = await enhanceWithGeminiLlm(questions, chunks, geminiApiKey!, activeConceptList)
-                metrics.geminiCallsMade++
-                let rewrites = 0
-                for (let i = 0; i < Math.min(questions.length, enhanced.length); i++) {
-                    if (enhanced[i].question_text !== questions[i].question_text) rewrites++
-                }
-                metrics.geminiEnhanceRewrites = rewrites
-                questions = enhanced
-            } catch (err) {
-                const msg = (err as Error).message
-                if (isGeminiCapacityPressure(msg)) {
-                    console.warn('⚠️ Enhancement hit quota limit, degrading to yellow tier')
-                    quotaTier = 'yellow'
-                } else {
-                    console.warn('⚠️ Enhancement failed, keeping NLP questions:', msg)
-                }
-            }
         }
 
-        // Validation pass (skip if quota is yellow or red)
-        if (questions.length > 0 && canUseGemini && quotaTier === 'green') {
-            console.log('🔍 Validation pass: checking question quality with Gemini 2.5 Flash...')
-            try {
-                const validationResult = await validateWithGemini(questions, chunks, geminiApiKey!)
-                metrics.geminiCallsMade++
-                metrics.geminiValidationPassed = validationResult.passed
-                metrics.geminiValidationFailed = validationResult.rejected
-                metrics.geminiValidationRepaired = validationResult.repaired
-                questions = validationResult.questions
-            } catch (err) {
-                const msg = (err as Error).message
-                if (isGeminiCapacityPressure(msg)) {
-                    console.warn('⚠️ Validation hit quota limit, proceeding without validation')
-                    quotaTier = 'yellow'
-                } else {
-                    console.warn('⚠️ Validation failed, proceeding with enhanced questions:', msg)
-                }
-            }
-        } else if (quotaTier !== 'green') {
-            console.log(`ℹ️ Skipping validation pass (quota tier: ${quotaTier})`)
-        }
-
-        // Final global validation and de-duplication of the initial generation set
-        questions = validateAndFilter(dedupByText(questions))
-
-        // Guaranteed count catch-up: if filtering left us short, fill the gap.
-        let catchUpAttempts = 0
-        const MAX_CATCHUP_ATTEMPTS = 4
-
-        while (
-            questions.length < questionCount &&
-            canUseGemini &&
-            quotaTier !== 'red' &&
-            catchUpAttempts < MAX_CATCHUP_ATTEMPTS
-        ) {
-            catchUpAttempts++
-            const missingCount = questionCount - questions.length
-            const buffer = Math.max(1, Math.min(missingCount, 3))
-            const targetCatchUpCount = missingCount + buffer
-
-            console.log(`🧩 Catch-up pass #${catchUpAttempts} active. Current count: ${questions.length}/${questionCount}. Requesting ${targetCatchUpCount} more.`)
-
-            const actualByType = countQuestionsByType(questions)
-            const supplementalTargets: Record<string, number> = {}
-            let remainingToAllocate = targetCatchUpCount
-
-            for (const t of stableQuestionTypes) {
-                const target = (requestedTargetsByType as Record<string, number>)[t] || 0
-                const actual = actualByType[t] || 0
-                const missingForThisType = Math.max(0, target - actual)
-                const take = Math.min(missingForThisType, remainingToAllocate)
-                if (take > 0) {
-                    supplementalTargets[t] = take
-                    remainingToAllocate -= take
-                }
-            }
-
-            if (remainingToAllocate > 0) {
-                for (let i = 0; i < remainingToAllocate; i++) {
-                    const t = stableQuestionTypes[i % stableQuestionTypes.length]
-                    supplementalTargets[t] = (supplementalTargets[t] || 0) + 1
-                }
-            }
-
-            try {
-                const catchUpBatch = await generateWithGemini(
-                    document,
-                    chunks,
-                    activeConceptList,
-                    targetCatchUpCount,
-                    questionTypes,
-                    supplementalTargets,
-                    geminiApiKey!,
-                    nlpDifficulty
-                )
-                metrics.geminiCallsMade++
-
-                if (catchUpBatch.length > 0) {
-                    const validCatchUp = validateAndFilter(catchUpBatch)
-                    const beforeAddCount = questions.length
-                    questions = addUniqueQuestions(questions, validCatchUp, questionCount)
-                    const addedCount = questions.length - beforeAddCount
-
-                    console.log(`✅ Catch-up #${catchUpAttempts} produced ${catchUpBatch.length} items (${validCatchUp.length} valid). Added ${addedCount} unique items. Total: ${questions.length}/${questionCount}`)
-                }
-            } catch (err) {
-                const msg = (err as Error).message
-                if (isGeminiCapacityPressure(msg)) {
-                    console.warn(`⚠️ Catch-up #${catchUpAttempts} hit quota pressure; degrading to red tier`)
-                    quotaTier = 'red'
-                    break
-                }
-                console.warn(`⚠️ Catch-up pass #${catchUpAttempts} encountered an error:`, msg)
-            }
-        }
+        // Final deterministic safety gate before DB insert. This is cheap and local.
+        questions = finalSafetyGate(questions)
 
         if (questions.length > questionCount) {
             questions = questions.slice(0, questionCount)
         }
 
         if (questions.length < questionCount) {
-            console.warn(`🚨 Final quiz count ${questions.length} is still below target ${questionCount} after all catch-up attempts.`)
+            console.warn(`🚨 Final quiz count ${questions.length} is below target ${questionCount}; no full-quiz Gemini catch-up is run on the normal path.`)
         }
 
         metrics.quotaTier = quotaTier
@@ -838,6 +681,7 @@ serve(async (req) => {
                 options: q.options || null,
                 correct_answer: q.correct_answer,
                 explanation: (q as Record<string, unknown>).explanation || null,
+                question_context: q.question_context || null,
                 difficulty_level: q.difficulty_label || 'intermediate',
                 order_index: index,
             }
@@ -871,6 +715,10 @@ serve(async (req) => {
                 questionCount: questions.length,
                 usedNlpService,
                 processingTimeMs: totalTime,
+                metrics: {
+                    ...metrics,
+                    processingTimeMs: totalTime,
+                },
             }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
