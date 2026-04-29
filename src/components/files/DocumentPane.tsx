@@ -17,7 +17,9 @@ import {
     RotateCcw,
     Edit2,
     Highlighter,
-    GripHorizontal
+    GripHorizontal,
+    Maximize2,
+    Minimize2,
 } from 'lucide-react'
 import type { Document as DocType } from '@/hooks/useDocuments'
 import { useHighlights, useCreateHighlight } from '@/hooks/useHighlights'
@@ -32,9 +34,19 @@ interface DocumentPaneProps {
     onPageChange: (page: number) => void
     highlightTarget?: { type: 'pdf'; page: number } | { type: 'docx'; id: string } | null
     onHighlightTargetHandled?: () => void
+    isFullscreen?: boolean
+    onToggleFullscreen?: () => void
 }
 
-export function DocumentPane({ document: doc, currentPage, onPageChange, highlightTarget, onHighlightTargetHandled }: DocumentPaneProps) {
+export function DocumentPane({
+    document: doc,
+    currentPage,
+    onPageChange,
+    highlightTarget,
+    onHighlightTargetHandled,
+    isFullscreen = false,
+    onToggleFullscreen,
+}: DocumentPaneProps) {
     const [signedUrl, setSignedUrl] = useState<string | null>(null)
     const [numPages, setNumPages] = useState(0)
     const [loading, setLoading] = useState(true)
@@ -509,6 +521,17 @@ export function DocumentPane({ document: doc, currentPage, onPageChange, highlig
                         <p className="text-sm font-medium truncate">{doc.file_name}</p>
                     </div>
                     <div className="flex items-center gap-2">
+                        {onToggleFullscreen && (
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8"
+                                title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen preview'}
+                                onClick={onToggleFullscreen}
+                            >
+                                {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                            </Button>
+                        )}
                         <Button
                             variant={isEditMode && !docxFallback ? "default" : "outline"}
                             size="icon"
@@ -658,6 +681,20 @@ export function DocumentPane({ document: doc, currentPage, onPageChange, highlig
                     <span className="text-xs text-muted-foreground">/ {numPages || '?'}</span>
                 </div>
                 <div className="flex items-center gap-1">
+                    {onToggleFullscreen && (
+                        <>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={onToggleFullscreen}
+                                title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen preview'}
+                            >
+                                {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                            </Button>
+                            <div className="w-px h-4 bg-border mx-1" />
+                        </>
+                    )}
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setZoomOffset(z => z - 1)} disabled={zoomOffset <= -3}>
                         <ZoomOut className="w-4 h-4" />
                     </Button>

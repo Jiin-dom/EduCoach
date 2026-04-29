@@ -66,6 +66,7 @@ export interface PlannedReviewPlanItem {
     documentId: string | null
     documentTitle: string | null
     priorityScore: number
+    scheduledTime: string | null
     mastery: LearningPathMasteryInput
 }
 
@@ -74,6 +75,7 @@ export interface AdaptiveTaskPlanItem {
     id: string
     date: string
     priorityScore: number
+    scheduledTime: string | null
     task: LearningPathAdaptiveTaskInput
 }
 
@@ -125,6 +127,14 @@ function itemPriority(item: LearningPathPlanItem) {
 function comparePlanItems(a: LearningPathPlanItem, b: LearningPathPlanItem) {
     if (a.date !== b.date) return a.date.localeCompare(b.date)
 
+    const timeA = a.kind === "goal_marker" ? null : a.scheduledTime
+    const timeB = b.kind === "goal_marker" ? null : b.scheduledTime
+    if (timeA && timeB && timeA !== timeB) {
+        return timeA.localeCompare(timeB)
+    }
+    if (timeA && !timeB) return -1
+    if (!timeA && timeB) return 1
+
     const kindDelta = kindOrder(a) - kindOrder(b)
     if (kindDelta !== 0) return kindDelta
 
@@ -138,11 +148,78 @@ function comparePlanItems(a: LearningPathPlanItem, b: LearningPathPlanItem) {
     return a.id.localeCompare(b.id)
 }
 
+function parseTimeToMinutes(value: string | null | undefined): number | null {
+    if (!value) return null
+    const match = /^(\d{1,2}):(\d{2})/.exec(value.trim())
+    if (!match) return null
+    const hours = Number(match[1])
+    const minutes = Number(match[2])
+    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null
+    return (hours * 60) + minutes
+}
+
+function toTimeLabel(totalMinutes: number): string {
+    const clamped = Math.max(0, Math.min((23 * 60) + 59, totalMinutes))
+    const hours = Math.floor(clamped / 60)
+    const minutes = clamped % 60
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`
+}
+
+function assignScheduledTimes(params: {
+    plannedReviews: PlannedReviewPlanItem[]
+    adaptiveTasks: AdaptiveTaskPlanItem[]
+    dailyStudyMinutes: number
+    preferredStudyTimeStart?: string | null
+    preferredStudyTimeEnd?: string | null
+}) {
+    const {
+        plannedReviews,
+        adaptiveTasks,
+        dailyStudyMinutes,
+        preferredStudyTimeStart,
+        preferredStudyTimeEnd,
+    } = params
+    const startMinutes = parseTimeToMinutes(preferredStudyTimeStart)
+    const endMinutes = parseTimeToMinutes(preferredStudyTimeEnd)
+    const hasValidWindow = startMinutes != null && endMinutes != null && endMinutes > startMinutes
+    const dailyMinutes = Math.max(15, Number.isFinite(dailyStudyMinutes) ? dailyStudyMinutes : 30)
+    const anchorStart = hasValidWindow ? startMinutes! : (18 * 60)
+    const preferredWindowDuration = hasValidWindow ? (endMinutes! - startMinutes!) : dailyMinutes
+    // Prefer fitting inside the selected window, but if it's too tight keep minutes feasibility.
+    const placementSpanMinutes = Math.max(preferredWindowDuration, dailyMinutes)
+
+    const allSchedulable = [...adaptiveTasks, ...plannedReviews].sort((a, b) => {
+        if (a.date !== b.date) return a.date.localeCompare(b.date)
+        const priorityDelta = Number(b.priorityScore) - Number(a.priorityScore)
+        if (priorityDelta !== 0) return priorityDelta
+        return a.id.localeCompare(b.id)
+    })
+
+    const byDate = new Map<string, Array<PlannedReviewPlanItem | AdaptiveTaskPlanItem>>()
+    for (const item of allSchedulable) {
+        const list = byDate.get(item.date) || []
+        list.push(item)
+        byDate.set(item.date, list)
+    }
+
+    for (const dayItems of byDate.values()) {
+        const count = dayItems.length
+        if (count === 0) continue
+        const stepMinutes = Math.max(15, Math.floor(placementSpanMinutes / count))
+        for (let i = 0; i < dayItems.length; i++) {
+            dayItems[i].scheduledTime = toTimeLabel(anchorStart + (i * stepMinutes))
+        }
+    }
+}
+
 export function buildLearningPathPlan(input: {
     masteryRows: LearningPathMasteryInput[]
     adaptiveTasks: LearningPathAdaptiveTaskInput[]
     documents: LearningPathDocumentInput[]
     quizzes: LearningPathQuizInput[]
+    dailyStudyMinutes?: number
+    preferredStudyTimeStart?: string | null
+    preferredStudyTimeEnd?: string | null
 }): LearningPathPlan {
     const plannedReviews = input.masteryRows.map<PlannedReviewPlanItem>((mastery) => ({
         kind: "planned_review",
@@ -154,6 +231,7 @@ export function buildLearningPathPlan(input: {
         documentId: mastery.document_id,
         documentTitle: mastery.document_title,
         priorityScore: Number(mastery.priority_score ?? 0),
+        scheduledTime: null,
         mastery,
     }))
 
@@ -162,8 +240,17 @@ export function buildLearningPathPlan(input: {
         id: task.id,
         date: task.scheduledDate,
         priorityScore: Number(task.priorityScore ?? 0),
+        scheduledTime: null,
         task,
     }))
+
+    assignScheduledTimes({
+        plannedReviews,
+        adaptiveTasks: adaptiveTaskItems,
+        dailyStudyMinutes: Number(input.dailyStudyMinutes ?? 30),
+        preferredStudyTimeStart: input.preferredStudyTimeStart ?? null,
+        preferredStudyTimeEnd: input.preferredStudyTimeEnd ?? null,
+    })
 
     const docsById = new Map(input.documents.map((document) => [document.id, document]))
     const goalMarkers: GoalMarkerPlanItem[] = []

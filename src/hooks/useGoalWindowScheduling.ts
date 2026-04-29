@@ -29,6 +29,8 @@ export function useScheduleDocumentGoalWindow() {
                 examDate,
                 availableStudyDays: profile?.available_study_days ?? null,
                 dailyStudyMinutes: profile?.daily_study_minutes ?? 30,
+                preferredStudyTimeStart: profile?.preferred_study_time_start ?? null,
+                preferredStudyTimeEnd: profile?.preferred_study_time_end ?? null,
             })
         },
         onSuccess: () => {
@@ -69,7 +71,12 @@ export function useReplanLearningPath() {
     const [progress, setProgress] = useState({ done: 0, total: 0 })
 
     const mutation = useMutation({
-        mutationFn: async (input: { availableStudyDays: string[]; dailyStudyMinutes: number }) => {
+        mutationFn: async (input: {
+            availableStudyDays: string[]
+            dailyStudyMinutes: number
+            preferredStudyTimeStart?: string | null
+            preferredStudyTimeEnd?: string | null
+        }) => {
             if (!user) throw new Error('Not authenticated')
 
             const docsWithExamDate = documents.filter((document) => !!document.exam_date)
@@ -87,6 +94,8 @@ export function useReplanLearningPath() {
                         examDate: document.exam_date!,
                         availableStudyDays: input.availableStudyDays,
                         dailyStudyMinutes: input.dailyStudyMinutes,
+                        preferredStudyTimeStart: input.preferredStudyTimeStart ?? null,
+                        preferredStudyTimeEnd: input.preferredStudyTimeEnd ?? null,
                     })
                     success++
                 } catch {

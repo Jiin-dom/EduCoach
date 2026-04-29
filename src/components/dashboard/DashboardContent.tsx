@@ -43,9 +43,22 @@ export function DashboardContent() {
     const { data: learningStats } = useLearningStats()
     const { data: studyTimeWeeks, isLoading: studyTimeLoading } = useStudyTimeLastTwoWeeks()
 
+    const completedQuizIds = useMemo(() => {
+        // "Completed" is defined by having at least one attempt with a completed_at timestamp.
+        // Keep this logic consistent with `src/components/quizzes/QuizzesContent.tsx`.
+        const ids = new Set<string>()
+        if (!attempts) return ids
+        for (const a of attempts) {
+            if (a.completed_at && a.score !== null) ids.add(a.quiz_id)
+        }
+        return ids
+    }, [attempts])
+
     const recentQuizzes = useMemo(() => {
-        return (quizzes || []).filter((q) => q.status === 'ready' || q.status === 'generating').slice(0, 3)
-    }, [quizzes])
+        return (quizzes || [])
+            .filter((q) => (q.status === 'ready' || q.status === 'generating') && !completedQuizIds.has(q.id))
+            .slice(0, 3)
+    }, [quizzes, completedQuizIds])
 
     const lastScoreByQuiz = useMemo(() => {
         const map = new Map<string, number>()

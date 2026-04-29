@@ -313,6 +313,8 @@ export function ProfileContent() {
                 const replan = await replanLearningPath.mutateAsync({
                     availableStudyDays: normalizedInputDays,
                     dailyStudyMinutes: dailyStudyMinutesInput,
+                    preferredStudyTimeStart: studyTimeStartInput,
+                    preferredStudyTimeEnd: studyTimeEndInput,
                 })
                 if (replan.failed > 0) {
                     toast.warning(
@@ -377,6 +379,8 @@ export function ProfileContent() {
             const result = await replanLearningPath.mutateAsync({
                 availableStudyDays: normalizedInputDays,
                 dailyStudyMinutes: dailyStudyMinutesInput,
+                preferredStudyTimeStart: studyTimeStartInput,
+                preferredStudyTimeEnd: studyTimeEndInput,
             })
             if (result.total === 0) {
                 toast.info("No goal-dated documents found to replan.")

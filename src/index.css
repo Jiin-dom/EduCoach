@@ -129,3 +129,28 @@
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes eduLogoFloat {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-4px) scale(1.02);
+  }
+}
+
+.edu-logo-float {
+  animation: eduLogoFloat 1.4s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+}
+
+.edu-logo-svg {
+  display: block;
+  object-fit: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edu-logo-float {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+  }
+}

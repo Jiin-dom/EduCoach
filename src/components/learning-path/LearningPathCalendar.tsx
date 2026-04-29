@@ -26,7 +26,7 @@ import {
 } from "@/hooks/useLearning"
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
 import { useNavigate } from "react-router-dom"
-import { useUserAttempts } from "@/hooks/useQuizzes"
+import { useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
 import { useLearningPathPlan } from "@/hooks/useLearningPathPlan"
 import { useRescheduleAdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { getLearningPathItemsForDate, type LearningPathPlanItem, type PlannedReviewPlanItem } from "@/lib/learningPathPlan"
@@ -57,11 +57,13 @@ interface QuizItem {
 interface LearningPathCalendarProps {
     scopeFilter?: LearningPathPlanScopeFilter
     dueTodayQuizzes?: QuizItem[]
+    completedTodayQuizzes?: QuizItem[]
 }
 
 export function LearningPathCalendar({
     scopeFilter,
     dueTodayQuizzes = [],
+    completedTodayQuizzes = [],
 }: LearningPathCalendarProps) {
     const navigate = useNavigate()
     const [viewMode, setViewMode] = useState<"week" | "month">("week")
@@ -81,7 +83,21 @@ export function LearningPathCalendar({
     const rescheduleAdaptiveTask = useRescheduleAdaptiveStudyTask()
     const replanLearningPath = useReplanLearningPath()
     const { data: attempts = [] } = useUserAttempts()
+    const { data: quizzes = [] } = useQuizzes()
     const { profile } = useAuth()
+    const completedQuizIds = new Set(
+        attempts
+            .filter((a) => !!a.completed_at)
+            .map((a) => a.quiz_id),
+    )
+    const reusableReadyQuizIdByDocument = new Map<string, string>()
+    for (const quiz of quizzes) {
+        if (quiz.status !== 'ready') continue
+        if (completedQuizIds.has(quiz.id)) continue
+        if (!reusableReadyQuizIdByDocument.has(quiz.document_id)) {
+            reusableReadyQuizIdByDocument.set(quiz.document_id, quiz.id)
+        }
+    }
 
     const scopedStats = {
         masteredCount: plan.performancePlannedReviews.filter((item) => item.mastery.display_mastery_level === "mastered").length,
@@ -155,6 +171,9 @@ export function LearningPathCalendar({
                         {session.mastery.display_mastery_level === 'needs_review' && <BookOpen className="w-3.5 h-3.5" />}
                     </div>
                     <span className="truncate">{session.source === "baseline" ? `Planned: ${session.conceptName}` : session.conceptName}</span>
+                    {session.scheduledTime ? (
+                        <span className="ml-auto text-[10px] font-semibold tabular-nums opacity-80">{session.scheduledTime}</span>
+                    ) : null}
                 </div>
             </div>
         )
@@ -187,7 +206,8 @@ export function LearningPathCalendar({
                 {session.mastery.display_mastery_level === 'mastered' && <CheckCircle2 className="w-2.5 h-2.5 hidden sm:block" />}
                 {session.mastery.display_mastery_level === 'developing' && <Clock className="w-2.5 h-2.5 hidden sm:block" />}
                 {session.mastery.display_mastery_level === 'needs_review' && <BookOpen className="w-2.5 h-2.5 hidden sm:block" />}
-                <span>{session.source === "baseline" ? `Planned: ${session.conceptName}` : session.conceptName}</span>
+                <span className="truncate">{session.source === "baseline" ? `Planned: ${session.conceptName}` : session.conceptName}</span>
+                {session.scheduledTime ? <span className="ml-auto tabular-nums opacity-70">{session.scheduledTime}</span> : null}
             </div>
         )
     }
@@ -285,8 +305,10 @@ export function LearningPathCalendar({
 
         const openTask = () => {
              if (task.type === 'quiz') {
-                 if (task.quizId) {
-                     routeToQuizzesWithHighlight(task.quizId, task.id)
+                 const fallbackQuizId = reusableReadyQuizIdByDocument.get(task.documentId)
+                 const effectiveQuizId = task.quizId ?? fallbackQuizId
+                 if (effectiveQuizId) {
+                     routeToQuizzesWithHighlight(effectiveQuizId, task.id)
                  } else {
                      if (task.status === 'generating') {
                          toast.info('Your adaptive quiz is still being prepared. Check the Quizzes page in a moment.')
@@ -330,6 +352,9 @@ export function LearningPathCalendar({
                 <div className="font-bold truncate w-full flex-1">
                     {label}: {task.documentTitle}
                 </div>
+                {item.scheduledTime ? (
+                    <span className="text-[10px] font-semibold tabular-nums opacity-80 shrink-0">{item.scheduledTime}</span>
+                ) : null}
             </button>
         )
     }
@@ -398,7 +423,12 @@ export function LearningPathCalendar({
         try {
             const availableStudyDays = profile?.available_study_days ?? []
             const dailyStudyMinutes = profile?.daily_study_minutes ?? 30
-            const result = await replanLearningPath.mutateAsync({ availableStudyDays, dailyStudyMinutes })
+            const result = await replanLearningPath.mutateAsync({
+                availableStudyDays,
+                dailyStudyMinutes,
+                preferredStudyTimeStart: profile?.preferred_study_time_start ?? null,
+                preferredStudyTimeEnd: profile?.preferred_study_time_end ?? null,
+            })
 
             if (result.total === 0) {
                 toast.info("No goal-dated documents found to replan.")
@@ -509,38 +539,81 @@ export function LearningPathCalendar({
             </div>
 
             {/* Due Today Quizzes Section */}
-            <Card className="mb-6 border-red-200 bg-red-50/10 shadow-sm">
-                <CardHeader className="pb-2 pt-3 px-4 bg-red-50/30 border-b border-red-100/50">
-                    <CardTitle className="flex items-center gap-2 text-sm font-bold">
-                        <Target className="w-4 h-4 text-red-500" />
-                        Due Today Quizzes
-                    </CardTitle>
-                </CardHeader>
-                <CardContent className="p-4">
-                    {(!dueTodayQuizzes || dueTodayQuizzes.filter((quiz) => !dismissedDueTodayQuizIds[quiz.id]).length === 0) ? (
-                        <p className="text-sm text-muted-foreground font-medium">No quizzes scheduled for today. Enjoy your day or work ahead!</p>
-                    ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {dueTodayQuizzes.filter((quiz) => !dismissedDueTodayQuizIds[quiz.id]).map((quiz) => (
-                                <button
-                                    key={quiz.id}
-                                    type="button"
-                                    onClick={() => routeToQuizzesWithHighlight(quiz.id)}
-                                    className="flex items-center justify-between rounded-lg border bg-card p-3 shadow-sm transition-all hover:border-primary/40 hover:shadow"
-                                >
-                                    <div className="min-w-0 pr-2">
-                                        <p className="truncate font-bold text-sm tracking-tight">{quiz.title}</p>
-                                        {quiz.documentTitle ? (
-                                            <p className="truncate text-[10px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
-                                        ) : null}
+            {((dueTodayQuizzes && dueTodayQuizzes.length > 0) || (completedTodayQuizzes && completedTodayQuizzes.length > 0)) && (
+                <Card className="mb-6 border-red-200 bg-red-50/10 shadow-sm overflow-hidden">
+                    <div className="flex flex-col lg:flex-row items-stretch divide-y lg:divide-y-0 lg:divide-x divide-red-100">
+                        {/* Due Section */}
+                        {dueTodayQuizzes.length > 0 && (
+                            <div className="flex-1">
+                                <CardHeader className="pb-2 pt-3 px-4 bg-red-50/50">
+                                    <CardTitle className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-red-600">
+                                        <div className="flex items-center gap-2">
+                                            <Target className="w-3.5 h-3.5" />
+                                            Due Today
+                                        </div>
+                                        <span className="bg-red-100 px-1.5 py-0.5 rounded text-[10px]">{dueTodayQuizzes.length}</span>
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="p-4 bg-white/50 overflow-y-auto max-h-[200px] scrollbar-thin">
+                                    <div className="flex flex-col gap-2">
+                                        {dueTodayQuizzes.filter((quiz) => !dismissedDueTodayQuizIds[quiz.id]).map((quiz) => (
+                                            <button
+                                                key={quiz.id}
+                                                type="button"
+                                                onClick={() => routeToQuizzesWithHighlight(quiz.id)}
+                                                className="flex items-center justify-between rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:border-red-400 hover:shadow-md text-left group"
+                                            >
+                                                <div className="min-w-0 pr-2">
+                                                    <p className="truncate font-bold text-xs tracking-tight group-hover:text-red-600 transition-colors">{quiz.title}</p>
+                                                    {quiz.documentTitle && (
+                                                        <p className="truncate text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
+                                                    )}
+                                                </div>
+                                                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 group-hover:text-red-500" />
+                                            </button>
+                                        ))}
                                     </div>
-                                    <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-                                </button>
-                            ))}
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
+                                </CardContent>
+                            </div>
+                        )}
+
+                        {/* Completed Section */}
+                        {completedTodayQuizzes.length > 0 && (
+                            <div className="flex-1">
+                                <CardHeader className="pb-2 pt-3 px-4 bg-green-50/50">
+                                    <CardTitle className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-green-600">
+                                        <div className="flex items-center gap-2">
+                                            <CheckCircle2 className="w-3.5 h-3.5" />
+                                            Completed Today
+                                        </div>
+                                        <span className="bg-green-100 px-1.5 py-0.5 rounded text-[10px]">{completedTodayQuizzes.length}</span>
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="p-4 bg-white/50 overflow-y-auto max-h-[200px] scrollbar-thin">
+                                    <div className="flex flex-col gap-2">
+                                        {completedTodayQuizzes.map((quiz) => (
+                                            <button
+                                                key={quiz.id}
+                                                type="button"
+                                                onClick={() => routeToQuizzesWithHighlight(quiz.id)}
+                                                className="flex items-center justify-between rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:border-green-400 hover:shadow-md text-left group"
+                                            >
+                                                <div className="min-w-0 pr-2">
+                                                    <p className="truncate font-bold text-xs tracking-tight group-hover:text-green-600 transition-colors">{quiz.title}</p>
+                                                    {quiz.documentTitle && (
+                                                        <p className="truncate text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
+                                                    )}
+                                                </div>
+                                                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                                            </button>
+                                        ))}
+                                    </div>
+                                </CardContent>
+                            </div>
+                        )}
+                    </div>
+                </Card>
+            )}
 
             {/* Main Calendar Section */}
             <Card className="shadow-sm border-muted">
