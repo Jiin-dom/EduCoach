@@ -282,8 +282,6 @@ export default function LearningPathPage() {
                         <TabsContent value="mastery" className="m-0 border-0 p-0 outline-none">
                             <LearningPathContent
                                 scopeFilter={scopeFilter}
-                                dueTodayQuizzes={dueTodayQuizzes}
-                                completedTodayQuizzes={completedTodayQuizzes}
                             />
                         </TabsContent>
 

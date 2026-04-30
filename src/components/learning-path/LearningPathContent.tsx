@@ -9,7 +9,6 @@ import {
     CheckCircle2,
     Loader2,
     ArrowUpRight,
-    Play,
     TrendingUp,
     Zap,
     HelpCircle,
@@ -446,23 +445,12 @@ function ConceptDetailDialog({
     )
 }
 
-interface QuizItem {
-    id: string;
-    title: string;
-    documentTitle: string | null;
-    dueDate: string | null;
-}
-
 interface LearningPathContentProps {
     scopeFilter?: LearningPathPlanScopeFilter
-    dueTodayQuizzes?: QuizItem[]
-    completedTodayQuizzes?: QuizItem[]
 }
 
 export function LearningPathContent({
     scopeFilter,
-    dueTodayQuizzes = [],
-    completedTodayQuizzes = [],
 }: LearningPathContentProps) {
     const plan = useLearningPathPlan(scopeFilter)
     const { data: weeklyProgress } = useWeeklyProgress()
@@ -551,52 +539,6 @@ export function LearningPathContent({
 
         return { dueToday, completedToday, needsReview, developing, mastered }
     }, [performanceMasteryList, searchQuery])
-
-    const handleStartReview = useCallback(() => {
-        const reviewable = [...sections.dueToday, ...sections.needsReview]
-        if (reviewable.length === 0) {
-            toast.info('No concepts need review right now!')
-            return
-        }
-
-        const docGroups = new Map<string, string[]>()
-        for (const c of reviewable) {
-            if (!c.document_id) continue
-            const ids = docGroups.get(c.document_id) || []
-            ids.push(c.concept_id)
-            docGroups.set(c.document_id, ids)
-        }
-
-        let bestDocId = ''
-        let bestConceptIds: string[] = []
-        for (const [docId, cIds] of docGroups) {
-            if (cIds.length > bestConceptIds.length) {
-                bestDocId = docId
-                bestConceptIds = cIds
-            }
-        }
-
-        if (!bestDocId) {
-            toast.info('No document-linked concepts to review')
-            return
-        }
-
-        toast.loading('Generating review quiz...')
-        generateReview.mutate(
-            { documentId: bestDocId, focusConceptIds: bestConceptIds, questionCount: 10 },
-            {
-                onSuccess: (data) => {
-                    toast.dismiss()
-                    toast.success('Review quiz ready!')
-                    navigate(`/quizzes/${data.quizId}`)
-                },
-                onError: (err) => {
-                    toast.dismiss()
-                    toast.error('Failed to generate review quiz: ' + (err as Error).message)
-                },
-            }
-        )
-    }, [sections, generateReview, navigate])
 
     const handleAdaptiveTaskAction = useCallback((task: AdaptiveStudyTask) => {
         if (task.type === 'quiz') {
@@ -848,93 +790,8 @@ export function LearningPathContent({
                                     </Card>
                                 )}
 
-                                {/* Start Review CTA */}
-                                {!isLoading && performanceMasteryList.length > 0 && (
-                                    <Button
-                                        onClick={handleStartReview}
-                                        disabled={generateReview.isPending || (sections.dueToday.length + sections.needsReview.length) === 0}
-                                        className="w-full h-14 text-base font-bold shadow-md rounded-xl"
-                                        size="lg"
-                                    >
-                                        {generateReview.isPending ? (
-                                            <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                                        ) : (
-                                            <Play className="w-5 h-5 align-middle mr-2 fill-current" />
-                                        )}
-                                        Start Smart Review {(sections.dueToday.length + sections.needsReview.length) > 0 ? `(${sections.dueToday.length + sections.needsReview.length} waiting)` : ""}
-                                    </Button>
-                                )}
                             </div>
                         </div>
-
-                        {/* Due Today Quizzes Section - More compact and integrated */}
-                        {((dueTodayQuizzes && dueTodayQuizzes.length > 0) || (completedTodayQuizzes && completedTodayQuizzes.length > 0)) && (
-                            <Card className="border-red-200 bg-red-50/10 shadow-sm overflow-hidden mb-6">
-                                <CardContent className="p-0">
-                                    <div className="flex flex-col lg:flex-row items-stretch divide-y lg:divide-y-0 lg:divide-x divide-white/20">
-                                        {/* Due Today Section */}
-                                        {dueTodayQuizzes.length > 0 && (
-                                            <div className="flex flex-col sm:flex-row items-stretch flex-1">
-                                                <div className="bg-red-500 text-white p-4 flex flex-col justify-center items-center sm:w-32 shrink-0">
-                                                    <Target className="w-6 h-6 mb-1" />
-                                                    <span className="text-xl font-black">{dueTodayQuizzes.length}</span>
-                                                    <span className="text-[9px] uppercase font-bold tracking-tighter">Due Today</span>
-                                                </div>
-                                                <div className="p-4 flex-1 overflow-y-auto max-h-[200px] bg-red-50/30 scrollbar-thin">
-                                                    <div className="flex flex-col gap-2">
-                                                        {dueTodayQuizzes.map((quiz) => (
-                                                            <Link
-                                                                key={quiz.id}
-                                                                to={`/quizzes/${quiz.id}`}
-                                                                className="flex items-center justify-between rounded-lg border bg-background p-2 shadow-sm transition-all hover:border-red-400 hover:shadow-md group min-w-[180px] sm:min-w-0"
-                                                            >
-                                                                <div className="min-w-0 pr-2">
-                                                                    <p className="truncate font-bold text-[11px] tracking-tight group-hover:text-red-600 transition-colors">{quiz.title}</p>
-                                                                    {quiz.documentTitle ? (
-                                                                        <p className="truncate text-[8px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
-                                                                    ) : null}
-                                                                </div>
-                                                                <ArrowUpRight className="h-3 w-3 shrink-0 text-muted-foreground/60 group-hover:text-red-500" />
-                                                            </Link>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Completed Today Section */}
-                                        {completedTodayQuizzes.length > 0 && (
-                                            <div className="flex flex-col sm:flex-row items-stretch flex-1">
-                                                <div className="bg-green-500 text-white p-4 flex flex-col justify-center items-center sm:w-32 shrink-0">
-                                                    <CheckCircle2 className="w-6 h-6 mb-1" />
-                                                    <span className="text-xl font-black">{completedTodayQuizzes.length}</span>
-                                                    <span className="text-[9px] uppercase font-bold tracking-tighter">Completed</span>
-                                                </div>
-                                                <div className="p-4 flex-1 overflow-y-auto max-h-[200px] bg-green-50/30 scrollbar-thin">
-                                                    <div className="flex flex-col gap-2">
-                                                        {completedTodayQuizzes.map((quiz) => (
-                                                            <Link
-                                                                key={quiz.id}
-                                                                to={`/quizzes/${quiz.id}`}
-                                                                className="flex items-center justify-between rounded-lg border bg-background p-2 shadow-sm transition-all hover:border-green-400 hover:shadow-md group min-w-[180px] sm:min-w-0"
-                                                            >
-                                                                <div className="min-w-0 pr-2">
-                                                                    <p className="truncate font-bold text-[11px] tracking-tight group-hover:text-green-600 transition-colors">{quiz.title}</p>
-                                                                    {quiz.documentTitle ? (
-                                                                        <p className="truncate text-[8px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
-                                                                    ) : null}
-                                                                </div>
-                                                                <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500" />
-                                                            </Link>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        )}
 
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 w-full">
                             {adaptiveTasks.length > 0 && (
@@ -1035,21 +892,62 @@ export function LearningPathContent({
                             </div>
                             
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                <SectionBlock
-                                    title="Due Today"
-                                    icon={<Target className="w-6 h-6 text-red-500" />}
-                                    items={sections.dueToday}
-                                    emptyMessage="Nothing due today — you're caught up!"
-                                    onSelect={setSelectedConcept}
-                                />
+                                <Card className="shadow-sm border-muted h-full flex flex-col">
+                                    <CardHeader className="pb-3 bg-muted/20 border-b border-border/50 shrink-0">
+                                        <CardTitle className="flex items-center gap-2 text-lg">
+                                            <Target className="w-6 h-6 text-red-500" />
+                                            Due & Completed Today
+                                            <Badge variant="secondary" className="px-1.5 bg-background border shadow-sm ml-auto">
+                                                {sections.dueToday.length + sections.completedToday.length}
+                                            </Badge>
+                                        </CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="pt-4 flex-1 min-h-0">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full">
+                                            <div className="min-h-0 flex flex-col">
+                                                <div className="flex items-center gap-2 mb-3">
+                                                    <Target className="w-4 h-4 text-red-500" />
+                                                    <h3 className="text-sm font-semibold">Due Today</h3>
+                                                    <Badge variant="outline" className="ml-auto">{sections.dueToday.length}</Badge>
+                                                </div>
+                                                {sections.dueToday.length === 0 ? (
+                                                    <div className="flex-1 flex items-center justify-center border rounded-xl bg-muted/10 p-4">
+                                                        <p className="text-sm text-muted-foreground italic text-center">
+                                                            Nothing due today.
+                                                        </p>
+                                                    </div>
+                                                ) : (
+                                                    <div className="space-y-3 pr-1 overflow-y-auto max-h-[400px] scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/30">
+                                                        {sections.dueToday.map((topic) => (
+                                                            <TopicCard key={topic.id} topic={topic} onSelect={setSelectedConcept} />
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
 
-                                <SectionBlock
-                                    title="Completed Today"
-                                    icon={<CheckCircle2 className="w-6 h-6 text-green-500" />}
-                                    items={sections.completedToday}
-                                    emptyMessage="No tasks completed today yet."
-                                    onSelect={setSelectedConcept}
-                                />
+                                            <div className="min-h-0 flex flex-col">
+                                                <div className="flex items-center gap-2 mb-3">
+                                                    <CheckCircle2 className="w-4 h-4 text-green-500" />
+                                                    <h3 className="text-sm font-semibold">Completed Today</h3>
+                                                    <Badge variant="outline" className="ml-auto">{sections.completedToday.length}</Badge>
+                                                </div>
+                                                {sections.completedToday.length === 0 ? (
+                                                    <div className="flex-1 flex items-center justify-center border rounded-xl bg-muted/10 p-4">
+                                                        <p className="text-sm text-muted-foreground italic text-center">
+                                                            No tasks completed yet.
+                                                        </p>
+                                                    </div>
+                                                ) : (
+                                                    <div className="space-y-3 pr-1 overflow-y-auto max-h-[400px] scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/30">
+                                                        {sections.completedToday.map((topic) => (
+                                                            <TopicCard key={topic.id} topic={topic} onSelect={setSelectedConcept} />
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </CardContent>
+                                </Card>
 
                                 <SectionBlock
                                     title="Needs Review"
