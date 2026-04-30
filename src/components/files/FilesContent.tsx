@@ -12,6 +12,8 @@ import { useDocuments, useDeleteDocument, useProcessDocument, processDocumentReq
 import { formatFileSize } from "@/lib/storage"
 import { FREE_DOCUMENT_LIMIT, canUploadMoreDocuments } from "@/lib/subscription"
 import { GenerateQuizDialog } from "@/components/files/GenerateQuizDialog"
+import { DocumentProcessingOverlay } from "@/components/files/DocumentProcessingOverlay"
+import type { DocumentProcessingOverlayPhase } from "@/lib/documentProcessingOverlay"
 import { supabase } from "@/lib/supabase"
 import { getClientDocumentStatus, selectNextPendingDocuments, type ClientDocumentStatus } from "@/lib/documentBatchProcessing"
 import {
@@ -49,6 +51,8 @@ export function FilesContent() {
     const [claimedIds, setClaimedIds] = useState<string[]>([])
     const [activeIds, setActiveIds] = useState<string[]>([])
     const [batchSummary, setBatchSummary] = useState<BatchProcessSummary | null>(null)
+    const [manualProcessingTitle, setManualProcessingTitle] = useState<string | null>(null)
+    const [manualProcessingPhase, setManualProcessingPhase] = useState<DocumentProcessingOverlayPhase>("processing")
 
     const MIN_SKELETON_MS = 350
     const [showLoadingSkeleton, setShowLoadingSkeleton] = useState(false)
@@ -182,7 +186,7 @@ export function FilesContent() {
         })
     }
 
-    const handleProcess = (doc: Document) => {
+    const handleProcess = async (doc: Document) => {
         const clientStatus = getClientDocumentStatus(doc, claimedIds, activeIds)
         if (clientStatus.key !== "pending") return
 
@@ -191,7 +195,21 @@ export function FilesContent() {
             title: doc.title,
             processor: "pure_nlp",
         })
-        processDocument.mutate(doc.id)
+        setManualProcessingTitle(doc.title)
+        setManualProcessingPhase("processing")
+
+        try {
+            await processDocument.mutateAsync(doc.id)
+            setManualProcessingPhase("finalizing")
+            await sleep(500)
+        } catch (processingError) {
+            console.warn("[FilesContent] Manual processing did not finish cleanly", {
+                documentId: doc.id,
+                error: processingError instanceof Error ? processingError.message : processingError,
+            })
+        } finally {
+            setManualProcessingTitle(null)
+        }
     }
 
     const handleGenerateQuiz = (doc: Document) => {
@@ -442,6 +460,14 @@ export function FilesContent() {
 
     return (
         <div className="space-y-6">
+            {manualProcessingTitle && (
+                <DocumentProcessingOverlay
+                    context="files_manual"
+                    phase={manualProcessingPhase}
+                    documentTitle={manualProcessingTitle}
+                />
+            )}
+
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                     <div className="w-12 h-12 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center">

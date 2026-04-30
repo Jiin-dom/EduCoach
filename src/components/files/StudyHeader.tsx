@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { Document } from '@/hooks/useDocuments'
-import { useProcessDocument, useUpdateDocument } from '@/hooks/useDocuments'
+import { useUpdateDocument } from '@/hooks/useDocuments'
 import { useGenerateFlashcards } from '@/hooks/useFlashcards'
 import { getFileUrl, formatFileSize } from '@/lib/storage'
 import { GenerateQuizDialog } from './GenerateQuizDialog'
@@ -36,6 +36,8 @@ import { cn } from '@/lib/utils'
 interface StudyHeaderProps {
     document: Document
     refetchDoc: () => void
+    onProcessDocument: () => void
+    isProcessPending: boolean
 }
 
 const STATUS_MAP: Record<string, { icon: React.ElementType; color: string; bg: string; label: string; animate?: boolean }> = {
@@ -91,8 +93,7 @@ function ProcessingQualityBadge({ quality }: { quality: number }) {
     )
 }
 
-export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
-    const processDocument = useProcessDocument()
+export function StudyHeader({ document, refetchDoc, onProcessDocument, isProcessPending }: StudyHeaderProps) {
     const updateDocument = useUpdateDocument()
     const [downloadingUrl, setDownloadingUrl] = useState(false)
     const [quizDialogOpen, setQuizDialogOpen] = useState(false)
@@ -123,7 +124,7 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
     const StatusIcon = status.icon
 
     const handleProcess = () => {
-        processDocument.mutate(document.id, { onSuccess: () => refetchDoc() })
+        onProcessDocument()
     }
 
     const handleDownload = async () => {
@@ -221,8 +222,8 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
                         Download
                     </Button>
                     {document.status === 'pending' && (
-                        <Button className="gap-2 shadow-sm rounded-full font-medium bg-primary hover:bg-primary/90 px-5" onClick={handleProcess} disabled={processDocument.isPending}>
-                            {processDocument.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                        <Button className="gap-2 shadow-sm rounded-full font-medium bg-primary hover:bg-primary/90 px-5" onClick={handleProcess} disabled={isProcessPending}>
+                            {isProcessPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                             Process
                         </Button>
                     )}
@@ -261,7 +262,7 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
                     <div>
                         <p className="font-semibold text-destructive">Processing Failed</p>
                         <p className="text-sm text-destructive/80 mt-1 leading-relaxed">{document.error_message}</p>
-                        <Button variant="outline" size="sm" className="mt-3 gap-2 bg-background shadow-sm hover:bg-muted" onClick={handleProcess} disabled={processDocument.isPending}>
+                        <Button variant="outline" size="sm" className="mt-3 gap-2 bg-background shadow-sm hover:bg-muted" onClick={handleProcess} disabled={isProcessPending}>
                             <RefreshCw className="w-3.5 h-3.5" /> Retry Processing
                         </Button>
                     </div>
