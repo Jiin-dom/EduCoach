@@ -18,6 +18,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
+import {
     useLearningStats,
     useRescheduleConceptDueDate,
     useStudyEfficiency,
@@ -74,6 +81,12 @@ export function LearningPathCalendar({
     const [dismissingTaskIds, setDismissingTaskIds] = useState<Record<string, true>>({})
     const [dismissedTaskIds, setDismissedTaskIds] = useState<Record<string, true>>({})
     const [dismissedDueTodayQuizIds, setDismissedDueTodayQuizIds] = useState<Record<string, true>>({})
+    const [confirmTask, setConfirmTask] = useState<any | null>(null)
+    const [pendingReschedule, setPendingReschedule] = useState<{
+        payload: any;
+        targetDateStr: string;
+        type: string;
+    } | null>(null)
 
     const { data: stats } = useLearningStats();
     const { data: weeklyProgress } = useWeeklyProgress();
@@ -108,7 +121,8 @@ export function LearningPathCalendar({
         status?: string;
         documentId?: string;
         conceptIds?: string[];
-    }) => {
+        type?: string;
+    }, bypassPolicy = false) => {
         const documentId = task.documentId
         if (!documentId) return
 
@@ -127,8 +141,16 @@ export function LearningPathCalendar({
             return
         }
 
-        if (task.status === 'needs_generation' && completedDocumentIdsToday.has(documentId)) {
-            toast.info('You already completed today\'s quiz for this file. The next adaptive quiz will be prepared on the next available study day.')
+        if (task.status === 'needs_generation' && completedDocumentIdsToday.has(documentId) && !bypassPolicy) {
+            setConfirmTask({
+                ...task,
+                id: task.taskId || task.id || '',
+                quizId: task.id,
+                type: 'quiz',
+                documentId,
+                conceptIds: task.conceptIds || [],
+                scheduledDate: todayLocal,
+            })
             return
         }
 
@@ -399,7 +421,7 @@ export function LearningPathCalendar({
 
         const openTask = () => {
              if (isLocked) {
-                 toast.info(`This ${task.type} session is scheduled for ${item.date}. You can start it when that day arrives.`)
+                 setConfirmTask({ ...task, scheduledDate: item.date })
                  return
              }
              if (task.type === 'quiz') {
@@ -409,8 +431,9 @@ export function LearningPathCalendar({
                      taskKey: task.taskKey,
                      status: task.status,
                      documentId: task.documentId,
-                     conceptIds: task.conceptIds
-                 })
+                     conceptIds: task.conceptIds,
+                     type: 'quiz'
+                 }, false)
                  return
              }
              if (task.type === 'flashcards') {
@@ -483,7 +506,7 @@ export function LearningPathCalendar({
         )
     }
 
-    const handleRescheduleDrop = (rawPayload: string, targetDateStr: string) => {
+    const handleRescheduleDrop = (rawPayload: string, targetDateStr: string, bypassFatigue = false) => {
         if (!rawPayload || !targetDateStr) return
 
         if (targetDateStr < todayLocal) {
@@ -501,6 +524,11 @@ export function LearningPathCalendar({
         if (payload?.kind === "adaptive_task" && payload.taskId) {
             const source = plan.items.find((item) => item.kind === "adaptive_task" && item.task.id === payload?.taskId)
             if (!source || source.kind !== "adaptive_task") return
+
+            if (targetDateStr === todayLocal && source.task.scheduledDate > todayLocal && !bypassFatigue) {
+                setPendingReschedule({ payload, targetDateStr, type: source.task.type })
+                return
+            }
 
             // Prevent moving completed quizzes
             const isCompleted = source.task.type === 'quiz' && source.task.quizId && attempts.some(a => a.quiz_id === source.task.quizId)
@@ -559,6 +587,69 @@ export function LearningPathCalendar({
 
     return (
         <div className="space-y-6">
+            <Dialog open={!!confirmTask} onOpenChange={(open) => !open && setConfirmTask(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Study Fatigue Warning</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to move or take this {confirmTask?.type === 'quiz' ? 'quiz' : 'flashcard'}? This is to prevent study fatigue.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex justify-end gap-3 mt-4">
+                        <Button variant="outline" onClick={() => setConfirmTask(null)}>
+                            Cancel
+                        </Button>
+                        <Button onClick={() => {
+                            if (confirmTask) {
+                                if (confirmTask.type === 'quiz') {
+                                    handleAdaptiveQuizAction({
+                                        id: confirmTask.quizId,
+                                        taskId: confirmTask.id,
+                                        taskKey: confirmTask.taskKey,
+                                        status: confirmTask.status,
+                                        documentId: confirmTask.documentId,
+                                        conceptIds: confirmTask.conceptIds
+                                    }, true)
+                                } else if (confirmTask.type === 'flashcards') {
+                                    navigate(`/files/${confirmTask.documentId}?tab=flashcards`)
+                                } else if (confirmTask.conceptIds?.length > 0) {
+                                    navigate(`/files/${confirmTask.documentId}?tab=concepts&concept=${confirmTask.conceptIds[0]}`)
+                                } else {
+                                    navigate(`/files/${confirmTask.documentId}?tab=concepts`)
+                                }
+                                setConfirmTask(null)
+                            }
+                        }}>
+                            Proceed anyway
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={!!pendingReschedule} onOpenChange={(open) => !open && setPendingReschedule(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Study Fatigue Warning</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to move or take this {pendingReschedule?.type === 'quiz' ? 'quiz' : 'flashcard'}? This is to prevent study fatigue.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex justify-end gap-3 mt-4">
+                        <Button variant="outline" onClick={() => setPendingReschedule(null)}>
+                            Cancel
+                        </Button>
+                        <Button onClick={() => {
+                            if (pendingReschedule) {
+                                handleRescheduleDrop(JSON.stringify(pendingReschedule.payload), pendingReschedule.targetDateStr, true)
+                                setPendingReschedule(null)
+                            }
+                        }}>
+                            Proceed anyway
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
             {/* Main Calendar Section */}
             <Card className="shadow-sm border-muted">
                 <CardHeader className="pb-4 border-b border-border/50 bg-muted/20">
