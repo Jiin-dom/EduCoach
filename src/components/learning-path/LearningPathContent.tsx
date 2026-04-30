@@ -189,12 +189,22 @@ function GeneratedPlanCard({ item }: { item: PlannedReviewPlanItem }) {
                 </div>
                 {item.documentId ? (
                     <div className="flex flex-col gap-2 shrink-0">
-                        <Link to={`/files/${item.documentId}?tab=concepts&concept=${item.conceptId}`}>
-                            <Button variant="outline" size="sm" className="w-full bg-white text-xs h-8">
-                                <ArrowUpRight className="w-3.5 h-3.5 mr-1" />
-                                Open
-                            </Button>
-                        </Link>
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="w-full bg-white text-xs h-8"
+                            onClick={() => {
+                                const today = new Date().toISOString().split('T')[0]
+                                if (item.date > today) {
+                                    toast.info(`This concept review is scheduled for ${item.date}. You can start it when that day arrives.`)
+                                    return
+                                }
+                                navigate(`/files/${item.documentId}?tab=concepts&concept=${item.conceptId}`)
+                            }}
+                        >
+                            <ArrowUpRight className="w-3.5 h-3.5 mr-1" />
+                            Open
+                        </Button>
                         <Link to={`/analytics/document/${item.documentId}`}>
                             <Button variant="ghost" size="sm" className="w-full text-xs h-8">
                                 <BarChart3 className="w-3.5 h-3.5 mr-1" />
@@ -230,20 +240,40 @@ function GoalMarkerCard({ marker }: { marker: GoalMarkerPlanItem }) {
                     </div>
                 </div>
                 {marker.quizId ? (
-                    <Link to={`/quizzes/${marker.quizId}`}>
-                        <Button variant="outline" size="sm" className="shadow-sm">
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="shadow-sm"
+                        onClick={() => {
+                            const today = new Date().toISOString().split('T')[0]
+                            if (marker.date > today) {
+                                toast.info(`This quiz deadline is scheduled for ${marker.date}. You can start it when that day arrives.`)
+                                return
+                            }
+                            navigate(`/quizzes/${marker.quizId}`)
+                        }}
+                    >
+                        <ArrowUpRight className="w-3.5 h-3.5 mr-1" />
+                        Open
+                    </Button>
+                ) : marker.documentId ? (
+                    <div className="flex flex-col gap-2 shrink-0">
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="w-full text-xs h-8 shadow-sm"
+                            onClick={() => {
+                                const today = new Date().toISOString().split('T')[0]
+                                if (marker.date > today) {
+                                    toast.info(`This study goal is scheduled for ${marker.date}. You can start it when that day arrives.`)
+                                    return
+                                }
+                                navigate(`/files/${marker.documentId}`)
+                            }}
+                        >
                             <ArrowUpRight className="w-3.5 h-3.5 mr-1" />
                             Open
                         </Button>
-                    </Link>
-                ) : marker.documentId ? (
-                    <div className="flex flex-col gap-2 shrink-0">
-                        <Link to={`/files/${marker.documentId}`}>
-                            <Button variant="outline" size="sm" className="w-full text-xs h-8 shadow-sm">
-                                <ArrowUpRight className="w-3.5 h-3.5 mr-1" />
-                                Open
-                            </Button>
-                        </Link>
                         <Link to={`/analytics/document/${marker.documentId}`}>
                             <Button variant="ghost" size="sm" className="w-full text-xs h-8">
                                 <BarChart3 className="w-3.5 h-3.5 mr-1" />
@@ -499,8 +529,9 @@ export function LearningPathContent({
     })
     const reusableReadyQuizIdByDocument = adaptiveQuizPolicy.reusableReadyQuizIdByDocument
     const completedAdaptiveDocumentIdsToday = adaptiveQuizPolicy.completedAdaptiveDocumentIdsToday
+    const todayLocal = adaptiveQuizPolicy.todayLocal
 
-    const handleAdaptiveQuizAction = (task: {
+    const handleAdaptiveQuizAction = useCallback((task: {
         id?: string;
         taskId?: string;
         taskKey?: string;
@@ -552,7 +583,7 @@ export function LearningPathContent({
                 },
             },
         )
-    }
+    }, [completedAdaptiveDocumentIdsToday, generateReview, navigate, reusableReadyQuizIdByDocument])
     const upcomingGoals = useMemo(() => plan.goalMarkers.slice(0, 4), [plan.goalMarkers])
     const stats = useMemo(() => {
         const totalConcepts = performanceMasteryList.length
@@ -658,10 +689,17 @@ export function LearningPathContent({
     }, [sections, generateReview, navigate])
 
     const handleAdaptiveTaskAction = useCallback((task: AdaptiveStudyTask) => {
+        const isFuture = task.scheduledDate > todayLocal
+        if (isFuture) {
+             toast.info(`This ${task.type} session is scheduled for ${task.scheduledDate}. You can start it when that day arrives.`)
+             return
+        }
+
         if (task.type === 'quiz') {
             const shouldForceNewQuiz = task.taskKey?.startsWith('manual:') === true
             const fallbackQuizId = shouldForceNewQuiz ? undefined : reusableReadyQuizIdByDocument.get(task.documentId)
             const effectiveQuizId = task.quizId ?? fallbackQuizId
+            
             if (task.status === 'ready' && effectiveQuizId) {
                 navigate(`/quizzes/${effectiveQuizId}`)
                 return
@@ -706,7 +744,7 @@ export function LearningPathContent({
         }
 
         navigate(`/files/${task.documentId}?tab=concepts`)
-    }, [adaptiveQuizPolicy.completedAdaptiveDocumentIdsToday, generateReview, navigate, reusableReadyQuizIdByDocument])
+    }, [completedAdaptiveDocumentIdsToday, handleAdaptiveQuizAction, navigate, reusableReadyQuizIdByDocument, todayLocal])
 
     const isLoading = plan.isLoading
     
