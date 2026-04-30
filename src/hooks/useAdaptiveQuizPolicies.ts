@@ -1,11 +1,7 @@
 import { useMemo } from 'react'
 import type { Attempt, Quiz } from '@/hooks/useQuizzes'
 import type { AdaptiveStudyTask } from '@/hooks/useAdaptiveStudy'
-
-function todayLocalDateString() {
-    const now = new Date()
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
+import { localDateFromTimestamp, todayLocalDateString } from '@/lib/localDate'
 
 export function useAdaptiveQuizPolicies(params: {
     quizzes: Quiz[]
@@ -34,7 +30,7 @@ export function useAdaptiveQuizPolicies(params: {
 
         const completedAdaptiveQuizIdsToday = new Set(
             attempts
-                .filter((a) => a.completed_at?.split('T')[0] === todayLocal)
+                .filter((a) => localDateFromTimestamp(a.completed_at) === todayLocal)
                 .map((a) => a.quiz_id)
                 .filter((quizId) => {
                     const quiz = quizzes.find((q) => q.id === quizId)
