@@ -438,9 +438,26 @@ serve(async (req) => {
         }
 
         // 5. Create quiz record
-        const quizTitle = isReviewQuiz
-            ? `Review Quiz: ${document.title}`
-            : `Quiz: ${document.title}`
+        const quizTitle = (() => {
+            if (!isReviewQuiz) return `Quiz: ${document.title}`
+
+            const conceptNames = activeConceptList.map(c => c.name)
+            const displayNames = conceptNames.slice(0, 3).join(', ')
+            const overflow = conceptNames.length > 3 ? ` & ${conceptNames.length - 3} more` : ''
+
+            if (masteryMap.size > 0) {
+                const weakCount = activeConceptList.filter(c => {
+                    const m = masteryMap.get(c.id)
+                    return !m || m.mastery_score < 60
+                }).length
+                if (weakCount > 0) {
+                    return `Adaptive: ${displayNames}${overflow}`
+                }
+                return `Review: ${displayNames}${overflow}`
+            }
+
+            return `Baseline: ${displayNames}${overflow}`
+        })()
         const { data: quiz, error: quizError } = await supabase
             .from('quizzes')
             .insert({

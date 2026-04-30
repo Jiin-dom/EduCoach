@@ -25,6 +25,7 @@ export function useLearningPathPlan(scopeFilter?: LearningPathPlanScopeFilter) {
                 dailyStudyMinutes: profile?.daily_study_minutes ?? 30,
                 preferredStudyTimeStart: profile?.preferred_study_time_start ?? null,
                 preferredStudyTimeEnd: profile?.preferred_study_time_end ?? null,
+                availableStudyDays: profile?.available_study_days ?? null,
             })
 
             return filterLearningPathPlan(fullPlan, scopeFilter)
@@ -33,6 +34,7 @@ export function useLearningPathPlan(scopeFilter?: LearningPathPlanScopeFilter) {
             adaptiveTasksQuery.data,
             documentsQuery.data,
             masteryQuery.data,
+            profile?.available_study_days,
             profile?.daily_study_minutes,
             profile?.preferred_study_time_end,
             profile?.preferred_study_time_start,

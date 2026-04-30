@@ -418,7 +418,7 @@ export function LearningPathCalendar({
             if (source.task.scheduledDate === targetDateStr) return
 
             rescheduleAdaptiveTask.mutate(
-                { taskId: source.task.id, newScheduledDate: targetDateStr },
+                { taskId: source.task.id, newScheduledDate: targetDateStr, task: source.task },
                 {
                     onSuccess: () => toast.success(`Moved ${source.task.type} to ${targetDateStr}.`),
                     onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to move study task."),

@@ -37,6 +37,7 @@ export interface LearningPathAdaptiveTaskInput {
     title: string
     description: string
     quizId?: string
+    clickable?: boolean
 }
 
 export interface LearningPathDocumentInput {
@@ -220,20 +221,30 @@ export function buildLearningPathPlan(input: {
     dailyStudyMinutes?: number
     preferredStudyTimeStart?: string | null
     preferredStudyTimeEnd?: string | null
+    availableStudyDays?: string[] | null
 }): LearningPathPlan {
-    const plannedReviews = input.masteryRows.map<PlannedReviewPlanItem>((mastery) => ({
-        kind: "planned_review",
-        id: mastery.id,
-        date: mastery.due_date,
-        source: mastery.total_attempts > 0 ? "performance" : "baseline",
-        conceptId: mastery.concept_id,
-        conceptName: mastery.concept_name,
-        documentId: mastery.document_id,
-        documentTitle: mastery.document_title,
-        priorityScore: Number(mastery.priority_score ?? 0),
-        scheduledTime: null,
-        mastery,
-    }))
+    const docsById = new Map(input.documents.map((document) => [document.id, document]))
+
+    const plannedReviews = input.masteryRows
+        .filter((m) => {
+            const doc = docsById.get(m.document_id || "")
+            const docDeadline = toDateOnly(doc?.exam_date || doc?.deadline)
+            if (docDeadline && m.due_date > docDeadline) return false
+            return true
+        })
+        .map<PlannedReviewPlanItem>((mastery) => ({
+            kind: "planned_review",
+            id: mastery.id,
+            date: mastery.due_date,
+            source: mastery.total_attempts > 0 ? "performance" : "baseline",
+            conceptId: mastery.concept_id,
+            conceptName: mastery.concept_name,
+            documentId: mastery.document_id,
+            documentTitle: mastery.document_title,
+            priorityScore: Number(mastery.priority_score ?? 0),
+            scheduledTime: null,
+            mastery,
+        }))
 
     const adaptiveTaskItems = input.adaptiveTasks.map<AdaptiveTaskPlanItem>((task) => ({
         kind: "adaptive_task",
@@ -244,15 +255,166 @@ export function buildLearningPathPlan(input: {
         task,
     }))
 
+    const todayStr = new Date().toISOString().split("T")[0]
+    const horizonDays = 14
+    const dailyStudyMinutes = Number(input.dailyStudyMinutes ?? 30)
+    const maxTasksPerDay = Math.max(2, Math.round(dailyStudyMinutes / 30))
+    const generatedAdaptiveTasks: AdaptiveTaskPlanItem[] = []
+
+    const masteryByDoc = new Map<string, LearningPathMasteryInput[]>()
+    for (const m of input.masteryRows) {
+        if (!m.document_id) continue
+        const list = masteryByDoc.get(m.document_id) || []
+        list.push(m)
+        masteryByDoc.set(m.document_id, list)
+    }
+
+    const tasksPerDay = new Map<string, number>()
+    const incrementDay = (date: string) => tasksPerDay.set(date, (tasksPerDay.get(date) || 0) + 1)
+    for (const t of adaptiveTaskItems) {
+        incrementDay(t.date)
+    }
+
+    const getDayOfWeek = (dateStr: string): string => {
+        const d = new Date(dateStr + "T00:00:00Z")
+        const days = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+        return days[d.getUTCDay()]
+    }
+
+    const isStudyDay = (dateStr: string): boolean => {
+        if (!input.availableStudyDays || input.availableStudyDays.length === 0) return true
+        return input.availableStudyDays.includes(getDayOfWeek(dateStr))
+    }
+
+    const addDays = (dateStr: string, days: number): string => {
+        const d = new Date(dateStr + "T00:00:00Z")
+        d.setUTCDate(d.getUTCDate() + days)
+        return d.toISOString().split("T")[0]
+    }
+
+    const addStudyDays = (dateStr: string, days: number): string => {
+        let current = dateStr
+        let remaining = days
+        while (remaining > 0) {
+            current = addDays(current, 1)
+            if (isStudyDay(current)) {
+                remaining--
+            }
+        }
+        return current
+    }
+
+    const canSchedule = (date: string, docDeadline: string | null): boolean =>
+        (tasksPerDay.get(date) || 0) < maxTasksPerDay && (!docDeadline || date <= docDeadline)
+
+    for (const [docId, concepts] of masteryByDoc.entries()) {
+        const sortedConcepts = [...concepts].sort((a, b) => b.priority_score - a.priority_score)
+        const doc = docsById.get(docId)
+        const docDeadline = toDateOnly(doc?.exam_date || doc?.deadline)
+
+        for (const concept of sortedConcepts) {
+            let startDay = concept.due_date < todayStr ? todayStr : concept.due_date
+            while (!isStudyDay(startDay) && startDay < addDays(todayStr, 30)) {
+                startDay = addDays(startDay, 1)
+            }
+
+            if (concept.display_mastery_level === "needs_review") {
+                const d1 = startDay
+                const d2 = addStudyDays(startDay, 1)
+                const d3 = addStudyDays(startDay, 2)
+
+                if (canSchedule(d1, docDeadline)) {
+                    generatedAdaptiveTasks.push(createVirtualTask(concept, "review", d1, "needs_review"))
+                    incrementDay(d1)
+                }
+                if (canSchedule(d2, docDeadline)) {
+                    generatedAdaptiveTasks.push(createVirtualTask(concept, "flashcards", d2, "needs_review"))
+                    incrementDay(d2)
+                }
+                if (canSchedule(d3, docDeadline)) {
+                    generatedAdaptiveTasks.push(createVirtualTask(concept, "quiz", d3, "needs_review"))
+                    incrementDay(d3)
+                }
+            } else if (concept.display_mastery_level === "developing") {
+                const d1 = startDay
+                const d2 = addStudyDays(startDay, 3)
+
+                if (canSchedule(d1, docDeadline)) {
+                    generatedAdaptiveTasks.push(createVirtualTask(concept, "flashcards", d1, "developing"))
+                    incrementDay(d1)
+                }
+                if (canSchedule(d2, docDeadline)) {
+                    generatedAdaptiveTasks.push(createVirtualTask(concept, "quiz", d2, "developing"))
+                    incrementDay(d2)
+                }
+            } else {
+                const d1 = startDay
+                if (canSchedule(d1, docDeadline)) {
+                    const type = concept.total_attempts === 0 ? "review" : "quiz"
+                    generatedAdaptiveTasks.push(createVirtualTask(concept, type, d1, "due_today"))
+                    incrementDay(d1)
+                }
+            }
+        }
+
+        // Multi-concept quiz scheduling based on weakness count
+        const weakConcepts = sortedConcepts.filter(
+            (c) => c.display_mastery_level === "needs_review" || c.display_mastery_level === "developing",
+        )
+        if (weakConcepts.length > 0) {
+            const quizInterval = weakConcepts.length >= 5 ? 1 : weakConcepts.length >= 3 ? 2 : 3
+            let quizDay = addStudyDays(todayStr, quizInterval)
+            for (let q = 0; q < horizonDays && quizDay <= addDays(todayStr, horizonDays); q++) {
+                if (canSchedule(quizDay, docDeadline)) {
+                    generatedAdaptiveTasks.push(
+                        createMultiConceptVirtualTask(weakConcepts, quizDay, doc?.title || "Untitled document"),
+                    )
+                    incrementDay(quizDay)
+                }
+                quizDay = addStudyDays(quizDay, quizInterval)
+            }
+        }
+    }
+
+    // Fill empty study days within the horizon
+    for (let i = 0; i < horizonDays; i++) {
+        const date = addDays(todayStr, i)
+        if (isStudyDay(date) && (tasksPerDay.get(date) || 0) === 0) {
+            const candidate = input.masteryRows
+                .filter((m) => {
+                    if (m.due_date > date) return false
+                    const doc = docsById.get(m.document_id || "")
+                    const docDeadline = toDateOnly(doc?.exam_date || doc?.deadline)
+                    if (docDeadline && date > docDeadline) return false
+                    return true
+                })
+                .sort((a, b) => b.priority_score - a.priority_score)[0]
+
+            if (candidate) {
+                const type = (tasksPerDay.get(addDays(date, -1)) || 0) > 0 ? "flashcards" : "review"
+                generatedAdaptiveTasks.push(createVirtualTask(candidate, type, date, "due_today"))
+                incrementDay(date)
+            }
+        }
+    }
+
+    const allAdaptiveTasks = [...adaptiveTaskItems, ...generatedAdaptiveTasks]
+
+    const scheduledTaskConceptKeys = new Set(
+        allAdaptiveTasks.map((t) => `${t.task.conceptIds[0]}-${t.date}`),
+    )
+    const filteredPlannedReviews = plannedReviews.filter(
+        (pr) => !scheduledTaskConceptKeys.has(`${pr.conceptId}-${pr.date}`),
+    )
+
     assignScheduledTimes({
-        plannedReviews,
-        adaptiveTasks: adaptiveTaskItems,
-        dailyStudyMinutes: Number(input.dailyStudyMinutes ?? 30),
+        plannedReviews: filteredPlannedReviews,
+        adaptiveTasks: allAdaptiveTasks,
+        dailyStudyMinutes,
         preferredStudyTimeStart: input.preferredStudyTimeStart ?? null,
         preferredStudyTimeEnd: input.preferredStudyTimeEnd ?? null,
     })
 
-    const docsById = new Map(input.documents.map((document) => [document.id, document]))
     const goalMarkers: GoalMarkerPlanItem[] = []
 
     for (const document of input.documents) {
@@ -297,13 +459,13 @@ export function buildLearningPathPlan(input: {
         })
     }
 
-    const baselinePlannedReviews = plannedReviews
+    const baselinePlannedReviews = filteredPlannedReviews
         .filter((item) => item.source === "baseline")
         .sort(comparePlanItems)
-    const performancePlannedReviews = plannedReviews
+    const performancePlannedReviews = filteredPlannedReviews
         .filter((item) => item.source === "performance")
         .sort(comparePlanItems)
-    const sortedAdaptiveTasks = adaptiveTaskItems.sort(comparePlanItems)
+    const sortedAdaptiveTasks = allAdaptiveTasks.sort(comparePlanItems)
     const sortedGoalMarkers = goalMarkers.sort(comparePlanItems)
 
     const items = [
@@ -319,6 +481,90 @@ export function buildLearningPathPlan(input: {
         performancePlannedReviews,
         adaptiveTasks: sortedAdaptiveTasks,
         goalMarkers: sortedGoalMarkers,
+    }
+}
+
+function createVirtualTask(
+    mastery: LearningPathMasteryInput,
+    type: "quiz" | "flashcards" | "review",
+    date: string,
+    reason: "due_today" | "needs_review" | "developing",
+): AdaptiveTaskPlanItem {
+    const docTitle = mastery.document_title || "Untitled document"
+    const conceptName = mastery.concept_name
+
+    let title = ""
+    let description = ""
+    if (type === "quiz") {
+        title = `Quiz: ${conceptName}`
+        description = `Test your knowledge of this concept from ${docTitle}.`
+    } else if (type === "flashcards") {
+        title = `Flashcards: ${conceptName}`
+        description = `Review cards for ${conceptName}.`
+    } else {
+        title = `Review: ${conceptName}`
+        description = `Read through the core material for ${conceptName}.`
+    }
+
+    return {
+        kind: "adaptive_task",
+        id: `virtual-${type}-${mastery.concept_id}-${date}`,
+        date,
+        priorityScore: mastery.priority_score,
+        scheduledTime: null,
+        task: {
+            id: `virtual-${type}-${mastery.concept_id}-${date}`,
+            type,
+            status: "needs_generation",
+            reason,
+            documentId: mastery.document_id || "",
+            documentTitle: docTitle,
+            conceptIds: [mastery.concept_id],
+            conceptNames: [conceptName],
+            scheduledDate: date,
+            priorityScore: mastery.priority_score,
+            count: type === "quiz" ? 10 : 1,
+            title,
+            description,
+            clickable: true,
+        },
+    }
+}
+
+function createMultiConceptVirtualTask(
+    concepts: LearningPathMasteryInput[],
+    date: string,
+    documentTitle: string,
+): AdaptiveTaskPlanItem {
+    const conceptIds = concepts.map((c) => c.concept_id)
+    const conceptNames = concepts.map((c) => c.concept_name)
+    const displayNames = conceptNames.slice(0, 3).join(", ")
+    const overflow = conceptNames.length > 3 ? ` & ${conceptNames.length - 3} more` : ""
+    const topPriority = Math.max(...concepts.map((c) => c.priority_score))
+    const docId = concepts[0]?.document_id || ""
+
+    return {
+        kind: "adaptive_task",
+        id: `virtual-multi-quiz-${docId}-${date}`,
+        date,
+        priorityScore: topPriority,
+        scheduledTime: null,
+        task: {
+            id: `virtual-multi-quiz-${docId}-${date}`,
+            type: "quiz",
+            status: "needs_generation",
+            reason: "needs_review",
+            documentId: docId,
+            documentTitle,
+            conceptIds,
+            conceptNames,
+            scheduledDate: date,
+            priorityScore: topPriority,
+            count: Math.max(10, Math.min(20, concepts.length * 2)),
+            title: `Adaptive Quiz: ${displayNames}${overflow}`,
+            description: `Multi-concept quiz covering ${concepts.length} weak topics from ${documentTitle}.`,
+            clickable: true,
+        },
     }
 }
 
