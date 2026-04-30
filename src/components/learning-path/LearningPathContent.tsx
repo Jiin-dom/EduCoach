@@ -538,6 +538,8 @@ export function LearningPathContent({
     const completedAdaptiveDocumentIdsToday = adaptiveQuizPolicy.completedAdaptiveDocumentIdsToday
     const todayLocal = adaptiveQuizPolicy.todayLocal
 
+    const [confirmTask, setConfirmTask] = useState<AdaptiveStudyTask | null>(null)
+
     const handleAdaptiveQuizAction = useCallback((task: {
         id?: string;
         taskId?: string;
@@ -545,7 +547,8 @@ export function LearningPathContent({
         status?: string;
         documentId?: string;
         conceptIds?: string[];
-    }) => {
+        type?: string;
+    }, bypassPolicy = false) => {
         const documentId = task.documentId
         if (!documentId) return
 
@@ -569,8 +572,16 @@ export function LearningPathContent({
             return
         }
 
-        if (task.status === 'needs_generation' && completedAdaptiveDocumentIdsToday.has(documentId)) {
-            toast.info('You already completed today\'s quiz for this file. The next adaptive quiz will be prepared on the next available study day.')
+        if (task.status === 'needs_generation' && completedAdaptiveDocumentIdsToday.has(documentId) && !bypassPolicy) {
+            setConfirmTask({
+                ...task,
+                id: task.taskId || task.id || '',
+                quizId: task.id,
+                type: 'quiz',
+                documentId,
+                conceptIds: task.conceptIds || [],
+                scheduledDate: todayLocal, // It's today if we're hitting the policy
+            } as any)
             return
         }
 
@@ -657,7 +668,7 @@ export function LearningPathContent({
     const handleAdaptiveTaskAction = useCallback((task: AdaptiveStudyTask) => {
         const isFuture = task.scheduledDate > todayLocal
         if (isFuture) {
-             toast.info(`This ${task.type} session is scheduled for ${task.scheduledDate}. You can start it when that day arrives.`)
+             setConfirmTask(task)
              return
         }
 
@@ -704,8 +715,9 @@ export function LearningPathContent({
                 taskKey: task.taskKey,
                 status: task.status,
                 documentId: task.documentId,
-                conceptIds: task.conceptIds
-            })
+                conceptIds: task.conceptIds,
+                type: 'quiz'
+            }, false)
             return
         }
 
@@ -810,9 +822,48 @@ export function LearningPathContent({
                             </Card>
                         )
                     })()
-                ) : (
-                    <>
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                ) : null}
+
+                <Dialog open={!!confirmTask} onOpenChange={(open) => !open && setConfirmTask(null)}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Study Fatigue Warning</DialogTitle>
+                            <DialogDescription>
+                                Are you sure you want to move or take this {confirmTask?.type === 'quiz' ? 'quiz' : 'flashcard'}? This is to prevent study fatigue.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="flex justify-end gap-3 mt-4">
+                            <Button variant="outline" onClick={() => setConfirmTask(null)}>
+                                Cancel
+                            </Button>
+                            <Button onClick={() => {
+                                if (confirmTask) {
+                                    if (confirmTask.type === 'quiz') {
+                                        handleAdaptiveQuizAction({
+                                            id: confirmTask.quizId,
+                                            taskId: confirmTask.id,
+                                            taskKey: confirmTask.taskKey,
+                                            status: confirmTask.status,
+                                            documentId: confirmTask.documentId,
+                                            conceptIds: confirmTask.conceptIds
+                                        }, true)
+                                    } else if (confirmTask.type === 'flashcards') {
+                                        navigate(`/files/${confirmTask.documentId}?tab=flashcards`)
+                                    } else if (confirmTask.conceptIds.length > 0) {
+                                        navigate(`/files/${confirmTask.documentId}?tab=concepts&concept=${confirmTask.conceptIds[0]}`)
+                                    } else {
+                                        navigate(`/files/${confirmTask.documentId}?tab=concepts`)
+                                    }
+                                    setConfirmTask(null)
+                                }
+                            }}>
+                                Proceed anyway
+                            </Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             {/* Readiness Estimate */}
                             {(() => {
                                 const totalTracked = stats.totalConcepts
