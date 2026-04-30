@@ -103,17 +103,20 @@ export default function LearningPathPage() {
             })
             .filter((quiz) => quiz.dueDate === todayLocal)
 
-        // 2. Add any adaptive quiz tasks that might not have been in the quizzes list yet
+        // 2. Add any adaptive quiz tasks for today, even if not yet ready or without a quizId
         const adaptiveQuizTasks = adaptiveTasks
-            .filter((task) => task.type === "quiz" && task.status === "ready" && task.quizId)
-            .filter((task) => matchesQuizScope({ id: task.quizId!, document_id: task.documentId }, scopeFilter))
-            .filter((task) => task.scheduledDate === todayLocal)
-            .filter((task) => matchesQuizScope({ id: task.quizId!, document_id: task.documentId }, scopeFilter))
+            .filter((task) => task.type === "quiz" && task.scheduledDate === todayLocal)
+            .filter((task) => matchesQuizScope({ id: task.quizId || task.id, document_id: task.documentId }, scopeFilter))
             .map((task) => ({
-                id: task.quizId!,
+                id: task.quizId || task.id,
                 title: task.title,
                 documentTitle: task.documentTitle,
                 dueDate: task.scheduledDate,
+                // Add metadata to allow the UI to handle generation if needed
+                taskId: task.id,
+                status: task.status,
+                documentId: task.documentId,
+                conceptIds: task.conceptIds,
             }))
 
         const combined = new Map<string, typeof allQuizzesForToday[0]>()

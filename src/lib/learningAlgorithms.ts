@@ -138,8 +138,8 @@ export function calculateTopicMastery(attempts: AttemptLogEntry[]): number {
 /**
  * Confidence rises with more attempts.
  *   1 attempt  → 0.33
- *   2 attempts → 0.67
- *   3+ attempts → 1.00
+ *   2 attempts → 0.67 (Developing)
+ *   3 attempts → 1.00 (Mastered)
  */
 export function calculateConfidence(attemptCount: number, k = 3): number {
     return Math.min(1, attemptCount / k)
@@ -168,14 +168,14 @@ export function calculateFinalMastery(
 /**
  * Convert numeric mastery + confidence into a human-readable level.
  *
- * Mastered:     finalMastery >= 80 AND confidence >= 0.67
+ * Mastered:     finalMastery >= 80 AND confidence >= 0.80
  * Developing:   finalMastery 60–79
  * Needs Review: finalMastery < 60
  */
 export function getMasteryLevel(
     finalMastery: number,
     confidence: number,
-    thresholds = { mastered: 80, developing: 60, confRequired: 0.67 },
+    thresholds = { mastered: 80, developing: 60, confRequired: 0.8 },
 ): MasteryLevel {
     if (finalMastery >= thresholds.mastered && confidence >= thresholds.confRequired) {
         return 'mastered'

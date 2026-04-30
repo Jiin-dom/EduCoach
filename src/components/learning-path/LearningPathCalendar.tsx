@@ -9,7 +9,6 @@ import {
     BookOpen,
 
     Target,
-    Loader2,
     Zap,
 
     AlertCircle,
@@ -32,8 +31,6 @@ import { useLearningPathPlan } from "@/hooks/useLearningPathPlan"
 import { useRescheduleAdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { getLearningPathItemsForDate, type LearningPathPlanItem, type PlannedReviewPlanItem } from "@/lib/learningPathPlan"
 import type { LearningPathPlanScopeFilter } from "@/lib/learningPathScope"
-import { useReplanLearningPath } from "@/hooks/useGoalWindowScheduling"
-import { useAuth } from "@/contexts/AuthContext"
 import { toast } from "sonner"
 
 function getDaysInMonth(year: number, month: number) {
@@ -53,6 +50,10 @@ interface QuizItem {
     title: string;
     documentTitle: string | null;
     dueDate: string | null;
+    taskId?: string;
+    status?: string;
+    documentId?: string;
+    conceptIds?: string[];
 }
 
 interface LearningPathCalendarProps {
@@ -83,10 +84,8 @@ export function LearningPathCalendar({
     
     const rescheduleDueDate = useRescheduleConceptDueDate()
     const rescheduleAdaptiveTask = useRescheduleAdaptiveStudyTask()
-    const replanLearningPath = useReplanLearningPath()
     const { data: attempts = [] } = useUserAttempts()
     const { data: quizzes = [] } = useQuizzes()
-    const { profile } = useAuth()
     const adaptiveQuizPolicy = useAdaptiveQuizPolicies({
         quizzes,
         attempts,
@@ -102,8 +101,61 @@ export function LearningPathCalendar({
         developingCount: plan.performancePlannedReviews.filter((item) => item.mastery.display_mastery_level === "developing").length,
     }
 
+    const handleAdaptiveQuizAction = (task: {
+        id?: string;
+        taskId?: string;
+        taskKey?: string;
+        status?: string;
+        documentId?: string;
+        conceptIds?: string[];
+    }) => {
+        const documentId = task.documentId
+        if (!documentId) return
+
+        const shouldForceNewQuiz = task.taskKey?.startsWith('manual:') === true
+        const fallbackQuizId = shouldForceNewQuiz ? undefined : reusableReadyQuizIdByDocument.get(documentId)
+        const effectiveQuizId = (task.id && task.id !== task.taskId ? task.id : null) ?? fallbackQuizId
+        
+        if (effectiveQuizId) {
+            routeToQuizzesWithHighlight(effectiveQuizId, task.taskId)
+            return
+        }
+
+        if (task.status === 'generating') {
+            toast.info('Your adaptive quiz is still being prepared. Check the Quizzes page in a moment.')
+            navigate('/quizzes')
+            return
+        }
+
+        if (task.status === 'needs_generation' && completedDocumentIdsToday.has(documentId)) {
+            toast.info('You already completed today\'s quiz for this file. The next adaptive quiz will be prepared on the next available study day.')
+            return
+        }
+
+        toast.loading('Preparing adaptive quiz...')
+        generateReview.mutate(
+            {
+                documentId,
+                focusConceptIds: task.conceptIds || [],
+                questionCount: Math.max(10, Math.min(20, (task.conceptIds?.length || 0) * 2)),
+                forceNew: shouldForceNewQuiz,
+                sourceTaskId: task.taskId,
+            },
+            {
+                onSuccess: (data) => {
+                    toast.dismiss()
+                    routeToQuizzesWithHighlight(data.quizId, task.taskId)
+                },
+                onError: (err) => {
+                    toast.dismiss()
+                    toast.error('Adaptive quiz generation failed: ' + (err as Error).message)
+                },
+            },
+        )
+    }
+
     const dueTodayCount = plan.items.filter((item) => item.date === todayLocal).length
-    const confidenceTarget = Math.round((learningConfig?.confidence_threshold_mastered ?? 0.67) * 100)
+    const confidenceTarget = Math.round((learningConfig?.confidence_threshold_mastered ?? 0.8) * 100)
 
     // Compute Dates
     const now = anchorDate
@@ -313,40 +365,14 @@ export function LearningPathCalendar({
 
         const openTask = () => {
              if (task.type === 'quiz') {
-                 const shouldForceNewQuiz = task.taskKey?.startsWith('manual:') === true
-                 const fallbackQuizId = shouldForceNewQuiz ? undefined : reusableReadyQuizIdByDocument.get(task.documentId)
-                 const effectiveQuizId = task.quizId ?? fallbackQuizId
-                 if (effectiveQuizId) {
-                     routeToQuizzesWithHighlight(effectiveQuizId, task.id)
-                 } else {
-                     if (task.status === 'generating') {
-                         toast.info('Your adaptive quiz is still being prepared. Check the Quizzes page in a moment.')
-                         navigate('/quizzes')
-                     } else if (task.status === 'needs_generation' && completedDocumentIdsToday.has(task.documentId)) {
-                         toast.info('You already completed today\'s quiz for this file. The next adaptive quiz will be prepared on the next available study day.')
-                     } else {
-                         toast.loading('Preparing adaptive quiz...')
-                         generateReview.mutate(
-                             {
-                                 documentId: task.documentId,
-                                 focusConceptIds: task.conceptIds,
-                                questionCount: Math.max(10, Math.min(20, task.conceptIds.length * 2)),
-                                forceNew: shouldForceNewQuiz,
-                                sourceTaskId: task.id,
-                             },
-                             {
-                                 onSuccess: (data) => {
-                                     toast.dismiss()
-                                     routeToQuizzesWithHighlight(data.quizId, task.id)
-                                 },
-                                 onError: (err) => {
-                                     toast.dismiss()
-                                     toast.error('Adaptive quiz generation failed: ' + (err as Error).message)
-                                 },
-                             },
-                         )
-                     }
-                 }
+                 handleAdaptiveQuizAction({
+                     id: task.quizId,
+                     taskId: task.id,
+                     taskKey: task.taskKey,
+                     status: task.status,
+                     documentId: task.documentId,
+                     conceptIds: task.conceptIds
+                 })
                  return
              }
              if (task.type === 'flashcards') {
@@ -452,30 +478,7 @@ export function LearningPathCalendar({
         )
     }
 
-    const handleAutomaticReplan = async () => {
-        try {
-            const availableStudyDays = profile?.available_study_days ?? []
-            const dailyStudyMinutes = profile?.daily_study_minutes ?? 30
-            const result = await replanLearningPath.mutateAsync({
-                availableStudyDays,
-                dailyStudyMinutes,
-                preferredStudyTimeStart: profile?.preferred_study_time_start ?? null,
-                preferredStudyTimeEnd: profile?.preferred_study_time_end ?? null,
-            })
 
-            if (result.total === 0) {
-                toast.info("No goal-dated documents found to replan.")
-                return
-            }
-            if (result.failed > 0) {
-                toast.warning(`Replanned ${result.success}/${result.total} goal-based document schedules.`)
-                return
-            }
-            toast.success(`Replanned ${result.total} schedules.`)
-        } catch (error) {
-            toast.error(error instanceof Error ? error.message : "Failed to replan.")
-        }
-    }
     
     // AI Insight text
     const getInsightText = () => {
@@ -507,15 +510,6 @@ export function LearningPathCalendar({
                                 {getInsightText()}
                             </h3>
                         </div>
-                        <Button 
-                            variant="secondary" 
-                            className="w-max bg-white/20 hover:bg-white/30 text-white border-0 backdrop-blur-sm"
-                            disabled={replanLearningPath.isPending}
-                            onClick={handleAutomaticReplan}
-                        >
-                            {replanLearningPath.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Clock className="w-4 h-4 mr-2" />}
-                            Auto-Optimize Schedule
-                        </Button>
                     </CardContent>
                 </Card>
 
@@ -571,82 +565,100 @@ export function LearningPathCalendar({
                 </Card>
             </div>
 
-            {/* Due Today Quizzes Section */}
-            {((dueTodayQuizzes && dueTodayQuizzes.length > 0) || (completedTodayQuizzes && completedTodayQuizzes.length > 0)) && (
-                <Card className="mb-6 border-red-200 bg-red-50/10 shadow-sm overflow-hidden">
-                    <div className="flex flex-col lg:flex-row items-stretch divide-y lg:divide-y-0 lg:divide-x divide-red-100">
-                        {/* Due Section */}
-                        {dueTodayQuizzes.length > 0 && (
-                            <div className="flex-1">
-                                <CardHeader className="pb-2 pt-3 px-4 bg-red-50/50">
-                                    <CardTitle className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-red-600">
-                                        <div className="flex items-center gap-2">
-                                            <Target className="w-3.5 h-3.5" />
-                                            Due Today
-                                        </div>
-                                        <span className="bg-red-100 px-1.5 py-0.5 rounded text-[10px]">{dueTodayQuizzes.length}</span>
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent className="p-4 bg-white/50 overflow-y-auto max-h-[200px] scrollbar-thin">
-                                    <div className="flex flex-col gap-2">
-                                        {dueTodayQuizzes.filter((quiz) => !dismissedDueTodayQuizIds[quiz.id]).map((quiz) => (
-                                            <button
-                                                key={quiz.id}
-                                                type="button"
-                                                onClick={() => routeToQuizzesWithHighlight(quiz.id)}
-                                                className="flex items-center justify-between rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:border-red-400 hover:shadow-md text-left group"
-                                            >
-                                                <div className="min-w-0 pr-2">
-                                                    <p className="truncate font-bold text-xs tracking-tight group-hover:text-red-600 transition-colors">{quiz.title}</p>
-                                                    {quiz.documentTitle && (
-                                                        <p className="truncate text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
+            {/* Due Today Quizzes Section - Always visible for tracking */}
+            <Card className="mb-6 border-red-200 bg-red-50/10 shadow-sm overflow-hidden">
+                <div className="flex flex-col lg:flex-row items-stretch divide-y lg:divide-y-0 lg:divide-x divide-red-100">
+                    {/* Due Section */}
+                    <div className="flex-1">
+                        <CardHeader className="pb-2 pt-3 px-4 bg-red-50/50">
+                            <CardTitle className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-red-600">
+                                <div className="flex items-center gap-2">
+                                    <Target className="w-3.5 h-3.5" />
+                                    Due Today
+                                </div>
+                                <span className="bg-red-100 px-1.5 py-0.5 rounded text-[10px]">{dueTodayQuizzes.length}</span>
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-4 bg-white/50 overflow-y-auto max-h-[200px] scrollbar-thin">
+                            {dueTodayQuizzes.length > 0 ? (
+                                <div className="flex flex-col gap-2">
+                                    {dueTodayQuizzes.filter((quiz) => !dismissedDueTodayQuizIds[quiz.id]).map((quiz) => (
+                                        <button
+                                            key={quiz.id}
+                                            type="button"
+                                            onClick={() => {
+                                                if (quiz.taskId) {
+                                                    handleAdaptiveQuizAction(quiz)
+                                                } else {
+                                                    routeToQuizzesWithHighlight(quiz.id)
+                                                }
+                                            }}
+                                            className="flex items-center justify-between rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:border-red-400 hover:shadow-md text-left group"
+                                        >
+                                            <div className="min-w-0 pr-2">
+                                                <p className="truncate font-bold text-xs tracking-tight group-hover:text-red-600 transition-colors">
+                                                    {quiz.title}
+                                                    {quiz.status && quiz.status !== 'ready' && (
+                                                        <span className="ml-2 text-[8px] opacity-60 italic lowercase">({quiz.status})</span>
                                                     )}
-                                                </div>
-                                                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 group-hover:text-red-500" />
-                                            </button>
-                                        ))}
-                                    </div>
-                                </CardContent>
-                            </div>
-                        )}
-
-                        {/* Completed Section */}
-                        {completedTodayQuizzes.length > 0 && (
-                            <div className="flex-1">
-                                <CardHeader className="pb-2 pt-3 px-4 bg-green-50/50">
-                                    <CardTitle className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-green-600">
-                                        <div className="flex items-center gap-2">
-                                            <CheckCircle2 className="w-3.5 h-3.5" />
-                                            Completed Today
-                                        </div>
-                                        <span className="bg-green-100 px-1.5 py-0.5 rounded text-[10px]">{completedTodayQuizzes.length}</span>
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent className="p-4 bg-white/50 overflow-y-auto max-h-[200px] scrollbar-thin">
-                                    <div className="flex flex-col gap-2">
-                                        {completedTodayQuizzes.map((quiz) => (
-                                            <button
-                                                key={quiz.id}
-                                                type="button"
-                                                onClick={() => routeToQuizzesWithHighlight(quiz.id)}
-                                                className="flex items-center justify-between rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:border-green-400 hover:shadow-md text-left group"
-                                            >
-                                                <div className="min-w-0 pr-2">
-                                                    <p className="truncate font-bold text-xs tracking-tight group-hover:text-green-600 transition-colors">{quiz.title}</p>
-                                                    {quiz.documentTitle && (
-                                                        <p className="truncate text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
-                                                    )}
-                                                </div>
-                                                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-500" />
-                                            </button>
-                                        ))}
-                                    </div>
-                                </CardContent>
-                            </div>
-                        )}
+                                                </p>
+                                                {quiz.documentTitle && (
+                                                    <p className="truncate text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
+                                                )}
+                                            </div>
+                                            <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 group-hover:text-red-500" />
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="h-full flex items-center justify-center py-4">
+                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">No quizzes due today</p>
+                                </div>
+                            )}
+                        </CardContent>
                     </div>
-                </Card>
-            )}
+
+                    {/* Completed Section */}
+                    <div className="flex-1">
+                        <CardHeader className="pb-2 pt-3 px-4 bg-green-50/50">
+                            <CardTitle className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-green-600">
+                                <div className="flex items-center gap-2">
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    Completed Today
+                                </div>
+                                <span className="bg-green-100 px-1.5 py-0.5 rounded text-[10px]">{completedTodayQuizzes.length}</span>
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-4 bg-white/50 overflow-y-auto max-h-[200px] scrollbar-thin">
+                            {completedTodayQuizzes.length > 0 ? (
+                                <div className="flex flex-col gap-2">
+                                    {completedTodayQuizzes.map((quiz) => (
+                                        <button
+                                            key={quiz.id}
+                                            type="button"
+                                            onClick={() => routeToQuizzesWithHighlight(quiz.id)}
+                                            className="flex items-center justify-between rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:border-green-400 hover:shadow-md text-left group"
+                                        >
+                                            <div className="min-w-0 pr-2">
+                                                <p className="truncate font-bold text-xs tracking-tight group-hover:text-green-600 transition-colors">{quiz.title}</p>
+                                                {quiz.documentTitle && (
+                                                    <p className="truncate text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
+                                                )}
+                                            </div>
+                                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="h-full flex items-center justify-center py-4">
+                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">None completed yet</p>
+                                </div>
+                            )}
+                        </CardContent>
+                    </div>
+                </div>
+            </Card>
+
 
             {/* Main Calendar Section */}
             <Card className="shadow-sm border-muted">
