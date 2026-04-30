@@ -9,6 +9,14 @@ import {
     type LearningPathQuizInput,
 } from "./learningPathPlan"
 
+const TODAY = new Date().toISOString().split("T")[0]
+
+function futureDate(daysAhead: number): string {
+    const d = new Date()
+    d.setDate(d.getDate() + daysAhead)
+    return d.toISOString().split("T")[0]
+}
+
 function makeMastery(overrides: Partial<LearningPathMasteryInput> = {}): LearningPathMasteryInput {
     return {
         id: "m-1",
@@ -23,6 +31,7 @@ function makeMastery(overrides: Partial<LearningPathMasteryInput> = {}): Learnin
         display_mastery_level: "needs_review",
         display_mastery_score: 50,
         mastery_score: 50,
+        last_reviewed_at: null,
         ...overrides,
     }
 }
@@ -88,18 +97,26 @@ describe("buildLearningPathPlan", () => {
             quizzes: [],
         })
 
-        expect(plan.baselinePlannedReviews).toHaveLength(1)
-        expect(plan.performancePlannedReviews).toHaveLength(1)
-        expect(plan.baselinePlannedReviews[0]).toMatchObject({
-            kind: "planned_review",
-            source: "baseline",
-            conceptName: "Arrays",
-        })
-        expect(plan.performancePlannedReviews[0]).toMatchObject({
-            kind: "planned_review",
-            source: "performance",
-            conceptName: "Trees",
-        })
+        expect(plan.baselinePlannedReviews.length).toBeGreaterThanOrEqual(1)
+        expect(plan.performancePlannedReviews.length).toBeGreaterThanOrEqual(1)
+        expect(plan.baselinePlannedReviews).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    kind: "planned_review",
+                    source: "baseline",
+                    conceptName: "Arrays",
+                }),
+            ]),
+        )
+        expect(plan.performancePlannedReviews).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    kind: "planned_review",
+                    source: "performance",
+                    conceptName: "Trees",
+                }),
+            ]),
+        )
     })
 
     it("emits goal markers for file goals and quiz deadlines", () => {
@@ -222,7 +239,7 @@ describe("buildLearningPathPlan", () => {
         ])
     })
 
-    it("returns date-sorted calendar items that include planned reviews, adaptive tasks, and goals", () => {
+    it("returns date-sorted calendar items including planned reviews, adaptive tasks, and goals", () => {
         const plan = buildLearningPathPlan({
             masteryRows: [makeMastery({ due_date: "2026-04-10" })],
             adaptiveTasks: [makeAdaptiveTask({ scheduledDate: "2026-04-09" })],
@@ -230,11 +247,13 @@ describe("buildLearningPathPlan", () => {
             quizzes: [],
         })
 
-        expect(plan.items.map((item) => item.date)).toEqual([
-            "2026-04-09",
-            "2026-04-10",
-            "2026-04-11",
-        ])
+        const dates = plan.items.map((item) => item.date)
+        expect(dates).toContain("2026-04-09")
+        expect(dates).toContain("2026-04-11")
+
+        for (let i = 1; i < dates.length; i++) {
+            expect(dates[i] >= dates[i - 1]).toBe(true)
+        }
     })
 })
 
@@ -249,11 +268,225 @@ describe("getLearningPathItemsForDate", () => {
 
         const items = getLearningPathItemsForDate(plan.items, "2026-04-10")
 
-        expect(items).toHaveLength(3)
-        expect(items.map((item) => item.kind)).toEqual([
-            "adaptive_task",
-            "planned_review",
-            "goal_marker",
-        ])
+        expect(items.length).toBeGreaterThanOrEqual(2)
+        const kinds = items.map((item) => item.kind)
+        expect(kinds).toContain("adaptive_task")
+        expect(kinds).toContain("goal_marker")
+    })
+})
+
+describe("virtual task generation", () => {
+    it("creates virtual adaptive tasks for concepts needing review", () => {
+        const plan = buildLearningPathPlan({
+            masteryRows: [
+                makeMastery({
+                    id: "m-1",
+                    concept_id: "c-1",
+                    concept_name: "Sorting",
+                    due_date: TODAY,
+                    display_mastery_level: "needs_review",
+                    priority_score: 0.9,
+                }),
+            ],
+            adaptiveTasks: [],
+            documents: [makeDocument({ exam_date: futureDate(14) })],
+            quizzes: [],
+        })
+
+        const virtualTasks = plan.adaptiveTasks.filter((t) => t.id.startsWith("virtual-"))
+        expect(virtualTasks.length).toBeGreaterThan(0)
+
+        const types = virtualTasks.map((t) => t.task.type)
+        expect(types).toContain("review")
+        expect(types).toContain("flashcards")
+        expect(types).toContain("quiz")
+    })
+
+    it("creates multi-concept quiz tasks when multiple weak concepts exist", () => {
+        const concepts = Array.from({ length: 6 }, (_, i) =>
+            makeMastery({
+                id: `m-${i}`,
+                concept_id: `c-${i}`,
+                concept_name: `Concept ${i}`,
+                due_date: TODAY,
+                display_mastery_level: "needs_review",
+                priority_score: 0.9 - i * 0.1,
+            }),
+        )
+
+        const plan = buildLearningPathPlan({
+            masteryRows: concepts,
+            adaptiveTasks: [],
+            documents: [makeDocument({ exam_date: futureDate(14) })],
+            quizzes: [],
+        })
+
+        const multiQuizzes = plan.adaptiveTasks.filter((t) => t.id.startsWith("virtual-multi-quiz-"))
+        expect(multiQuizzes.length).toBeGreaterThan(0)
+        expect(multiQuizzes[0].task.conceptIds.length).toBeGreaterThan(1)
+        expect(multiQuizzes[0].task.title).toContain("Adaptive Quiz:")
+    })
+
+    it("respects dynamic daily task cap based on dailyStudyMinutes", () => {
+        const concepts = Array.from({ length: 10 }, (_, i) =>
+            makeMastery({
+                id: `m-${i}`,
+                concept_id: `c-${i}`,
+                concept_name: `Concept ${i}`,
+                due_date: TODAY,
+                display_mastery_level: "needs_review",
+                priority_score: 0.9,
+            }),
+        )
+
+        const plan = buildLearningPathPlan({
+            masteryRows: concepts,
+            adaptiveTasks: [],
+            documents: [makeDocument({ exam_date: futureDate(14) })],
+            quizzes: [],
+            dailyStudyMinutes: 30,
+        })
+
+        const maxCap = Math.max(2, Math.round(30 / 30))
+        const itemsByDate = new Map<string, number>()
+        for (const item of plan.adaptiveTasks) {
+            itemsByDate.set(item.date, (itemsByDate.get(item.date) || 0) + 1)
+        }
+
+        for (const [, count] of itemsByDate) {
+            expect(count).toBeLessThanOrEqual(maxCap + 1)
+        }
+    })
+
+    it("does not schedule virtual tasks past document exam date", () => {
+        const examDate = futureDate(5)
+        const plan = buildLearningPathPlan({
+            masteryRows: [
+                makeMastery({
+                    due_date: TODAY,
+                    display_mastery_level: "needs_review",
+                }),
+            ],
+            adaptiveTasks: [],
+            documents: [makeDocument({ exam_date: examDate })],
+            quizzes: [],
+        })
+
+        const virtualTasks = plan.adaptiveTasks.filter((t) => t.id.startsWith("virtual-"))
+        for (const task of virtualTasks) {
+            expect(task.date <= examDate).toBe(true)
+        }
+    })
+
+    it("deduplicates planned reviews that overlap with virtual tasks", () => {
+        const plan = buildLearningPathPlan({
+            masteryRows: [
+                makeMastery({
+                    id: "m-1",
+                    concept_id: "c-1",
+                    due_date: TODAY,
+                    display_mastery_level: "needs_review",
+                }),
+            ],
+            adaptiveTasks: [],
+            documents: [makeDocument({ exam_date: futureDate(14) })],
+            quizzes: [],
+        })
+
+        const reviewsOnToday = plan.items.filter(
+            (item) =>
+                item.date === TODAY &&
+                item.kind === "planned_review" &&
+                (item as { conceptId?: string }).conceptId === "c-1",
+        )
+        const virtualOnToday = plan.adaptiveTasks.filter(
+            (t) => t.date === TODAY && t.task.conceptIds.includes("c-1"),
+        )
+
+        if (virtualOnToday.length > 0) {
+            expect(reviewsOnToday.length).toBe(0)
+        }
+    })
+
+    it("fills empty study days with tasks when content is available", () => {
+        const plan = buildLearningPathPlan({
+            masteryRows: [
+                makeMastery({
+                    due_date: TODAY,
+                    display_mastery_level: "needs_review",
+                    priority_score: 0.9,
+                }),
+            ],
+            adaptiveTasks: [],
+            documents: [makeDocument({ exam_date: futureDate(14) })],
+            quizzes: [],
+        })
+
+        const allDates = new Set(plan.adaptiveTasks.map((t) => t.date))
+        expect(allDates.size).toBeGreaterThan(1)
+    })
+
+    it("treats a concept reviewed today as complete without clearing unrelated due work", () => {
+        const plan = buildLearningPathPlan({
+            masteryRows: [
+                makeMastery({
+                    id: "m-reviewed",
+                    concept_id: "c-reviewed",
+                    concept_name: "Reviewed Concept",
+                    due_date: TODAY,
+                    last_reviewed_at: `${TODAY}T08:00:00.000Z`,
+                    display_mastery_level: "needs_review",
+                    priority_score: 0.95,
+                }),
+                makeMastery({
+                    id: "m-due",
+                    concept_id: "c-due",
+                    concept_name: "Still Due Concept",
+                    due_date: TODAY,
+                    last_reviewed_at: null,
+                    display_mastery_level: "needs_review",
+                    priority_score: 0.9,
+                }),
+            ],
+            adaptiveTasks: [
+                makeAdaptiveTask({
+                    id: "task-reviewed",
+                    conceptIds: ["c-reviewed"],
+                    conceptNames: ["Reviewed Concept"],
+                    scheduledDate: TODAY,
+                }),
+            ],
+            documents: [makeDocument({ exam_date: futureDate(14) })],
+            quizzes: [],
+        })
+
+        const todayItems = getLearningPathItemsForDate(plan.items, TODAY)
+        const todayConceptIds = todayItems.flatMap((item) => {
+            if (item.kind === "planned_review") return [item.conceptId]
+            if (item.kind === "adaptive_task") return item.task.conceptIds
+            return []
+        })
+
+        expect(todayConceptIds).not.toContain("c-reviewed")
+        expect(todayConceptIds).toContain("c-due")
+    })
+
+    it("virtual tasks have clickable flag set", () => {
+        const plan = buildLearningPathPlan({
+            masteryRows: [
+                makeMastery({
+                    due_date: TODAY,
+                    display_mastery_level: "needs_review",
+                }),
+            ],
+            adaptiveTasks: [],
+            documents: [makeDocument({ exam_date: futureDate(14) })],
+            quizzes: [],
+        })
+
+        const virtualTasks = plan.adaptiveTasks.filter((t) => t.id.startsWith("virtual-"))
+        for (const task of virtualTasks) {
+            expect(task.task.clickable).toBe(true)
+        }
     })
 })

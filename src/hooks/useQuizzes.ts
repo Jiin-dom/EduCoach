@@ -80,6 +80,8 @@ export interface GenerateReviewQuizInput {
     documentId: string
     focusConceptIds: string[]
     questionCount?: number
+    forceNew?: boolean
+    sourceTaskId?: string
 }
 
 export interface SubmitAttemptInput {
@@ -455,69 +457,79 @@ export function useUpdateQuizDeadline() {
  */
 export function useGenerateReviewQuiz() {
     const queryClient = useQueryClient()
+    const ADAPTIVE_REVIEW_PREFIXES = ['Adaptive:', 'Baseline:', 'Review:', 'Review Quiz:']
 
     return useMutation({
         mutationFn: async (input: GenerateReviewQuizInput) => {
             console.log('[Quiz] Starting review quiz generation...', input)
+            const bindQuizToSourceTask = async (quizId: string, status: 'generating' | 'ready') => {
+                if (!input.sourceTaskId) return
+                const { error } = await supabase.rpc('bind_generated_quiz_to_adaptive_task', {
+                    p_task_id: input.sourceTaskId,
+                    p_quiz_id: quizId,
+                    p_status: status,
+                })
+                if (error) throw new Error(error.message)
+            }
 
             const session = await ensureFreshSession()
             if (!session) {
                 throw new Error('Your session has expired — please log in again')
             }
 
-            // De-dup guard:
-            // Reuse an in-flight review quiz first, then reuse the latest unattempted
-            // ready review quiz for the same document. This prevents duplicate
-            // "Review Quiz: <doc>" records when auto-generation and manual click overlap.
-            const { data: existingReviewQuizzes, error: existingQuizError } = await supabase
-                .from('quizzes')
-                .select('id, status, question_count, created_at')
-                .eq('user_id', session.user.id)
-                .eq('document_id', input.documentId)
-                .ilike('title', 'Review Quiz:%')
-                .in('status', ['generating', 'ready'])
-                .order('created_at', { ascending: false })
-
-            if (existingQuizError) {
-                throw new Error(existingQuizError.message)
-            }
-
-            const existingRows = (existingReviewQuizzes || []) as Array<{
-                id: string
-                status: 'generating' | 'ready'
-                question_count: number | null
-                created_at: string
-            }>
-
-            const generatingQuiz = existingRows.find((q) => q.status === 'generating')
-            if (generatingQuiz) {
-                console.log('[Quiz] Reusing generating review quiz:', generatingQuiz.id)
-                return {
-                    success: true,
-                    quizId: generatingQuiz.id,
-                    questionCount: generatingQuiz.question_count ?? input.questionCount ?? 0,
-                }
-            }
-
-            const latestReadyQuiz = existingRows.find((q) => q.status === 'ready')
-            if (latestReadyQuiz) {
-                const { count: completedAttemptCount, error: attemptsError } = await supabase
-                    .from('attempts')
-                    .select('id', { count: 'exact', head: true })
+            if (!input.forceNew) {
+                const { data: existingReviewQuizzes, error: existingQuizError } = await supabase
+                    .from('quizzes')
+                    .select('id, status, question_count, created_at')
                     .eq('user_id', session.user.id)
-                    .eq('quiz_id', latestReadyQuiz.id)
-                    .not('completed_at', 'is', null)
+                    .eq('document_id', input.documentId)
+                    .or(ADAPTIVE_REVIEW_PREFIXES.map((p) => `title.ilike.${p}%`).join(','))
+                    .in('status', ['generating', 'ready'])
+                    .order('created_at', { ascending: false })
 
-                if (attemptsError) {
-                    throw new Error(attemptsError.message)
+                if (existingQuizError) {
+                    throw new Error(existingQuizError.message)
                 }
 
-                if ((completedAttemptCount ?? 0) === 0) {
-                    console.log('[Quiz] Reusing ready unattempted review quiz:', latestReadyQuiz.id)
+                const existingRows = (existingReviewQuizzes || []) as Array<{
+                    id: string
+                    status: 'generating' | 'ready'
+                    question_count: number | null
+                    created_at: string
+                }>
+
+                const generatingQuiz = existingRows.find((q) => q.status === 'generating')
+                if (generatingQuiz) {
+                    console.log('[Quiz] Reusing generating review quiz:', generatingQuiz.id)
+                    await bindQuizToSourceTask(generatingQuiz.id, 'generating')
                     return {
                         success: true,
-                        quizId: latestReadyQuiz.id,
-                        questionCount: latestReadyQuiz.question_count ?? input.questionCount ?? 0,
+                        quizId: generatingQuiz.id,
+                        questionCount: generatingQuiz.question_count ?? input.questionCount ?? 0,
+                    }
+                }
+
+                const latestReadyQuiz = existingRows.find((q) => q.status === 'ready')
+                if (latestReadyQuiz) {
+                    const { count: completedAttemptCount, error: attemptsError } = await supabase
+                        .from('attempts')
+                        .select('id', { count: 'exact', head: true })
+                        .eq('user_id', session.user.id)
+                        .eq('quiz_id', latestReadyQuiz.id)
+                        .not('completed_at', 'is', null)
+
+                    if (attemptsError) {
+                        throw new Error(attemptsError.message)
+                    }
+
+                    if ((completedAttemptCount ?? 0) === 0) {
+                        console.log('[Quiz] Reusing ready unattempted review quiz:', latestReadyQuiz.id)
+                        await bindQuizToSourceTask(latestReadyQuiz.id, 'ready')
+                        return {
+                            success: true,
+                            quizId: latestReadyQuiz.id,
+                            questionCount: latestReadyQuiz.question_count ?? input.questionCount ?? 0,
+                        }
                     }
                 }
             }
@@ -540,7 +552,11 @@ export function useGenerateReviewQuiz() {
             }
 
             console.log('[Quiz] Review quiz generation successful:', data)
-            return data as { success: boolean; quizId: string; questionCount: number }
+            const result = data as { success: boolean; quizId: string; questionCount: number }
+            if (result.quizId) {
+                await bindQuizToSourceTask(result.quizId, 'generating')
+            }
+            return result
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: quizKeys.all })

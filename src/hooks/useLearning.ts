@@ -438,7 +438,6 @@ export function useMarkConceptReviewed() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: learningKeys.all })
-            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
         },
     })
 }

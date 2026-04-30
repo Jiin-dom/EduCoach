@@ -11,6 +11,7 @@ import { getDifficultyColor, getImportanceColor } from '@/hooks/useConcepts'
 import { useConceptMasteryByDocument, useMarkConceptReviewed } from '@/hooks/useLearning'
 import { useGenerateQuiz } from '@/hooks/useQuizzes'
 import { cleanDisplayText } from '@/lib/studyUtils'
+import { isReviewedOnDate } from '@/lib/conceptReviewState'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
@@ -36,6 +37,7 @@ export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, o
     const [search, setSearch] = useState('')
     const [sortBy, setSortBy] = useState<SortField>('importance')
     const [selectedConcept, setSelectedConcept] = useState<Concept | null>(null)
+    const [locallyReviewedConceptIds, setLocallyReviewedConceptIds] = useState<Set<string>>(new Set())
     const todayIso = useMemo(() => new Date().toISOString().split('T')[0], [])
     const masteryByConceptId = useMemo(
         () => new Map(conceptMastery.map((row) => [row.concept_id, row])),
@@ -92,9 +94,16 @@ export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, o
                 easeFactor: Number(mastery.ease_factor) || 2.5,
             },
             {
-                onSuccess: () => toast.success('Concept reviewed', {
-                    description: `${cleanDisplayText(concept.name)} is scheduled for later.`,
-                }),
+                onSuccess: (result) => {
+                    setLocallyReviewedConceptIds((prev) => {
+                        const next = new Set(prev)
+                        next.add(concept.id)
+                        return next
+                    })
+                    toast.success('Concept reviewed', {
+                        description: `${cleanDisplayText(concept.name)} reviewed. Next review: ${new Date(result.dueDate).toLocaleDateString()}.`,
+                    })
+                },
                 onError: (error) => toast.error('Could not mark reviewed', {
                     description: error instanceof Error ? error.message : 'Please try again.',
                 }),
@@ -160,7 +169,9 @@ export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, o
                     const mastery = masteryByConceptId.get(concept.id)
                     const isFocusedConcept = concept.id === focusedConceptId
                     const isDue = !!mastery && mastery.due_date <= todayIso
-                    const showReviewAction = isFocusedConcept || isDue
+                    const isReviewedToday = locallyReviewedConceptIds.has(concept.id) || isReviewedOnDate(mastery?.last_reviewed_at, todayIso)
+                    const showReviewAction = isFocusedConcept || isDue || isReviewedToday
+                    const isReviewingThisConcept = markConceptReviewed.isPending && markConceptReviewed.variables?.conceptId === concept.id
                     const sourcePages = concept.source_pages || []
                     const keywords = concept.keywords || []
 
@@ -267,17 +278,24 @@ export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, o
                                         <div>
                                             <Button
                                                 type="button"
-                                                variant="outline"
+                                                variant={isReviewedToday ? "secondary" : "outline"}
                                                 size="sm"
-                                                className="h-8 gap-1.5 rounded-xl px-2 text-[11px]"
-                                                disabled={markConceptReviewed.isPending}
+                                                className={cn(
+                                                    "h-8 gap-1.5 rounded-xl px-2 text-[11px]",
+                                                    isReviewedToday && "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-700",
+                                                )}
+                                                disabled={isReviewingThisConcept || isReviewedToday}
                                                 onClick={(event) => {
                                                     event.stopPropagation()
                                                     handleMarkReviewed(concept)
                                                 }}
                                             >
-                                                <CheckCircle2 className="h-3.5 w-3.5" />
-                                                Mark Reviewed
+                                                {isReviewingThisConcept ? (
+                                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                ) : (
+                                                    <CheckCircle2 className={cn("h-3.5 w-3.5", isReviewedToday && "fill-emerald-100 text-emerald-600")} />
+                                                )}
+                                                {isReviewedToday ? 'Reviewed Today' : 'Mark Reviewed'}
                                             </Button>
                                         </div>
                                     )}

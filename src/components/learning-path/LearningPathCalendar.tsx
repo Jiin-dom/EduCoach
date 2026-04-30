@@ -198,11 +198,16 @@ export function LearningPathCalendar({
             colors = "bg-primary/5 text-primary border-primary/20 hover:bg-primary/10"
         }
 
+        const isFuture = session.date > todayLocal
         return (
             <button
                 type="button"
                 draggable
                 onClick={() => {
+                    if (isFuture) {
+                        toast.info(`This concept review is scheduled for ${session.date}. You can start it when that day arrives.`)
+                        return
+                    }
                     if (session.documentId) {
                         navigate(`/files/${session.documentId}?tab=concepts&concept=${session.conceptId}`)
                     }
@@ -215,7 +220,7 @@ export function LearningPathCalendar({
                     e.dataTransfer.effectAllowed = 'move'
                 }}
                 className={`w-full text-left p-3 rounded-xl border text-xs mb-2 ${colors} cursor-grab active:cursor-grabbing transition-colors shadow-sm`}
-                title={session.source === "baseline" ? "Drag to reschedule baseline plan" : "Drag to reschedule review deadline"}
+                title={isFuture ? `Planned review (Locked until ${session.date}). Drag to reschedule.` : (session.source === "baseline" ? "Drag to reschedule baseline plan" : "Drag to reschedule review deadline")}
             >
                 <div className="flex items-center gap-2 font-medium truncate">
                     <div className={`p-1.5 rounded-md bg-white/50 shrink-0`}>
@@ -243,11 +248,16 @@ export function LearningPathCalendar({
         if (session.source === "baseline") {
             colors = "bg-primary/10 text-primary border-primary/20"
         }
+        const isFuture = session.date > todayLocal
         return (
             <button
                 type="button"
                 draggable
                 onClick={() => {
+                    if (isFuture) {
+                        toast.info(`This concept review is scheduled for ${session.date}. You can start it when that day arrives.`)
+                        return
+                    }
                     if (session.documentId) {
                         navigate(`/files/${session.documentId}?tab=concepts&concept=${session.conceptId}`)
                     }
@@ -260,7 +270,7 @@ export function LearningPathCalendar({
                     e.dataTransfer.effectAllowed = 'move'
                 }}
                 className={`w-full mt-1 text-left text-[10px] p-1.5 rounded-md truncate border flex items-center gap-1 ${colors} cursor-grab active:cursor-grabbing shadow-sm`}
-                title={session.source === "baseline" ? "Drag to reschedule baseline plan" : "Drag to reschedule review deadline"}
+                title={isFuture ? `Locked until ${session.date}. Drag to reschedule.` : (session.source === "baseline" ? "Drag to reschedule baseline plan" : "Drag to reschedule review deadline")}
             >
                 {session.mastery.display_mastery_level === 'mastered' && <CheckCircle2 className="w-2.5 h-2.5 hidden sm:block" />}
                 {session.mastery.display_mastery_level === 'developing' && <Clock className="w-2.5 h-2.5 hidden sm:block" />}
@@ -301,19 +311,30 @@ export function LearningPathCalendar({
         }
 
         if (item.kind === "goal_marker") {
+            const isFuture = item.date > todayLocal
             const colors = item.markerType === "quiz_deadline"
                 ? "bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100"
                 : "bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100"
             const icon = item.markerType === "quiz_deadline" ? <Target className="w-3.5 h-3.5 text-purple-600" /> : <BookOpen className="w-3.5 h-3.5 text-blue-600" />
             const label = item.markerType === "quiz_deadline" ? "Quiz" : "Study"
 
+            const handleClick = () => {
+                if (isFuture) {
+                    toast.info(`This ${label.toLowerCase()} goal is scheduled for ${item.date}. You can start it when that day arrives.`)
+                    return
+                }
+                if (item.quizId) {
+                    routeToQuizzesWithHighlight(item.quizId)
+                }
+            }
+
             if (compact) {
                 return (
                     <button
                         type="button"
-                        onClick={() => item.quizId && routeToQuizzesWithHighlight(item.quizId)}
+                        onClick={handleClick}
                         className={`w-full mt-1 text-[10px] font-bold p-1.5 rounded-md truncate border flex items-center gap-1 ${colors} hover:opacity-90 transition-opacity shadow-sm ${item.quizId ? 'cursor-pointer' : 'cursor-default'}`}
-                        title={`${item.title} (fixed milestone)`}
+                        title={isFuture ? `${item.title} (Locked until ${item.date})` : `${item.title} (fixed milestone)`}
                     >
                         {icon}
                         <span className="truncate">{item.title}</span>
@@ -325,9 +346,9 @@ export function LearningPathCalendar({
             return (
                 <button
                     type="button"
-                    onClick={() => item.quizId && routeToQuizzesWithHighlight(item.quizId)}
+                    onClick={handleClick}
                     className={`w-full text-left p-3 rounded-xl border text-xs mb-2 ${colors} hover:opacity-90 transition-opacity shadow-sm ${item.quizId ? 'cursor-pointer' : 'cursor-default'}`}
-                    title={`${label} goal (fixed milestone)`}
+                    title={isFuture ? `${label} goal (Locked until ${item.date})` : `${label} goal (fixed milestone)`}
                 >
                     <div className="flex items-center gap-2 font-bold truncate">
                         <div className="p-1.5 rounded-md bg-white/60 shrink-0">
@@ -362,7 +383,14 @@ export function LearningPathCalendar({
             ? <CheckCircle2 {...iconProps} className="w-3.5 h-3.5 text-green-600" />
             : task.type === 'quiz' ? <Target {...iconProps} /> : task.type === 'flashcards' ? <BookOpen {...iconProps} /> : <AlertCircle {...iconProps} />
 
+        const isFuture = item.date > todayLocal
+        const isLocked = isFuture && !isCompleted
+
         const openTask = () => {
+             if (isLocked) {
+                 toast.info(`This ${task.type} session is scheduled for ${item.date}. You can start it when that day arrives.`)
+                 return
+             }
              if (task.type === 'quiz') {
                  handleAdaptiveQuizAction({
                      id: task.quizId,
@@ -401,7 +429,7 @@ export function LearningPathCalendar({
                     e.dataTransfer.effectAllowed = 'move'
                 }}
                 className={`${compact ? 'mt-1 text-[10px] p-1.5 rounded-md' : 'p-3 rounded-xl mb-2'} w-full border text-xs shadow-sm ${colors} text-left transition-all duration-500 ${isCompleted ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'} hover:shadow-md flex items-center gap-2 ${dismissingTaskIds[task.id] ? 'opacity-0 scale-[0.98]' : ''}`}
-                title={`${task.title}. ${isCompleted ? 'Completed. Click to retake.' : 'Drag to move or click to open.'}`}
+                title={isLocked ? `${task.title} (Locked until ${item.date}). Drag to reschedule.` : `${task.title}. ${isCompleted ? 'Completed. Click to retake.' : 'Drag to move or click to open.'}`}
             >
                 <div className={`p-1.5 rounded-md shrink-0 ${isCompleted ? 'bg-green-100/50' : 'bg-white/60'}`}>
                     {taskIcon}
@@ -445,7 +473,7 @@ export function LearningPathCalendar({
             if (source.task.scheduledDate === targetDateStr) return
 
             rescheduleAdaptiveTask.mutate(
-                { taskId: source.task.id, newScheduledDate: targetDateStr },
+                { taskId: source.task.id, newScheduledDate: targetDateStr, task: source.task },
                 {
                     onSuccess: () => toast.success(`Moved ${source.task.type} to ${targetDateStr}.`),
                     onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to move study task."),

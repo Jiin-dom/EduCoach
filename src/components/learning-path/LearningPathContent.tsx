@@ -144,7 +144,14 @@ function AdaptiveTaskCard({
                     </div>
                 </div>
                 <Button
-                    onClick={() => onAction(task)}
+                    onClick={() => {
+                        const today = new Date().toISOString().split('T')[0]
+                        if (task.scheduledDate > today) {
+                            toast.info(`This ${task.type} session is scheduled for ${task.scheduledDate}. You can start it when that day arrives.`)
+                            return
+                        }
+                        onAction(task)
+                    }}
                     variant={task.type === 'quiz' ? 'default' : 'outline'}
                     className={`w-full sm:w-auto shadow-sm ${task.type !== 'quiz' && 'bg-white hover:bg-gray-50'}`}
                 >
@@ -189,12 +196,22 @@ function GeneratedPlanCard({ item }: { item: PlannedReviewPlanItem }) {
                 </div>
                 {item.documentId ? (
                     <div className="flex flex-col gap-2 shrink-0">
-                        <Link to={`/files/${item.documentId}?tab=concepts&concept=${item.conceptId}`}>
-                            <Button variant="outline" size="sm" className="w-full bg-white text-xs h-8">
-                                <ArrowUpRight className="w-3.5 h-3.5 mr-1" />
-                                Open
-                            </Button>
-                        </Link>
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="w-full bg-white text-xs h-8"
+                            onClick={() => {
+                                const today = new Date().toISOString().split('T')[0]
+                                if (item.date > today) {
+                                    toast.info(`This concept review is scheduled for ${item.date}. You can start it when that day arrives.`)
+                                    return
+                                }
+                                navigate(`/files/${item.documentId}?tab=concepts&concept=${item.conceptId}`)
+                            }}
+                        >
+                            <ArrowUpRight className="w-3.5 h-3.5 mr-1" />
+                            Open
+                        </Button>
                         <Link to={`/analytics/document/${item.documentId}`}>
                             <Button variant="ghost" size="sm" className="w-full text-xs h-8">
                                 <BarChart3 className="w-3.5 h-3.5 mr-1" />
@@ -230,20 +247,40 @@ function GoalMarkerCard({ marker }: { marker: GoalMarkerPlanItem }) {
                     </div>
                 </div>
                 {marker.quizId ? (
-                    <Link to={`/quizzes/${marker.quizId}`}>
-                        <Button variant="outline" size="sm" className="shadow-sm">
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="shadow-sm"
+                        onClick={() => {
+                            const today = new Date().toISOString().split('T')[0]
+                            if (marker.date > today) {
+                                toast.info(`This quiz deadline is scheduled for ${marker.date}. You can start it when that day arrives.`)
+                                return
+                            }
+                            navigate(`/quizzes/${marker.quizId}`)
+                        }}
+                    >
+                        <ArrowUpRight className="w-3.5 h-3.5 mr-1" />
+                        Open
+                    </Button>
+                ) : marker.documentId ? (
+                    <div className="flex flex-col gap-2 shrink-0">
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="w-full text-xs h-8 shadow-sm"
+                            onClick={() => {
+                                const today = new Date().toISOString().split('T')[0]
+                                if (marker.date > today) {
+                                    toast.info(`This study goal is scheduled for ${marker.date}. You can start it when that day arrives.`)
+                                    return
+                                }
+                                navigate(`/files/${marker.documentId}`)
+                            }}
+                        >
                             <ArrowUpRight className="w-3.5 h-3.5 mr-1" />
                             Open
                         </Button>
-                    </Link>
-                ) : marker.documentId ? (
-                    <div className="flex flex-col gap-2 shrink-0">
-                        <Link to={`/files/${marker.documentId}`}>
-                            <Button variant="outline" size="sm" className="w-full text-xs h-8 shadow-sm">
-                                <ArrowUpRight className="w-3.5 h-3.5 mr-1" />
-                                Open
-                            </Button>
-                        </Link>
                         <Link to={`/analytics/document/${marker.documentId}`}>
                             <Button variant="ghost" size="sm" className="w-full text-xs h-8">
                                 <BarChart3 className="w-3.5 h-3.5 mr-1" />
@@ -655,7 +692,8 @@ export function LearningPathContent({
 
     const handleAdaptiveTaskAction = useCallback((task: AdaptiveStudyTask) => {
         if (task.type === 'quiz') {
-            const fallbackQuizId = reusableReadyQuizIdByDocument.get(task.documentId)
+            const shouldForceNewQuiz = task.taskKey?.startsWith('manual:') === true
+            const fallbackQuizId = shouldForceNewQuiz ? undefined : reusableReadyQuizIdByDocument.get(task.documentId)
             const effectiveQuizId = task.quizId ?? fallbackQuizId
             if (task.status === 'ready' && effectiveQuizId) {
                 navigate(`/quizzes/${effectiveQuizId}`)
@@ -679,6 +717,12 @@ export function LearningPathContent({
                 return
             }
 
+            const today = new Date().toISOString().split('T')[0]
+            if (task.scheduledDate > today) {
+                 toast.info(`This adaptive quiz is scheduled for ${task.scheduledDate}. You can start it when that day arrives.`)
+                 return
+            }
+
             handleAdaptiveQuizAction({
                 id: task.quizId,
                 taskId: task.id,
@@ -690,11 +734,21 @@ export function LearningPathContent({
         }
 
         if (task.type === 'flashcards') {
+            const today = new Date().toISOString().split('T')[0]
+            if (task.scheduledDate > today) {
+                 toast.info(`This flashcard session is scheduled for ${task.scheduledDate}. You can start it when that day arrives.`)
+                 return
+            }
             navigate(`/files/${task.documentId}?tab=flashcards`)
             return
         }
 
         if (task.conceptIds.length > 0) {
+            const today = new Date().toISOString().split('T')[0]
+            if (task.scheduledDate > today) {
+                 toast.info(`This concept review is scheduled for ${task.scheduledDate}. You can start it when that day arrives.`)
+                 return
+            }
             navigate(`/files/${task.documentId}?tab=concepts&concept=${task.conceptIds[0]}`)
             return
         }

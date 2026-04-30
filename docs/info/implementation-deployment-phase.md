@@ -100,7 +100,7 @@ This section's goal is to instruct users on how to use the EduCoach application.
 
 ### 1. Introduction
 
-EduCoach is an AI-powered academic coaching platform designed to help students study more effectively. It enables users to upload their course materials, automatically generate quizzes and flashcards from those materials, engage in contextual conversations with an AI tutor grounded in their own content, and follow personalized learning paths. The platform streamlines study management, progress tracking, and knowledge retention, helping students optimize their study time and achieve their academic goals efficiently.
+EduCoach is an AI-powered academic coaching platform designed to help students study more effectively. It enables users to upload their course materials, automatically generate quizzes and flashcards from those materials, engage in contextual conversations with an AI study assistant chat grounded in their own content, and follow personalized learning paths. The platform streamlines study management, progress tracking, and knowledge retention, helping students optimize their study time and achieve their academic goals efficiently.
 
 ### 2. System Summary
 
