@@ -13,4 +13,8 @@ describe("LearningPathCalendar completed quiz contract", () => {
             /<LearningPathCalendar[\s\S]*completedTodayQuizzes=\{completedTodayQuizzes\}/,
         )
     })
+
+    it("routes completed-today quiz clicks to review mode", () => {
+        expect(calendarSource).toContain("navigate(`/quizzes/${quiz.id}?review=true`)")
+    })
 })

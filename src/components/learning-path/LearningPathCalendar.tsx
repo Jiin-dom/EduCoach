@@ -828,12 +828,12 @@ export function LearningPathCalendar({
                                 <CardContent className="p-4 bg-white/50 overflow-y-auto max-h-[200px] scrollbar-thin">
                                     <div className="flex flex-col gap-2">
                                         {completedTodayQuizzes.map((quiz) => (
-                                            <button
-                                                key={quiz.id}
-                                                type="button"
-                                                onClick={() => routeToQuizzesWithHighlight(quiz.id)}
-                                                className="flex items-center justify-between rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:border-green-400 hover:shadow-md text-left group"
-                                            >
+                                        <button
+                                            key={quiz.id}
+                                            type="button"
+                                            onClick={() => navigate(`/quizzes/${quiz.id}?review=true`)}
+                                            className="flex items-center justify-between rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:border-green-400 hover:shadow-md text-left group"
+                                        >
                                                 <div className="min-w-0 pr-2">
                                                     <p className="truncate font-bold text-xs tracking-tight group-hover:text-green-600 transition-colors">{quiz.title}</p>
                                                     {quiz.documentTitle && (
