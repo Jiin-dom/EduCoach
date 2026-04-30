@@ -1,7 +1,7 @@
 import { supabase, ensureFreshSession } from '@/lib/supabase'
 import type { Quiz } from '@/hooks/useQuizzes'
 
-const REVIEW_QUIZ_TITLE_PREFIX = 'Review Quiz:'
+const ADAPTIVE_QUIZ_TITLE_PREFIXES = ['Adaptive:', 'Baseline:', 'Review:', 'Review Quiz:']
 
 export interface AdaptiveReviewQuizSyncResult {
     status: 'generated' | 'reused' | 'skipped'
@@ -17,7 +17,7 @@ type MasterySelectionRow = {
 }
 
 function buildReviewQuestionCount(conceptCount: number) {
-    return Math.max(5, Math.min(12, conceptCount * 2))
+    return Math.max(10, Math.min(20, conceptCount * 2))
 }
 
 function pickFocusConceptIds(rows: MasterySelectionRow[]): string[] {
@@ -30,16 +30,15 @@ function pickFocusConceptIds(rows: MasterySelectionRow[]): string[] {
             row.mastery_level === 'needs_review' ||
             row.mastery_level === 'developing',
         )
-        .slice(0, 5)
 
     const urgentIds = new Set(urgent.map((row) => row.concept_id as string))
-    const reinforcement = actionable.find((row) =>
+    const reinforcement = actionable.filter((row) =>
         !urgentIds.has(row.concept_id as string) &&
         row.due_date > today &&
         (row.mastery_level === 'developing' || row.mastery_level === 'mastered'),
     )
 
-    const selected = reinforcement ? [...urgent, reinforcement] : urgent
+    const selected = [...urgent, ...reinforcement]
     return selected.map((row) => row.concept_id as string)
 }
 
@@ -78,7 +77,7 @@ export async function ensureAdaptiveReviewQuizForDocument(params: {
         .select('id, title, status, created_at, updated_at')
         .eq('user_id', userId)
         .eq('document_id', documentId)
-        .ilike('title', `${REVIEW_QUIZ_TITLE_PREFIX}%`)
+        .or(ADAPTIVE_QUIZ_TITLE_PREFIXES.map((p) => `title.ilike.${p}%`).join(','))
         .in('status', ['generating', 'ready'])
         .order('created_at', { ascending: false })
 

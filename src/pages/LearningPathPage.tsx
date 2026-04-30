@@ -75,7 +75,7 @@ export default function LearningPathPage() {
             .map((quiz) => {
                 const document = docsById.get(quiz.document_id)
                 const task = adaptiveTasks.find(t => t.quizId === quiz.id)
-                
+
                 // Priority 1: Use the adaptive task's scheduled date if it exists
                 if (task) {
                     return {
@@ -93,7 +93,7 @@ export default function LearningPathPage() {
                     documentDeadline: document?.deadline ?? null,
                     documentsWithExplicitQuizDeadlines,
                 })?.split("T")[0] ?? null
-                
+
                 return {
                     id: quiz.id,
                     title: quiz.title,
@@ -127,7 +127,7 @@ export default function LearningPathPage() {
     const completedTodayQuizzes = useMemo(() => {
         const today = new Date()
         const todayLocal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
-        
+
         // Find all attempts completed today
         const completedToday = attempts.filter(a => {
             if (!a.completed_at) return false
@@ -137,7 +137,7 @@ export default function LearningPathPage() {
         // Map them to the QuizItem structure
         const results = completedToday.map(a => {
             const quiz = quizzes.find(q => q.id === a.quiz_id)
-            
+
             // If we are in a scoped view (e.g. looking at a specific file), 
             // we must be able to verify the quiz belongs to that scope.
             if (scopeFilter && !quiz) return null
@@ -181,7 +181,7 @@ export default function LearningPathPage() {
             .filter((task) => !hasReusableReadyQuizForDocument(task.documentId))
             .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate))
             .find((task) =>
-                task.scheduledDate! > todayLocal ||
+                task.scheduledDate! <= todayLocal &&
                 !completedAdaptiveDocumentIdsToday.has(task.documentId),
             )
 
@@ -194,7 +194,7 @@ export default function LearningPathPage() {
             {
                 documentId: nextQuizTask.documentId,
                 focusConceptIds: nextQuizTask.conceptIds,
-                questionCount: Math.max(5, Math.min(12, nextQuizTask.conceptIds.length * 2)),
+                questionCount: Math.max(10, Math.min(20, nextQuizTask.conceptIds.length * 2)),
             },
             {
                 onSuccess: () => {
@@ -260,7 +260,7 @@ export default function LearningPathPage() {
                                 ) : (
                                     <h1 className="text-2xl font-bold truncate tracking-tight">My Learning Path</h1>
                                 )}
-                                
+
                                 <TabsList className="bg-muted/80 w-full md:w-auto h-auto p-1 justify-start overflow-x-auto hide-scrollbar shadow-sm">
                                     <TabsTrigger value="schedule" className="py-2 px-4 rounded-md">Schedule View</TabsTrigger>
                                     <TabsTrigger value="mastery" className="py-2 px-4 rounded-md">Topics & Mastery</TabsTrigger>

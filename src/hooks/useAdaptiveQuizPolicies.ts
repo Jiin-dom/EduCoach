@@ -28,8 +28,9 @@ export function useAdaptiveQuizPolicies(params: {
                 .map((task) => task.quizId as string),
         )
 
+        const ADAPTIVE_PREFIXES = ['Adaptive:', 'Baseline:', 'Review:', 'Review Quiz:']
         const isAdaptiveQuiz = (quiz: Quiz) =>
-            adaptiveLinkedQuizIds.has(quiz.id) || quiz.title.startsWith('Review Quiz:')
+            adaptiveLinkedQuizIds.has(quiz.id) || ADAPTIVE_PREFIXES.some((p) => quiz.title.startsWith(p))
 
         const completedAdaptiveQuizIdsToday = new Set(
             attempts

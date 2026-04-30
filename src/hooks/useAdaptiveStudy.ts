@@ -132,7 +132,7 @@ export function useAdaptiveStudyTasks() {
                 let description = ''
 
                 if (row.task_type === 'quiz') {
-                    count = questionCount || Math.max(5, Math.min(12, row.concept_count * 2))
+                    count = questionCount || Math.max(10, Math.min(20, row.concept_count * 2))
                     title = `Adaptive quiz for ${documentTitle}`
                     description = `Focused on ${buildConceptSummary(conceptNames, 3)}.`
                 } else if (row.task_type === 'flashcards') {
@@ -192,8 +192,30 @@ export function useRescheduleAdaptiveStudyTask() {
     const { user } = useAuth()
 
     return useMutation({
-        mutationFn: async (input: { taskId: string; newScheduledDate: string }) => {
+        mutationFn: async (input: { taskId: string; newScheduledDate: string; task?: AdaptiveStudyTask }) => {
             if (!user) throw new Error('Not authenticated')
+
+            if (input.taskId.startsWith('virtual-') && input.task) {
+                const { task } = input
+                const { data, error } = await supabase.rpc('crystallize_adaptive_study_task', {
+                    p_document_id: task.documentId,
+                    p_task_type: task.type,
+                    p_reason: task.reason,
+                    p_new_date: input.newScheduledDate,
+                    p_priority_score: task.priorityScore,
+                    p_concept_ids: task.conceptIds,
+                    p_concept_count: task.count,
+                    p_metadata: {
+                        questionCount: task.type === 'quiz' ? task.count : 0,
+                        totalCount: task.type === 'flashcards' ? task.count : 0,
+                        virtualSourceId: task.id,
+                    },
+                    p_virtual_source_id: task.id,
+                })
+
+                if (error) throw new Error(error.message)
+                return data
+            }
 
             const { data, error } = await supabase.rpc('reschedule_adaptive_study_task', {
                 p_task_id: input.taskId,
