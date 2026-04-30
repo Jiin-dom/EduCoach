@@ -83,6 +83,7 @@ export default function LearningPathPage() {
                         title: task.title,
                         documentTitle: document?.title ?? null,
                         dueDate: task.scheduledDate,
+                        documentId: quiz.document_id,
                     }
                 }
 
@@ -99,6 +100,7 @@ export default function LearningPathPage() {
                     title: quiz.title,
                     documentTitle: document?.title ?? null,
                     dueDate,
+                    documentId: quiz.document_id,
                 }
             })
             .filter((quiz) => quiz.dueDate === todayLocal)
@@ -279,7 +281,6 @@ export default function LearningPathPage() {
                                 <LearningPathCalendar
                                     scopeFilter={scopeFilter}
                                     dueTodayQuizzes={dueTodayQuizzes}
-                                    completedTodayQuizzes={completedTodayQuizzes}
                                 />
                             </div>
                         </TabsContent>

@@ -268,6 +268,7 @@ export function buildLearningPathPlan(input: {
         .filter((task) => {
             if (task.scheduledDate !== todayStr) return true
             if (task.conceptIds.length !== 1) return true
+            if (task.type !== "review") return true
             return !reviewedTodayConceptIds.has(task.conceptIds[0])
         })
         .map<AdaptiveTaskPlanItem>((task) => ({

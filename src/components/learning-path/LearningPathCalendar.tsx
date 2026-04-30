@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import {
     ChevronLeft,
     ChevronRight,
@@ -59,13 +59,11 @@ interface QuizItem {
 interface LearningPathCalendarProps {
     scopeFilter?: LearningPathPlanScopeFilter
     dueTodayQuizzes?: QuizItem[]
-    completedTodayQuizzes?: QuizItem[]
 }
 
 export function LearningPathCalendar({
     scopeFilter,
     dueTodayQuizzes = [],
-    completedTodayQuizzes = [],
 }: LearningPathCalendarProps) {
     const navigate = useNavigate()
     const [viewMode, setViewMode] = useState<"week" | "month">("week")
@@ -156,6 +154,20 @@ export function LearningPathCalendar({
 
     const dueTodayCount = plan.items.filter((item) => item.date === todayLocal).length
     const confidenceTarget = Math.round((learningConfig?.confidence_threshold_mastered ?? 0.8) * 100)
+    const completedQuizIds = useMemo(
+        () => new Set(attempts.filter((a) => !!a.completed_at).map((a) => a.quiz_id)),
+        [attempts],
+    )
+    const visibleDueTodayQuizzes = useMemo(
+        () =>
+            dueTodayQuizzes.filter((quiz) => {
+                if (dismissedDueTodayQuizIds[quiz.id]) return false
+                if (completedQuizIds.has(quiz.id)) return false
+                if (quiz.documentId && completedDocumentIdsToday.has(quiz.documentId)) return false
+                return true
+            }),
+        [completedDocumentIdsToday, completedQuizIds, dismissedDueTodayQuizIds, dueTodayQuizzes],
+    )
 
     // Compute Dates
     const now = anchorDate
@@ -404,13 +416,40 @@ export function LearningPathCalendar({
                  return
              }
              if (task.type === 'flashcards') {
+                 setDismissingTaskIds((prev) => ({ ...prev, [task.id]: true }))
+                 window.setTimeout(() => {
+                     setDismissedTaskIds((prev) => ({ ...prev, [task.id]: true }))
+                     setDismissingTaskIds((prev) => {
+                         const next = { ...prev }
+                         delete next[task.id]
+                         return next
+                     })
+                 }, 480)
                  navigate(`/files/${task.documentId}?tab=flashcards`)
                  return
              }
              if (task.conceptIds.length > 0) {
+                 setDismissingTaskIds((prev) => ({ ...prev, [task.id]: true }))
+                 window.setTimeout(() => {
+                     setDismissedTaskIds((prev) => ({ ...prev, [task.id]: true }))
+                     setDismissingTaskIds((prev) => {
+                         const next = { ...prev }
+                         delete next[task.id]
+                         return next
+                     })
+                 }, 480)
                  navigate(`/files/${task.documentId}?tab=concepts&concept=${task.conceptIds[0]}`)
                  return
              }
+             setDismissingTaskIds((prev) => ({ ...prev, [task.id]: true }))
+             window.setTimeout(() => {
+                 setDismissedTaskIds((prev) => ({ ...prev, [task.id]: true }))
+                 setDismissingTaskIds((prev) => {
+                     const next = { ...prev }
+                     delete next[task.id]
+                     return next
+                 })
+             }, 480)
              navigate(`/files/${task.documentId}?tab=concepts`)
         }
 
@@ -604,13 +643,13 @@ export function LearningPathCalendar({
                                     <Target className="w-3.5 h-3.5" />
                                     Due Today
                                 </div>
-                                <span className="bg-red-100 px-1.5 py-0.5 rounded text-[10px]">{dueTodayQuizzes.length}</span>
+                                <span className="bg-red-100 px-1.5 py-0.5 rounded text-[10px]">{visibleDueTodayQuizzes.length}</span>
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="p-4 bg-white/50 overflow-y-auto max-h-[200px] scrollbar-thin">
-                            {dueTodayQuizzes.length > 0 ? (
+                            {visibleDueTodayQuizzes.length > 0 ? (
                                 <div className="flex flex-col gap-2">
-                                    {dueTodayQuizzes.filter((quiz) => !dismissedDueTodayQuizIds[quiz.id]).map((quiz) => (
+                                    {visibleDueTodayQuizzes.map((quiz) => (
                                         <button
                                             key={quiz.id}
                                             type="button"
@@ -641,45 +680,6 @@ export function LearningPathCalendar({
                             ) : (
                                 <div className="h-full flex items-center justify-center py-4">
                                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">No quizzes due today</p>
-                                </div>
-                            )}
-                        </CardContent>
-                    </div>
-
-                    {/* Completed Section */}
-                    <div className="flex-1">
-                        <CardHeader className="pb-2 pt-3 px-4 bg-green-50/50">
-                            <CardTitle className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-green-600">
-                                <div className="flex items-center gap-2">
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                    Completed Today
-                                </div>
-                                <span className="bg-green-100 px-1.5 py-0.5 rounded text-[10px]">{completedTodayQuizzes.length}</span>
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="p-4 bg-white/50 overflow-y-auto max-h-[200px] scrollbar-thin">
-                            {completedTodayQuizzes.length > 0 ? (
-                                <div className="flex flex-col gap-2">
-                                    {completedTodayQuizzes.map((quiz) => (
-                                        <button
-                                            key={quiz.id}
-                                            type="button"
-                                            onClick={() => routeToQuizzesWithHighlight(quiz.id)}
-                                            className="flex items-center justify-between rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:border-green-400 hover:shadow-md text-left group"
-                                        >
-                                            <div className="min-w-0 pr-2">
-                                                <p className="truncate font-bold text-xs tracking-tight group-hover:text-green-600 transition-colors">{quiz.title}</p>
-                                                {quiz.documentTitle && (
-                                                    <p className="truncate text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
-                                                )}
-                                            </div>
-                                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-500" />
-                                        </button>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="h-full flex items-center justify-center py-4">
-                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">None completed yet</p>
                                 </div>
                             )}
                         </CardContent>
@@ -784,7 +784,13 @@ export function LearningPathCalendar({
                             {weekDays.map((dateObj, idx) => {
                                 const dateStr = formatDateToLocalString(dateObj)
                                 let dayItems = getLearningPathItemsForDate(plan.items, dateStr)
-                                dayItems = dayItems.filter((item) => !(item.kind === "adaptive_task" && item.task.type === "quiz" && dismissedTaskIds[item.task.id]))
+                                dayItems = dayItems.filter((item) => {
+                                    if (item.kind !== "adaptive_task") return true
+                                    if (dismissedTaskIds[item.task.id]) return false
+                                    if (item.task.type === "quiz" && completedDocumentIdsToday.has(item.task.documentId)) return false
+                                    if (item.task.type === "quiz" && item.task.quizId && completedQuizIds.has(item.task.quizId)) return false
+                                    return true
+                                })
                                 
                                 // Apply focus filter
                                 if (focusFilter !== 'all') {
@@ -849,7 +855,13 @@ export function LearningPathCalendar({
                                     const dayDate = new Date(now.getFullYear(), now.getMonth(), i + 1);
                                     const dateStr = formatDateToLocalString(dayDate);
                                     let dayItems = getLearningPathItemsForDate(plan.items, dateStr)
-                                    dayItems = dayItems.filter((item) => !(item.kind === "adaptive_task" && item.task.type === "quiz" && dismissedTaskIds[item.task.id]))
+                                    dayItems = dayItems.filter((item) => {
+                                        if (item.kind !== "adaptive_task") return true
+                                        if (dismissedTaskIds[item.task.id]) return false
+                                        if (item.task.type === "quiz" && completedDocumentIdsToday.has(item.task.documentId)) return false
+                                        if (item.task.type === "quiz" && item.task.quizId && completedQuizIds.has(item.task.quizId)) return false
+                                        return true
+                                    })
 
                                     if (focusFilter !== 'all') {
                                         if (focusFilter === 'due') {
