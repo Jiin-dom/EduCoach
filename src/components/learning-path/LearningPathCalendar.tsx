@@ -123,7 +123,7 @@ export function LearningPathCalendar({
 
         if (task.status === 'generating') {
             toast.info('Your adaptive quiz is still being prepared. Check the Quizzes page in a moment.')
-            navigate('/quizzes')
+            routeToQuizzesWithHighlight(undefined, task.taskId)
             return
         }
 
