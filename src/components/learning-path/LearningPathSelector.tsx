@@ -238,67 +238,6 @@ export function LearningPathSelector({
                     )}
                 </section>
 
-                <section className="space-y-3 pt-2">
-                    <div className="flex items-center gap-2 px-1">
-                        <div className="p-1.5 bg-amber-100 text-amber-700 rounded-lg">
-                            <Target className="w-5 h-5" />
-                        </div>
-                        <h2 className="text-xl font-bold tracking-tight">Study Goals</h2>
-                    </div>
-                    {goalCards.length === 0 ? (
-                        <Card>
-                            <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                                No active study goals yet. Add one in Goals & Planning to get a goal-based path.
-                            </CardContent>
-                        </Card>
-                    ) : (
-                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                            {goalCards.map(({ goal, document, progressViewModel }) => (
-                                <Card key={goal.id} className="overflow-hidden group transition-all duration-300 hover:-translate-y-1 hover:shadow-xl border-muted/60 hover:border-amber-500/30 flex flex-col">
-                                    <div className="h-1 bg-gradient-to-r from-amber-400 to-orange-500 w-0 group-hover:w-full transition-all duration-500" />
-                                    <CardHeader className="p-4 pb-2 space-y-0 relative text-left">
-                                        <div className="flex items-start justify-between gap-3 mb-3">
-                                            <div className="bg-amber-50 text-amber-600 p-2.5 rounded-xl shadow-sm ring-1 ring-amber-100/50 group-hover:scale-110 transition-transform duration-300">
-                                                <BookOpen className="w-5 h-5" />
-                                            </div>
-                                            <Badge variant="secondary" className="text-[10px] uppercase font-bold tracking-wider bg-amber-100/50 text-amber-700 hover:bg-amber-100/80">{formatStudyGoalType(goal.goal_type)}</Badge>
-                                        </div>
-                                        <CardTitle className="line-clamp-2 text-lg font-bold leading-tight">{goal.title}</CardTitle>
-                                        <div className="flex flex-col space-y-1 text-xs text-muted-foreground mt-2.5">
-                                            <span className="line-clamp-1 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" /> {document?.title ?? "Global Path"}</span>
-                                            <span className="font-medium text-foreground/80 flex items-center gap-1.5">
-                                                <Calendar className="w-3.5 h-3.5" />
-                                                {goal.deadline ? `Due ${formatDate(goal.deadline)}` : "Flexible timing"}
-                                            </span>
-                                        </div>
-                                    </CardHeader>
-                                    <CardContent className="p-4 pt-2 mt-auto text-left">
-                                        <div className="bg-orange-50/50 rounded-lg p-3 space-y-2.5 mb-4 border border-orange-100/50">
-                                            <div className="flex items-center justify-between text-xs">
-                                                <span className="font-bold text-amber-900/60">Target</span>
-                                                <span className="font-bold text-amber-700">{progressViewModel.targetSummary}</span>
-                                            </div>
-                                            <div className="space-y-1.5">
-                                                <div className="flex justify-between text-[10px] font-bold">
-                                                    <span className="text-amber-900/60">Current Progress</span>
-                                                    <span className="text-amber-600">{progressViewModel.percentComplete}%</span>
-                                                </div>
-                                                {/* Use default blue progress to avoid style bleeding issues, but wrap in opacity. */}
-                                                <Progress value={progressViewModel.percentComplete || 2} className="h-1.5" />
-                                            </div>
-                                        </div>
-                                        <Button asChild variant="outline" className="w-full gap-2 group-hover:bg-amber-500 group-hover:text-white group-hover:border-amber-500 transition-colors border-muted-foreground/20 text-amber-700">
-                                            <Link to={`/learning-path?scope=study_goal&id=${goal.id}`}>
-                                                Open Goal Path
-                                                <ArrowRight className="w-3.5 h-3.5" />
-                                            </Link>
-                                        </Button>
-                                    </CardContent>
-                                </Card>
-                            ))}
-                        </div>
-                    )}
-                </section>
             </div>
         </main>
     )

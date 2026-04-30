@@ -32,7 +32,6 @@ import { useLearningPathPlan } from "@/hooks/useLearningPathPlan"
 import { useRescheduleAdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { getLearningPathItemsForDate, type LearningPathPlanItem, type PlannedReviewPlanItem } from "@/lib/learningPathPlan"
 import type { LearningPathPlanScopeFilter } from "@/lib/learningPathScope"
-import { useReplanLearningPath } from "@/hooks/useGoalWindowScheduling"
 import { useAuth } from "@/contexts/AuthContext"
 import { toast } from "sonner"
 
@@ -87,7 +86,6 @@ export function LearningPathCalendar({
     
     const rescheduleDueDate = useRescheduleConceptDueDate()
     const rescheduleAdaptiveTask = useRescheduleAdaptiveStudyTask()
-    const replanLearningPath = useReplanLearningPath()
     const { data: attempts = [] } = useUserAttempts()
     const { data: quizzes = [] } = useQuizzes()
     const { profile } = useAuth()
@@ -478,30 +476,7 @@ export function LearningPathCalendar({
         )
     }
 
-    const handleAutomaticReplan = async () => {
-        try {
-            const availableStudyDays = profile?.available_study_days ?? []
-            const dailyStudyMinutes = profile?.daily_study_minutes ?? 30
-            const result = await replanLearningPath.mutateAsync({
-                availableStudyDays,
-                dailyStudyMinutes,
-                preferredStudyTimeStart: profile?.preferred_study_time_start ?? null,
-                preferredStudyTimeEnd: profile?.preferred_study_time_end ?? null,
-            })
 
-            if (result.total === 0) {
-                toast.info("No goal-dated documents found to replan.")
-                return
-            }
-            if (result.failed > 0) {
-                toast.warning(`Replanned ${result.success}/${result.total} goal-based document schedules.`)
-                return
-            }
-            toast.success(`Replanned ${result.total} schedules.`)
-        } catch (error) {
-            toast.error(error instanceof Error ? error.message : "Failed to replan.")
-        }
-    }
     
     // AI Insight text
     const getInsightText = () => {
@@ -533,15 +508,6 @@ export function LearningPathCalendar({
                                 {getInsightText()}
                             </h3>
                         </div>
-                        <Button 
-                            variant="secondary" 
-                            className="w-max bg-white/20 hover:bg-white/30 text-white border-0 backdrop-blur-sm"
-                            disabled={replanLearningPath.isPending}
-                            onClick={handleAutomaticReplan}
-                        >
-                            {replanLearningPath.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Clock className="w-4 h-4 mr-2" />}
-                            Auto-Optimize Schedule
-                        </Button>
                     </CardContent>
                 </Card>
 
