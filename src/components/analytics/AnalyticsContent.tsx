@@ -33,7 +33,6 @@ import {
 import {
     useLearningStats, useConceptMasteryList, useWeakTopics,
     useScoreTrend, useStudyActivity, useMasteryTimeline,
-    useStudyEfficiency, useConceptVelocity,
 } from "@/hooks/useLearning"
 import type { ConceptMasteryWithDetails } from "@/hooks/useLearning"
 import { useUserAttempts, useQuizzes } from "@/hooks/useQuizzes"
@@ -248,8 +247,6 @@ export function AnalyticsContent() {
     const { data: scoreTrend } = useScoreTrend()
     const { data: studyActivity } = useStudyActivity()
     const { data: globalTimeline } = useMasteryTimeline()
-    const { data: efficiency } = useStudyEfficiency()
-    const { data: velocity } = useConceptVelocity()
 
     const [drillDownConcept, setDrillDownConcept] = useState<ConceptMasteryWithDetails | null>(null)
     const [selectedPerformanceDocumentId, setSelectedPerformanceDocumentId] = useState<string | null>(null)
@@ -829,104 +826,6 @@ export function AnalyticsContent() {
                                 </CardContent>
                             </Card>
 
-                            {/* Study Efficiency + Concept Velocity */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {/* Study Efficiency */}
-                                <Card>
-                                    <CardHeader>
-                                        <CardTitle className="flex items-center gap-2">
-                                            <Zap className="w-5 h-5 text-amber-500" />
-                                            Study Efficiency
-                                        </CardTitle>
-                                        <CardDescription>Time spent vs mastery gained (last 30 days)</CardDescription>
-                                    </CardHeader>
-                                    <CardContent>
-                                        {!efficiency || efficiency.totalTimeMinutes === 0 ? (
-                                            <div className="text-center py-8">
-                                                <Timer className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                                                <p className="text-sm text-muted-foreground">
-                                                    No timed quiz data yet. Per-question timing feeds this metric.
-                                                </p>
-                                            </div>
-                                        ) : (
-                                            <div className="space-y-4">
-                                                <div className="grid grid-cols-2 gap-3">
-                                                    <div className="p-3 rounded-lg bg-muted text-center">
-                                                        <p className="text-2xl font-bold">{efficiency.totalTimeMinutes}m</p>
-                                                        <p className="text-xs text-muted-foreground">Study Time</p>
-                                                    </div>
-                                                    <div className="p-3 rounded-lg bg-muted text-center">
-                                                        <p className="text-2xl font-bold">{efficiency.totalMasteryGained}%</p>
-                                                        <p className="text-xs text-muted-foreground">Avg Mastery</p>
-                                                    </div>
-                                                </div>
-                                                {efficiency.mostEfficientCategory && (
-                                                    <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 text-amber-800 text-sm">
-                                                        <Zap className="w-4 h-4 shrink-0 mt-0.5" />
-                                                        <span>
-                                                            You're most efficient studying <strong>{efficiency.mostEfficientCategory}</strong>
-                                                        </span>
-                                                    </div>
-                                                )}
-                                                {efficiency.categoryEfficiency.length > 0 && (
-                                                    <div className="space-y-2">
-                                                        <p className="text-sm font-medium">By Category</p>
-                                                        {efficiency.categoryEfficiency.slice(0, 5).map((cat) => (
-                                                            <div key={cat.category} className="flex items-center justify-between text-sm">
-                                                                <span className="truncate">{cat.category}</span>
-                                                                <span className="text-muted-foreground shrink-0 ml-2">
-                                                                    {cat.timeMinutes}m / {cat.masteryGained}%
-                                                                </span>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-                                    </CardContent>
-                                </Card>
-
-                                {/* Concept Velocity */}
-                                <Card>
-                                    <CardHeader>
-                                        <CardTitle className="flex items-center gap-2">
-                                            <Gauge className="w-5 h-5 text-blue-500" />
-                                            Concept Velocity
-                                        </CardTitle>
-                                        <CardDescription>How fast you move concepts through mastery stages</CardDescription>
-                                    </CardHeader>
-                                    <CardContent>
-                                        {!velocity || (velocity.avgDaysToDeveloping == null && velocity.avgDaysToMastered == null) ? (
-                                            <div className="text-center py-8">
-                                                <Gauge className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                                                <p className="text-sm text-muted-foreground">
-                                                    Need more mastery history to compute velocity. Keep studying!
-                                                </p>
-                                            </div>
-                                        ) : (
-                                            <div className="space-y-4">
-                                                <div className="grid grid-cols-2 gap-3">
-                                                    <div className="p-3 rounded-lg bg-muted text-center">
-                                                        <p className="text-2xl font-bold">
-                                                            {velocity.avgDaysToDeveloping != null ? `${velocity.avgDaysToDeveloping}d` : '—'}
-                                                        </p>
-                                                        <p className="text-xs text-muted-foreground">Avg to Developing</p>
-                                                    </div>
-                                                    <div className="p-3 rounded-lg bg-muted text-center">
-                                                        <p className="text-2xl font-bold">
-                                                            {velocity.avgDaysToMastered != null ? `${velocity.avgDaysToMastered}d` : '—'}
-                                                        </p>
-                                                        <p className="text-xs text-muted-foreground">Avg to Mastered</p>
-                                                    </div>
-                                                </div>
-                                                <p className="text-xs text-muted-foreground">
-                                                    Measured from first tracked attempt to reaching each level. Based on mastery snapshot history.
-                                                </p>
-                                            </div>
-                                        )}
-                                    </CardContent>
-                                </Card>
-                            </div>
                         </TabsContent>
 
                         <TabsContent value="weak-topics" className="mt-6">
