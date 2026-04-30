@@ -59,11 +59,13 @@ interface QuizItem {
 interface LearningPathCalendarProps {
     scopeFilter?: LearningPathPlanScopeFilter
     dueTodayQuizzes?: QuizItem[]
+    completedTodayQuizzes?: QuizItem[]
 }
 
 export function LearningPathCalendar({
     scopeFilter,
     dueTodayQuizzes = [],
+    completedTodayQuizzes = [],
 }: LearningPathCalendarProps) {
     const navigate = useNavigate()
     const [viewMode, setViewMode] = useState<"week" | "month">("week")

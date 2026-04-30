@@ -278,6 +278,7 @@ export default function LearningPathPage() {
                                 <LearningPathCalendar
                                     scopeFilter={scopeFilter}
                                     dueTodayQuizzes={dueTodayQuizzes}
+                                    completedTodayQuizzes={completedTodayQuizzes}
                                 />
                             </div>
                         </TabsContent>
