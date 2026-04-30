@@ -19,6 +19,7 @@ export interface LearningPathMasteryInput {
     display_mastery_level: "needs_review" | "developing" | "mastered"
     display_mastery_score: number
     mastery_score: number
+    last_reviewed_at?: string | null
     document_exam_date?: string | null
 }
 
@@ -108,6 +109,10 @@ export interface LearningPathPlan {
 function toDateOnly(value: string | null | undefined): string | null {
     if (!value) return null
     return value.split("T")[0] ?? null
+}
+
+function wasReviewedOnDate(mastery: LearningPathMasteryInput, date: string): boolean {
+    return toDateOnly(mastery.last_reviewed_at) === date
 }
 
 function kindOrder(item: LearningPathPlanItem) {
@@ -225,12 +230,14 @@ export function buildLearningPathPlan(input: {
     availableStudyDays?: string[] | null
 }): LearningPathPlan {
     const docsById = new Map(input.documents.map((document) => [document.id, document]))
+    const todayStr = new Date().toISOString().split("T")[0]
 
     const plannedReviews = input.masteryRows
         .filter((m) => {
             const doc = docsById.get(m.document_id || "")
             const docDeadline = toDateOnly(doc?.exam_date || doc?.deadline)
             if (docDeadline && m.due_date > docDeadline) return false
+            if (m.due_date === todayStr && wasReviewedOnDate(m, todayStr)) return false
             return true
         })
         .map<PlannedReviewPlanItem>((mastery) => ({
@@ -247,20 +254,30 @@ export function buildLearningPathPlan(input: {
             mastery,
         }))
 
-    const adaptiveTaskItems = input.adaptiveTasks.map<AdaptiveTaskPlanItem>((task) => ({
-        kind: "adaptive_task",
-        id: task.id,
-        date: task.scheduledDate,
-        priorityScore: Number(task.priorityScore ?? 0),
-        scheduledTime: null,
-        task,
-    }))
-
-    const todayStr = new Date().toISOString().split("T")[0]
     const horizonDays = 14
     const dailyStudyMinutes = Number(input.dailyStudyMinutes ?? 30)
     const maxTasksPerDay = Math.max(2, Math.round(dailyStudyMinutes / 30))
     const generatedAdaptiveTasks: AdaptiveTaskPlanItem[] = []
+    const reviewedTodayConceptIds = new Set(
+        input.masteryRows
+            .filter((m) => wasReviewedOnDate(m, todayStr))
+            .map((m) => m.concept_id),
+    )
+
+    const adaptiveTaskItems = input.adaptiveTasks
+        .filter((task) => {
+            if (task.scheduledDate !== todayStr) return true
+            if (task.conceptIds.length !== 1) return true
+            return !reviewedTodayConceptIds.has(task.conceptIds[0])
+        })
+        .map<AdaptiveTaskPlanItem>((task) => ({
+            kind: "adaptive_task",
+            id: task.id,
+            date: task.scheduledDate,
+            priorityScore: Number(task.priorityScore ?? 0),
+            scheduledTime: null,
+            task,
+        }))
 
     const masteryByDoc = new Map<string, LearningPathMasteryInput[]>()
     for (const m of input.masteryRows) {
@@ -318,6 +335,9 @@ export function buildLearningPathPlan(input: {
             while (!isStudyDay(startDay) && startDay < addDays(todayStr, 30)) {
                 startDay = addDays(startDay, 1)
             }
+            if (startDay === todayStr && wasReviewedOnDate(concept, todayStr)) {
+                continue
+            }
 
             if (concept.display_mastery_level === "needs_review") {
                 const d1 = startDay
@@ -360,7 +380,9 @@ export function buildLearningPathPlan(input: {
 
         // Multi-concept quiz scheduling based on weakness count
         const weakConcepts = sortedConcepts.filter(
-            (c) => c.display_mastery_level === "needs_review" || c.display_mastery_level === "developing",
+            (c) =>
+                (c.display_mastery_level === "needs_review" || c.display_mastery_level === "developing") &&
+                !wasReviewedOnDate(c, todayStr),
         )
         if (weakConcepts.length > 0) {
             const quizInterval = weakConcepts.length >= 5 ? 1 : weakConcepts.length >= 3 ? 2 : 3
@@ -384,6 +406,7 @@ export function buildLearningPathPlan(input: {
             const candidate = input.masteryRows
                 .filter((m) => {
                     if (m.due_date > date) return false
+                    if (date === todayStr && wasReviewedOnDate(m, todayStr)) return false
                     const doc = docsById.get(m.document_id || "")
                     const docDeadline = toDateOnly(doc?.exam_date || doc?.deadline)
                     if (docDeadline && date > docDeadline) return false
@@ -399,7 +422,18 @@ export function buildLearningPathPlan(input: {
         }
     }
 
-    const allAdaptiveTasks = [...adaptiveTaskItems, ...generatedAdaptiveTasks]
+    const crystallizedVirtualSourceIds = new Set(
+        adaptiveTaskItems
+            .map((item) => item.task.taskKey)
+            .filter((key): key is string => !!key && key.startsWith("manual:virtual-"))
+            .map((key) => key.slice("manual:".length)),
+    )
+
+    const filteredGeneratedAdaptiveTasks = generatedAdaptiveTasks.filter(
+        (task) => !crystallizedVirtualSourceIds.has(task.task.id),
+    )
+
+    const allAdaptiveTasks = [...adaptiveTaskItems, ...filteredGeneratedAdaptiveTasks]
 
     const scheduledTaskConceptKeys = new Set(
         allAdaptiveTasks.map((t) => `${t.task.conceptIds[0]}-${t.date}`),

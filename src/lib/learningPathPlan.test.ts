@@ -31,6 +31,7 @@ function makeMastery(overrides: Partial<LearningPathMasteryInput> = {}): Learnin
         display_mastery_level: "needs_review",
         display_mastery_score: 50,
         mastery_score: 50,
+        last_reviewed_at: null,
         ...overrides,
     }
 }
@@ -423,6 +424,51 @@ describe("virtual task generation", () => {
 
         const allDates = new Set(plan.adaptiveTasks.map((t) => t.date))
         expect(allDates.size).toBeGreaterThan(1)
+    })
+
+    it("treats a concept reviewed today as complete without clearing unrelated due work", () => {
+        const plan = buildLearningPathPlan({
+            masteryRows: [
+                makeMastery({
+                    id: "m-reviewed",
+                    concept_id: "c-reviewed",
+                    concept_name: "Reviewed Concept",
+                    due_date: TODAY,
+                    last_reviewed_at: `${TODAY}T08:00:00.000Z`,
+                    display_mastery_level: "needs_review",
+                    priority_score: 0.95,
+                }),
+                makeMastery({
+                    id: "m-due",
+                    concept_id: "c-due",
+                    concept_name: "Still Due Concept",
+                    due_date: TODAY,
+                    last_reviewed_at: null,
+                    display_mastery_level: "needs_review",
+                    priority_score: 0.9,
+                }),
+            ],
+            adaptiveTasks: [
+                makeAdaptiveTask({
+                    id: "task-reviewed",
+                    conceptIds: ["c-reviewed"],
+                    conceptNames: ["Reviewed Concept"],
+                    scheduledDate: TODAY,
+                }),
+            ],
+            documents: [makeDocument({ exam_date: futureDate(14) })],
+            quizzes: [],
+        })
+
+        const todayItems = getLearningPathItemsForDate(plan.items, TODAY)
+        const todayConceptIds = todayItems.flatMap((item) => {
+            if (item.kind === "planned_review") return [item.conceptId]
+            if (item.kind === "adaptive_task") return item.task.conceptIds
+            return []
+        })
+
+        expect(todayConceptIds).not.toContain("c-reviewed")
+        expect(todayConceptIds).toContain("c-due")
     })
 
     it("virtual tasks have clickable flag set", () => {

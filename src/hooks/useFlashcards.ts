@@ -2,14 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { adaptiveStudyKeys } from '@/hooks/useAdaptiveStudy'
-import { alignFutureDueDatesToAvailability } from '@/services/goalWindowScheduling'
-import {
-    recomputeConceptMastery,
-    learningKeys,
-    loadLearningConfigForUser,
-    type FlashcardAttemptLogInsert,
-} from '@/hooks/useLearning'
-import { mapScoreToQuality } from '@/lib/learningAlgorithms'
+import { learningKeys } from '@/hooks/useLearning'
 
 export interface Flashcard {
     id: string
@@ -175,7 +168,6 @@ function computeSM2(card: Flashcard, rating: ReviewRating) {
 
 export function useReviewFlashcard() {
     const queryClient = useQueryClient()
-    const { user, profile } = useAuth()
 
     return useMutation({
         mutationFn: async ({
@@ -184,7 +176,6 @@ export function useReviewFlashcard() {
         }: {
             card: Flashcard
             rating: ReviewRating
-            deferAdaptiveInvalidation?: boolean
         }) => {
             const updates = computeSM2(card, rating)
 
@@ -195,71 +186,10 @@ export function useReviewFlashcard() {
 
             if (error) throw new Error(error.message)
 
-            // Unify with concept mastery: flashcard review feeds WMS + SM-2
-            if (user && card.concept_id) {
-                const learningConfig = await loadLearningConfigForUser(user.id)
-                const qualityMap: Record<ReviewRating, number> = { again: 0, hard: 2, good: 4, easy: 5 }
-                const q = qualityMap[rating]
-                const isCorrect = q >= 3
-
-                const { data: lastLog, error: lastLogError } = await supabase
-                    .from('question_attempt_log')
-                    .select('attempt_index')
-                    .eq('user_id', user.id)
-                    .eq('concept_id', card.concept_id)
-                    .order('attempt_index', { ascending: false })
-                    .limit(1)
-                    .maybeSingle()
-
-                if (lastLogError) {
-                    throw new Error(lastLogError.message)
-                }
-
-                const nextAttemptIndex = (lastLog?.attempt_index ?? 0) + 1
-                const logRow: FlashcardAttemptLogInsert = {
-                    user_id: user.id,
-                    source_type: 'flashcard',
-                    flashcard_id: card.id,
-                    question_id: null,
-                    quiz_id: null,
-                    attempt_id: null,
-                    concept_id: card.concept_id,
-                    document_id: card.document_id ?? null,
-                    is_correct: isCorrect,
-                    user_answer: rating,
-                    question_difficulty: card.difficulty_level as 'beginner' | 'intermediate' | 'advanced' | null,
-                    time_spent_seconds: null,
-                    attempt_index: nextAttemptIndex,
-                }
-
-                const { error: logError } = await supabase
-                    .from('question_attempt_log')
-                    .insert(logRow)
-
-                if (logError) {
-                    throw new Error(logError.message)
-                }
-
-                const sm2Quality = mapScoreToQuality(
-                    isCorrect ? (q === 5 ? 95 : 75) : (q === 2 ? 55 : 20),
-                    learningConfig.quality_thresholds,
-                )
-                await recomputeConceptMastery(user.id, card.concept_id, card.document_id ?? null, sm2Quality, learningConfig)
-                await alignFutureDueDatesToAvailability({
-                    userId: user.id,
-                    availableStudyDays: profile?.available_study_days ?? null,
-                    learningConfig,
-                })
-            }
-
             return { ...card, ...updates }
         },
-        onSuccess: (_data, variables) => {
+        onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: flashcardKeys.all })
-            queryClient.invalidateQueries({ queryKey: learningKeys.all })
-            if (!variables.deferAdaptiveInvalidation) {
-                queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
-            }
         },
     })
 }
