@@ -6,7 +6,6 @@ import { toast } from "sonner"
 import { LearningPathCalendar } from "@/components/learning-path/LearningPathCalendar"
 import { LearningPathContent } from "@/components/learning-path/LearningPathContent"
 import { LearningPathSelector } from "@/components/learning-path/LearningPathSelector"
-import { StudyGoalsPanel } from "@/components/learning-path/StudyGoalsPanel"
 import { DashboardHeader } from "@/components/layout/DashboardHeader"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -42,7 +41,6 @@ export default function LearningPathPage() {
     const { data: studyGoals = [] } = useStudyGoals()
     const { data: masteryRows = [] } = useConceptMasteryList()
 
-    const isCombinedView = requestedScope === "all"
     const isScopedRoute = requestedScope === "document" || requestedScope === "study_goal"
 
     const resolvedScope = useMemo(() => {
@@ -265,7 +263,6 @@ export default function LearningPathPage() {
                                 <TabsList className="bg-muted/80 w-full md:w-auto h-auto p-1 justify-start overflow-x-auto hide-scrollbar shadow-sm">
                                     <TabsTrigger value="schedule" className="py-2 px-4 rounded-md">Schedule View</TabsTrigger>
                                     <TabsTrigger value="mastery" className="py-2 px-4 rounded-md">Topics & Mastery</TabsTrigger>
-                                    {isCombinedView ? <TabsTrigger value="planning" className="py-2 px-4 rounded-md">Goals & Planning</TabsTrigger> : null}
                                 </TabsList>
                             </div>
                         </div>
@@ -285,12 +282,6 @@ export default function LearningPathPage() {
                                 scopeFilter={scopeFilter}
                             />
                         </TabsContent>
-
-                        {isCombinedView ? (
-                            <TabsContent value="planning" className="m-0 border-0 p-0 outline-none">
-                                <StudyGoalsPanel />
-                            </TabsContent>
-                        ) : null}
                     </Tabs>
                 </>
             )}
