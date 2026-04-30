@@ -178,7 +178,7 @@ export default function LearningPathPage() {
 
         const nextQuizTask = adaptiveTasks
             .filter((task) => task.type === "quiz" && task.status === "needs_generation" && !!task.scheduledDate)
-            .filter((task) => !hasReusableReadyQuizForDocument(task.documentId))
+            .filter((task) => task.taskKey?.startsWith('manual:') || !hasReusableReadyQuizForDocument(task.documentId))
             .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate))
             .find((task) =>
                 task.scheduledDate! <= todayLocal &&
@@ -195,6 +195,7 @@ export default function LearningPathPage() {
                 documentId: nextQuizTask.documentId,
                 focusConceptIds: nextQuizTask.conceptIds,
                 questionCount: Math.max(10, Math.min(20, nextQuizTask.conceptIds.length * 2)),
+                forceNew: nextQuizTask.taskKey?.startsWith('manual:') === true,
             },
             {
                 onSuccess: () => {

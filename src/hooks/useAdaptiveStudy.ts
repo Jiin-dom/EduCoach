@@ -40,6 +40,7 @@ export interface AdaptiveStudyTask {
     title: string
     description: string
     quizId?: string
+    taskKey?: string
 }
 
 export const adaptiveStudyKeys = {
@@ -162,6 +163,7 @@ export function useAdaptiveStudyTasks() {
                     title,
                     description,
                     quizId: row.linked_quiz_id || undefined,
+                    taskKey: row.task_key,
                 } satisfies AdaptiveStudyTask
             })
 
