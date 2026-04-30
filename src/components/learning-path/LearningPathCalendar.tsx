@@ -103,7 +103,7 @@ export function LearningPathCalendar({
     }
 
     const dueTodayCount = plan.items.filter((item) => item.date === todayLocal).length
-    const confidenceTarget = Math.round((learningConfig?.confidence_threshold_mastered ?? 0.67) * 100)
+    const confidenceTarget = Math.round((learningConfig?.confidence_threshold_mastered ?? 0.8) * 100)
 
     // Compute Dates
     const now = anchorDate

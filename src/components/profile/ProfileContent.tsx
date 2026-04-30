@@ -358,8 +358,8 @@ export function ProfileContent() {
             return
         }
 
-        if (dailyStudyMinutesInput < 15 || dailyStudyMinutesInput > 120) {
-            toast.error("Daily study minutes must be between 15 and 120.")
+        if (dailyStudyMinutesInput < 15 || dailyStudyMinutesInput > 480) {
+            toast.error("Daily study minutes must be between 15 and 480.")
             return
         }
 
@@ -593,7 +593,7 @@ export function ProfileContent() {
                                         id="dailyMinutes"
                                         type="number"
                                         min={15}
-                                        max={120}
+                                        max={480}
                                         step={15}
                                         value={dailyStudyMinutesInput}
                                         onChange={(e) => setDailyStudyMinutesInput(Number(e.target.value) || 0)}
