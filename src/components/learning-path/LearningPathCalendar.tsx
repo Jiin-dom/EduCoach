@@ -11,10 +11,9 @@ import {
     Target,
     Zap,
 
-    AlertCircle,
-    ArrowUpRight
+    AlertCircle
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import {
@@ -32,6 +31,7 @@ import { useRescheduleAdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { getLearningPathItemsForDate, type LearningPathPlanItem, type PlannedReviewPlanItem } from "@/lib/learningPathPlan"
 import type { LearningPathPlanScopeFilter } from "@/lib/learningPathScope"
 import { toast } from "sonner"
+import { DueCompletedTodayCard, type LearningPathTodayItem } from "@/components/learning-path/DueCompletedTodayCard"
 
 function getDaysInMonth(year: number, month: number) {
     return new Date(year, month + 1, 0).getDate();
@@ -45,14 +45,9 @@ function formatDateToLocalString(d: Date) {
 
 type ScheduleFilter = 'all' | 'due' | 'needs_review' | 'developing'
 
-interface QuizItem {
-    id: string;
-    title: string;
-    documentTitle: string | null;
+interface QuizItem extends LearningPathTodayItem {
     dueDate: string | null;
-    itemType?: 'quiz' | 'flashcards' | 'review';
     taskId?: string;
-    status?: string;
     documentId?: string;
     conceptIds?: string[];
     href?: string;
@@ -776,94 +771,27 @@ export function LearningPathCalendar({
                 </CardContent>
             </Card>
 
-            {/* Due Today Quizzes Section */}
-            {((dueTodayQuizzes && dueTodayQuizzes.length > 0) || (completedTodayQuizzes && completedTodayQuizzes.length > 0)) && (
-                <Card className="mb-6 border-red-200 bg-red-50/10 shadow-sm overflow-hidden">
-                    <div className="flex flex-col lg:flex-row items-stretch divide-y lg:divide-y-0 lg:divide-x divide-red-100">
-                        {/* Due Section */}
-                        {dueTodayQuizzes.length > 0 && (
-                            <div className="flex-1">
-                                <CardHeader className="pb-2 pt-3 px-4 bg-red-50/50">
-                                    <CardTitle className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-red-600">
-                                        <div className="flex items-center gap-2">
-                                            <Target className="w-3.5 h-3.5" />
-                                            Due Today
-                                        </div>
-                                        <span className="bg-red-100 px-1.5 py-0.5 rounded text-[10px]">{dueTodayQuizzes.length}</span>
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent className="p-4 bg-white/50 overflow-y-auto max-h-[200px] scrollbar-thin">
-                                    <div className="flex flex-col gap-2">
-                                        {dueTodayQuizzes.filter((quiz) => !dismissedDueTodayQuizIds[quiz.id]).map((quiz) => (
-                                            <button
-                                                key={quiz.id}
-                                                type="button"
-                                                onClick={() => {
-                                                    if (quiz.itemType && quiz.itemType !== 'quiz') {
-                                                        navigate(quiz.href ?? `/files/${quiz.documentId}`)
-                                                        return
-                                                    }
-                                                    routeToQuizzesWithHighlight(quiz.id)
-                                                }}
-                                                className="flex items-center justify-between rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:border-red-400 hover:shadow-md text-left group"
-                                            >
-                                                <div className="min-w-0 pr-2">
-                                                    <p className="truncate font-bold text-xs tracking-tight group-hover:text-red-600 transition-colors">{quiz.title}</p>
-                                                    {quiz.documentTitle && (
-                                                        <p className="truncate text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
-                                                    )}
-                                                </div>
-                                                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 group-hover:text-red-500" />
-                                            </button>
-                                        ))}
-                                    </div>
-                                </CardContent>
-                            </div>
-                        )}
-
-                        {/* Completed Section */}
-                        {completedTodayQuizzes.length > 0 && (
-                            <div className="flex-1">
-                                <CardHeader className="pb-2 pt-3 px-4 bg-green-50/50">
-                                    <CardTitle className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-green-600">
-                                        <div className="flex items-center gap-2">
-                                            <CheckCircle2 className="w-3.5 h-3.5" />
-                                            Completed Today
-                                        </div>
-                                        <span className="bg-green-100 px-1.5 py-0.5 rounded text-[10px]">{completedTodayQuizzes.length}</span>
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent className="p-4 bg-white/50 overflow-y-auto max-h-[200px] scrollbar-thin">
-                                    <div className="flex flex-col gap-2">
-                                        {completedTodayQuizzes.map((quiz) => (
-                                        <button
-                                            key={quiz.id}
-                                            type="button"
-                                            onClick={() => {
-                                                if (quiz.itemType && quiz.itemType !== 'quiz') {
-                                                    navigate(quiz.href ?? `/files/${quiz.documentId}`)
-                                                    return
-                                                }
-                                                navigate(quiz.href ?? `/quizzes/${quiz.id}?review=true`)
-                                            }}
-                                            className="flex items-center justify-between rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:border-green-400 hover:shadow-md text-left group"
-                                        >
-                                                <div className="min-w-0 pr-2">
-                                                    <p className="truncate font-bold text-xs tracking-tight group-hover:text-green-600 transition-colors">{quiz.title}</p>
-                                                    {quiz.documentTitle && (
-                                                        <p className="truncate text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
-                                                    )}
-                                                </div>
-                                                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-500" />
-                                            </button>
-                                        ))}
-                                    </div>
-                                </CardContent>
-                            </div>
-                        )}
-                    </div>
-                </Card>
-            )}
+            <DueCompletedTodayCard
+                dueItems={dueTodayQuizzes}
+                completedItems={completedTodayQuizzes}
+                dismissedDueItemIds={dismissedDueTodayQuizIds}
+                onDueItemClick={(quiz) => {
+                    const item = quiz as QuizItem
+                    if (item.itemType && item.itemType !== 'quiz') {
+                        navigate(item.href ?? `/files/${item.documentId}`)
+                        return
+                    }
+                    routeToQuizzesWithHighlight(item.id)
+                }}
+                onCompletedItemClick={(quiz) => {
+                    const item = quiz as QuizItem
+                    if (item.itemType && item.itemType !== 'quiz') {
+                        navigate(item.href ?? `/files/${item.documentId}`)
+                        return
+                    }
+                    navigate(item.href ?? `/quizzes/${item.id}?review=true`)
+                }}
+            />
 
             {/* Schedule Stats Summary Tiles Grid */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
