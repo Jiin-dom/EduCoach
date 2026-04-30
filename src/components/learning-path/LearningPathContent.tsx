@@ -218,7 +218,13 @@ function GeneratedPlanCard({ item }: { item: PlannedReviewPlanItem }) {
     )
 }
 
-function GoalMarkerCard({ marker }: { marker: GoalMarkerPlanItem }) {
+function GoalMarkerCard({
+    marker,
+    completedTodayQuizIds,
+}: {
+    marker: GoalMarkerPlanItem
+    completedTodayQuizIds: Set<string>
+}) {
     const navigate = useNavigate()
     return (
         <Card className="hover:shadow-sm transition-shadow">
@@ -252,11 +258,13 @@ function GoalMarkerCard({ marker }: { marker: GoalMarkerPlanItem }) {
                                 return
                             }
                             
-                            const isCompletedToday = completedTodayQuizzes.some(q => q.id === marker.quizId)
+                            const quizId = marker.quizId
+                            if (!quizId) return
+                            const isCompletedToday = completedTodayQuizIds.has(quizId)
                             if (isCompletedToday) {
-                                navigate(`/quizzes/${marker.quizId}?review=true`)
+                                navigate(`/quizzes/${quizId}?review=true`)
                             } else {
-                                navigate(`/quizzes/${marker.quizId}`)
+                                navigate(`/quizzes/${quizId}`)
                             }
                         }}
                     >
@@ -515,6 +523,7 @@ export function LearningPathContent({
 
     const [selectedConcept, setSelectedConcept] = useState<ConceptMasteryWithDetails | null>(null)
     const [searchQuery, setSearchQuery] = useState("")
+    const completedTodayQuizIds = useMemo(() => new Set(completedTodayQuizzes.map((q) => q.id)), [completedTodayQuizzes])
     const scopedQuizzes = useMemo(
         () => (quizzes || []).filter((quiz) => matchesQuizScope(quiz, scopeFilter)),
         [quizzes, scopeFilter],
@@ -557,7 +566,7 @@ export function LearningPathContent({
         const effectiveQuizId = (task.id && task.id !== task.taskId ? task.id : null) ?? fallbackQuizId
 
         if (effectiveQuizId) {
-            const isCompletedToday = completedTodayQuizzes.some(q => q.id === effectiveQuizId)
+            const isCompletedToday = completedTodayQuizIds.has(effectiveQuizId)
             if (isCompletedToday) {
                 navigate(`/quizzes/${effectiveQuizId}?review=true`)
                 return
@@ -573,15 +582,24 @@ export function LearningPathContent({
         }
 
         if (task.status === 'needs_generation' && completedAdaptiveDocumentIdsToday.has(documentId) && !bypassPolicy) {
+            const conceptIds = task.conceptIds || []
             setConfirmTask({
-                ...task,
                 id: task.taskId || task.id || '',
-                quizId: task.id,
                 type: 'quiz',
+                status: 'needs_generation',
+                reason: 'due_today',
                 documentId,
-                conceptIds: task.conceptIds || [],
+                documentTitle: '',
+                conceptIds,
+                conceptNames: [],
                 scheduledDate: todayLocal, // It's today if we're hitting the policy
-            } as any)
+                priorityScore: 0,
+                count: conceptIds.length,
+                title: 'Adaptive quiz',
+                description: 'Generate a targeted adaptive quiz for today.',
+                quizId: task.id,
+                taskKey: task.taskKey,
+            })
             return
         }
 
@@ -606,7 +624,7 @@ export function LearningPathContent({
                 },
             },
         )
-    }, [completedAdaptiveDocumentIdsToday, generateReview, navigate, reusableReadyQuizIdByDocument])
+    }, [completedAdaptiveDocumentIdsToday, completedTodayQuizIds, generateReview, navigate, reusableReadyQuizIdByDocument, todayLocal])
     const upcomingGoals = useMemo(() => plan.goalMarkers.slice(0, 4), [plan.goalMarkers])
     const stats = useMemo(() => {
         const totalConcepts = performanceMasteryList.length
@@ -678,7 +696,7 @@ export function LearningPathContent({
             const effectiveQuizId = task.quizId ?? fallbackQuizId
             
             if (task.status === 'ready' && effectiveQuizId) {
-                const isCompletedToday = completedTodayQuizzes.some(q => q.id === effectiveQuizId)
+                const isCompletedToday = completedTodayQuizIds.has(effectiveQuizId)
                 if (isCompletedToday) {
                     navigate(`/quizzes/${effectiveQuizId}?review=true`)
                 } else {
@@ -691,7 +709,7 @@ export function LearningPathContent({
                 return
             }
             if (effectiveQuizId) {
-                const isCompletedToday = completedTodayQuizzes.some(q => q.id === effectiveQuizId)
+                const isCompletedToday = completedTodayQuizIds.has(effectiveQuizId)
                 if (isCompletedToday) {
                     navigate(`/quizzes/${effectiveQuizId}?review=true`)
                 } else {
@@ -732,7 +750,7 @@ export function LearningPathContent({
         }
 
         navigate(`/files/${task.documentId}?tab=concepts`)
-    }, [completedAdaptiveDocumentIdsToday, handleAdaptiveQuizAction, navigate, reusableReadyQuizIdByDocument, todayLocal])
+    }, [completedAdaptiveDocumentIdsToday, completedTodayQuizIds, handleAdaptiveQuizAction, navigate, reusableReadyQuizIdByDocument, todayLocal])
 
     const isLoading = plan.isLoading
     
@@ -1111,7 +1129,11 @@ export function LearningPathContent({
                                             <div className="space-y-3">
                                                 <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Milestones & Goals</h3>
                                                 {upcomingGoals.map((marker) => (
-                                                    <GoalMarkerCard key={marker.id} marker={marker} />
+                                                    <GoalMarkerCard
+                                                        key={marker.id}
+                                                        marker={marker}
+                                                        completedTodayQuizIds={completedTodayQuizIds}
+                                                    />
                                                 ))}
                                             </div>
                                         )}
@@ -1240,8 +1262,6 @@ export function LearningPathContent({
                             open={selectedConcept !== null}
                             onClose={() => setSelectedConcept(null)}
                         />
-                    </>
-                )}
             </div>
         </main>
     )

@@ -756,7 +756,12 @@ export function LearningPathCalendar({
                                         todayLocal,
                                         completedAdaptiveDocumentIdsToday: completedDocumentIdsToday,
                                     })) return false
-                                    if (item.task.type === "quiz" && item.task.quizId && completedQuizIds.has(item.task.quizId)) return false
+                                    if (
+                                        item.task.type === "quiz" &&
+                                        item.task.quizId &&
+                                        completedQuizIds.has(item.task.quizId) &&
+                                        item.task.scheduledDate === todayLocal
+                                    ) return false
                                     return true
                                 })
                                 
@@ -833,7 +838,12 @@ export function LearningPathCalendar({
                                             todayLocal,
                                             completedAdaptiveDocumentIdsToday: completedDocumentIdsToday,
                                         })) return false
-                                        if (item.task.type === "quiz" && item.task.quizId && completedQuizIds.has(item.task.quizId)) return false
+                                        if (
+                                            item.task.type === "quiz" &&
+                                            item.task.quizId &&
+                                            completedQuizIds.has(item.task.quizId) &&
+                                            item.task.scheduledDate === todayLocal
+                                        ) return false
                                         return true
                                     })
 
