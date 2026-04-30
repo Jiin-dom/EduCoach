@@ -494,6 +494,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
                                                 type="date"
                                                 value={goalDate}
                                                 onChange={(event) => setGoalDate(event.target.value)}
+                                                min={new Date().toISOString().split("T")[0]}
                                             />
                                             <p className="text-xs text-muted-foreground">
                                                 Target date for completing this document.

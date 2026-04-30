@@ -451,6 +451,10 @@ interface QuizItem {
     title: string;
     documentTitle: string | null;
     dueDate: string | null;
+    taskId?: string;
+    status?: string;
+    documentId?: string;
+    conceptIds?: string[];
 }
 
 interface LearningPathContentProps {
@@ -494,6 +498,57 @@ export function LearningPathContent({
         adaptiveTasks: adaptiveTasks.map((item) => item.task),
     })
     const reusableReadyQuizIdByDocument = adaptiveQuizPolicy.reusableReadyQuizIdByDocument
+    const completedAdaptiveDocumentIdsToday = adaptiveQuizPolicy.completedAdaptiveDocumentIdsToday
+
+    const handleAdaptiveQuizAction = (task: {
+        id?: string;
+        taskId?: string;
+        status?: string;
+        documentId?: string;
+        conceptIds?: string[];
+    }) => {
+        const documentId = task.documentId
+        if (!documentId) return
+
+        const fallbackQuizId = reusableReadyQuizIdByDocument.get(documentId)
+        const effectiveQuizId = (task.id && task.id !== task.taskId ? task.id : null) ?? fallbackQuizId
+
+        if (effectiveQuizId) {
+            navigate(`/quizzes/${effectiveQuizId}`)
+            return
+        }
+
+        if (task.status === 'generating') {
+            toast.info('Your adaptive quiz is still being prepared. Check the Quizzes page in a moment.')
+            navigate('/quizzes')
+            return
+        }
+
+        if (task.status === 'needs_generation' && completedAdaptiveDocumentIdsToday.has(documentId)) {
+            toast.info('You already completed today\'s quiz for this file. The next adaptive quiz will be prepared on the next available study day.')
+            return
+        }
+
+        toast.loading('Preparing adaptive quiz...')
+        generateReview.mutate(
+            {
+                documentId,
+                focusConceptIds: task.conceptIds || [],
+                questionCount: Math.max(5, Math.min(12, (task.conceptIds?.length || 0) * 2)),
+            },
+            {
+                onSuccess: (data) => {
+                    toast.dismiss()
+                    toast.success('Adaptive review quiz ready')
+                    navigate(`/quizzes/${data.quizId}`)
+                },
+                onError: (err) => {
+                    toast.dismiss()
+                    toast.error('Failed to generate adaptive quiz: ' + (err as Error).message)
+                },
+            },
+        )
+    }
     const upcomingGoals = useMemo(() => plan.goalMarkers.slice(0, 4), [plan.goalMarkers])
     const stats = useMemo(() => {
         const totalConcepts = performanceMasteryList.length
@@ -619,30 +674,18 @@ export function LearningPathContent({
                 navigate('/quizzes')
                 return
             }
-            if (task.status === 'needs_generation' && adaptiveQuizPolicy.completedAdaptiveDocumentIdsToday.has(task.documentId)) {
+            if (task.status === 'needs_generation' && completedAdaptiveDocumentIdsToday.has(task.documentId)) {
                 toast.info('You already completed today\'s quiz for this file. The next adaptive quiz will be prepared on the next available study day.')
                 return
             }
 
-            toast.loading('Generating adaptive quiz...')
-            generateReview.mutate(
-                {
-                    documentId: task.documentId,
-                    focusConceptIds: task.conceptIds,
-                    questionCount: Math.max(5, Math.min(12, task.conceptIds.length * 2)),
-                },
-                {
-                    onSuccess: (data) => {
-                        toast.dismiss()
-                        toast.success('Adaptive review quiz ready')
-                        navigate(`/quizzes/${data.quizId}`)
-                    },
-                    onError: (err) => {
-                        toast.dismiss()
-                        toast.error('Failed to generate adaptive quiz: ' + (err as Error).message)
-                    },
-                },
-            )
+            handleAdaptiveQuizAction({
+                id: task.quizId,
+                taskId: task.id,
+                status: task.status,
+                documentId: task.documentId,
+                conceptIds: task.conceptIds
+            })
             return
         }
 
@@ -867,74 +910,93 @@ export function LearningPathContent({
                             </div>
                         </div>
 
-                        {/* Due Today Quizzes Section - More compact and integrated */}
-                        {((dueTodayQuizzes && dueTodayQuizzes.length > 0) || (completedTodayQuizzes && completedTodayQuizzes.length > 0)) && (
-                            <Card className="border-red-200 bg-red-50/10 shadow-sm overflow-hidden mb-6">
-                                <CardContent className="p-0">
-                                    <div className="flex flex-col lg:flex-row items-stretch divide-y lg:divide-y-0 lg:divide-x divide-white/20">
-                                        {/* Due Today Section */}
-                                        {dueTodayQuizzes.length > 0 && (
-                                            <div className="flex flex-col sm:flex-row items-stretch flex-1">
-                                                <div className="bg-red-500 text-white p-4 flex flex-col justify-center items-center sm:w-32 shrink-0">
-                                                    <Target className="w-6 h-6 mb-1" />
-                                                    <span className="text-xl font-black">{dueTodayQuizzes.length}</span>
-                                                    <span className="text-[9px] uppercase font-bold tracking-tighter">Due Today</span>
+                        {/* Due Today Quizzes Section - Always visible for tracking */}
+                        <Card className="border-red-200 bg-red-50/10 shadow-sm overflow-hidden mb-6">
+                            <CardContent className="p-0">
+                                <div className="flex flex-col lg:flex-row items-stretch divide-y lg:divide-y-0 lg:divide-x divide-white/20">
+                                    {/* Due Today Section */}
+                                    <div className="flex flex-col sm:flex-row items-stretch flex-1">
+                                        <div className="bg-red-500 text-white p-4 flex flex-col justify-center items-center sm:w-32 shrink-0">
+                                            <Target className="w-6 h-6 mb-1" />
+                                            <span className="text-xl font-black">{dueTodayQuizzes.length}</span>
+                                            <span className="text-[9px] uppercase font-bold tracking-tighter">Due Today</span>
+                                        </div>
+                                        <div className="p-4 flex-1 overflow-y-auto max-h-[200px] bg-red-50/30 scrollbar-thin">
+                                            {dueTodayQuizzes.length > 0 ? (
+                                                <div className="flex flex-col gap-2">
+                                                    {dueTodayQuizzes.map((quiz) => (
+                                                        <button
+                                                            key={quiz.id}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (quiz.taskId) {
+                                                                    handleAdaptiveQuizAction(quiz)
+                                                                } else {
+                                                                    navigate(`/quizzes/${quiz.id}`)
+                                                                }
+                                                            }}
+                                                            className="flex items-center justify-between rounded-lg border bg-background p-2 shadow-sm transition-all hover:border-red-400 hover:shadow-md group min-w-[180px] sm:min-w-0 text-left"
+                                                        >
+                                                            <div className="min-w-0 pr-2">
+                                                                <p className="truncate font-bold text-[11px] tracking-tight group-hover:text-red-600 transition-colors">
+                                                                    {quiz.title}
+                                                                    {quiz.status && quiz.status !== 'ready' && (
+                                                                        <span className="ml-2 text-[8px] opacity-60 italic lowercase">({quiz.status})</span>
+                                                                    )}
+                                                                </p>
+                                                                {quiz.documentTitle ? (
+                                                                    <p className="truncate text-[8px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
+                                                                ) : null}
+                                                            </div>
+                                                            <ArrowUpRight className="h-3 w-3 shrink-0 text-muted-foreground/60 group-hover:text-red-500" />
+                                                        </button>
+                                                    ))}
                                                 </div>
-                                                <div className="p-4 flex-1 overflow-y-auto max-h-[200px] bg-red-50/30 scrollbar-thin">
-                                                    <div className="flex flex-col gap-2">
-                                                        {dueTodayQuizzes.map((quiz) => (
-                                                            <Link
-                                                                key={quiz.id}
-                                                                to={`/quizzes/${quiz.id}`}
-                                                                className="flex items-center justify-between rounded-lg border bg-background p-2 shadow-sm transition-all hover:border-red-400 hover:shadow-md group min-w-[180px] sm:min-w-0"
-                                                            >
-                                                                <div className="min-w-0 pr-2">
-                                                                    <p className="truncate font-bold text-[11px] tracking-tight group-hover:text-red-600 transition-colors">{quiz.title}</p>
-                                                                    {quiz.documentTitle ? (
-                                                                        <p className="truncate text-[8px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
-                                                                    ) : null}
-                                                                </div>
-                                                                <ArrowUpRight className="h-3 w-3 shrink-0 text-muted-foreground/60 group-hover:text-red-500" />
-                                                            </Link>
-                                                        ))}
-                                                    </div>
+                                            ) : (
+                                                <div className="h-full flex items-center justify-center py-4">
+                                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">No quizzes due today</p>
                                                 </div>
-                                            </div>
-                                        )}
-
-                                        {/* Completed Today Section */}
-                                        {completedTodayQuizzes.length > 0 && (
-                                            <div className="flex flex-col sm:flex-row items-stretch flex-1">
-                                                <div className="bg-green-500 text-white p-4 flex flex-col justify-center items-center sm:w-32 shrink-0">
-                                                    <CheckCircle2 className="w-6 h-6 mb-1" />
-                                                    <span className="text-xl font-black">{completedTodayQuizzes.length}</span>
-                                                    <span className="text-[9px] uppercase font-bold tracking-tighter">Completed</span>
-                                                </div>
-                                                <div className="p-4 flex-1 overflow-y-auto max-h-[200px] bg-green-50/30 scrollbar-thin">
-                                                    <div className="flex flex-col gap-2">
-                                                        {completedTodayQuizzes.map((quiz) => (
-                                                            <Link
-                                                                key={quiz.id}
-                                                                to={`/quizzes/${quiz.id}`}
-                                                                className="flex items-center justify-between rounded-lg border bg-background p-2 shadow-sm transition-all hover:border-green-400 hover:shadow-md group min-w-[180px] sm:min-w-0"
-                                                            >
-                                                                <div className="min-w-0 pr-2">
-                                                                    <p className="truncate font-bold text-[11px] tracking-tight group-hover:text-green-600 transition-colors">{quiz.title}</p>
-                                                                    {quiz.documentTitle ? (
-                                                                        <p className="truncate text-[8px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
-                                                                    ) : null}
-                                                                </div>
-                                                                <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500" />
-                                                            </Link>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
+                                            )}
+                                        </div>
                                     </div>
-                                </CardContent>
-                            </Card>
-                        )}
+
+                                    {/* Completed Today Section */}
+                                    <div className="flex flex-col sm:flex-row items-stretch flex-1">
+                                        <div className="bg-green-500 text-white p-4 flex flex-col justify-center items-center sm:w-32 shrink-0">
+                                            <CheckCircle2 className="w-6 h-6 mb-1" />
+                                            <span className="text-xl font-black">{completedTodayQuizzes.length}</span>
+                                            <span className="text-[9px] uppercase font-bold tracking-tighter">Completed Today</span>
+                                        </div>
+                                        <div className="p-4 flex-1 overflow-y-auto max-h-[200px] bg-green-50/30 scrollbar-thin">
+                                            {completedTodayQuizzes.length > 0 ? (
+                                                <div className="flex flex-col gap-2">
+                                                    {completedTodayQuizzes.map((quiz) => (
+                                                        <Link
+                                                            key={quiz.id}
+                                                            to={`/quizzes/${quiz.id}`}
+                                                            className="flex items-center justify-between rounded-lg border bg-background p-2 shadow-sm transition-all hover:border-green-400 hover:shadow-md group min-w-[180px] sm:min-w-0"
+                                                        >
+                                                            <div className="min-w-0 pr-2">
+                                                                <p className="truncate font-bold text-[11px] tracking-tight group-hover:text-green-600 transition-colors">{quiz.title}</p>
+                                                                {quiz.documentTitle ? (
+                                                                    <p className="truncate text-[8px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
+                                                                ) : null}
+                                                            </div>
+                                                            <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500" />
+                                                        </Link>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <div className="h-full flex items-center justify-center py-4">
+                                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">None completed yet</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+
 
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 w-full">
                             {adaptiveTasks.length > 0 && (
