@@ -3,6 +3,19 @@ import type { Attempt, Quiz } from '@/hooks/useQuizzes'
 import type { AdaptiveStudyTask } from '@/hooks/useAdaptiveStudy'
 import { localDateFromTimestamp, todayLocalDateString } from '@/lib/localDate'
 
+export function shouldSuppressAdaptiveQuizTask(args: {
+    taskType: AdaptiveStudyTask['type']
+    taskDocumentId: string
+    taskScheduledDate: string
+    todayLocal: string
+    completedAdaptiveDocumentIdsToday: Set<string>
+}) {
+    const { taskType, taskDocumentId, taskScheduledDate, todayLocal, completedAdaptiveDocumentIdsToday } = args
+    if (taskType !== 'quiz') return false
+    if (!completedAdaptiveDocumentIdsToday.has(taskDocumentId)) return false
+    return taskScheduledDate === todayLocal
+}
+
 export function useAdaptiveQuizPolicies(params: {
     quizzes: Quiz[]
     attempts: Attempt[]

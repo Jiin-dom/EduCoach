@@ -57,6 +57,8 @@ interface GenerateQuizRequest {
     userId?: string
     /** Optional: focus on specific concept IDs (for targeted review quizzes) */
     focusConceptIds?: string[]
+    /** Optional: adaptive task idempotency key (UUID) */
+    sourceTaskId?: string
 }
 
 interface NlpQuestion {
@@ -275,6 +277,7 @@ serve(async (req) => {
             questionTypes = ['multiple_choice', 'identification', 'true_false', 'fill_in_blank'],
             userId: requestUserId,
             focusConceptIds,
+            sourceTaskId,
         } = body
 
         const { stableSelectedTypes: stableQuestionTypes, targetsByType: requestedTargetsByType } =
@@ -438,6 +441,31 @@ serve(async (req) => {
         }
 
         // 5. Create quiz record
+        if (sourceTaskId) {
+            const { data: existingSourceQuiz } = await supabase
+                .from('quizzes')
+                .select('id, question_count')
+                .eq('user_id', userId)
+                .eq('source_adaptive_task_id', sourceTaskId)
+                .in('status', ['generating', 'ready'])
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle()
+
+            if (existingSourceQuiz?.id) {
+                console.log(`♻️ Reusing quiz for adaptive task ${sourceTaskId}: ${existingSourceQuiz.id}`)
+                return new Response(
+                    JSON.stringify({
+                        success: true,
+                        quizId: existingSourceQuiz.id,
+                        questionCount: existingSourceQuiz.question_count || 0,
+                        reused: true,
+                    }),
+                    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+                )
+            }
+        }
+
         const quizTitle = (() => {
             if (!isReviewQuiz) return `Quiz: ${document.title}`
 
@@ -463,6 +491,7 @@ serve(async (req) => {
             .insert({
                 user_id: userId,
                 document_id: documentId,
+                source_adaptive_task_id: sourceTaskId || null,
                 title: quizTitle,
                 description: `Auto-generated quiz from "${document.title}"`,
                 difficulty,
@@ -474,6 +503,35 @@ serve(async (req) => {
             .single()
 
         if (quizError || !quiz) {
+            if (sourceTaskId) {
+                const isUniqueRace =
+                    quizError?.code === '23505' ||
+                    (quizError?.message || '').toLowerCase().includes('uq_quizzes_generating_per_source_adaptive_task')
+                if (isUniqueRace) {
+                    const { data: existingSourceQuiz } = await supabase
+                        .from('quizzes')
+                        .select('id, question_count')
+                        .eq('user_id', userId)
+                        .eq('source_adaptive_task_id', sourceTaskId)
+                        .in('status', ['generating', 'ready'])
+                        .order('created_at', { ascending: false })
+                        .limit(1)
+                        .maybeSingle()
+
+                    if (existingSourceQuiz?.id) {
+                        console.log(`♻️ Reusing raced quiz for adaptive task ${sourceTaskId}: ${existingSourceQuiz.id}`)
+                        return new Response(
+                            JSON.stringify({
+                                success: true,
+                                quizId: existingSourceQuiz.id,
+                                questionCount: existingSourceQuiz.question_count || 0,
+                                reused: true,
+                            }),
+                            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+                        )
+                    }
+                }
+            }
             throw new Error(`DB_ERROR:Failed to create quiz record. ${quizError?.message || ''}`)
         }
 

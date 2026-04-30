@@ -26,7 +26,7 @@ import {
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
 import { useNavigate } from "react-router-dom"
 import { useGenerateReviewQuiz, useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
-import { useAdaptiveQuizPolicies } from "@/hooks/useAdaptiveQuizPolicies"
+import { shouldSuppressAdaptiveQuizTask, useAdaptiveQuizPolicies } from "@/hooks/useAdaptiveQuizPolicies"
 import { useLearningPathPlan } from "@/hooks/useLearningPathPlan"
 import { useRescheduleAdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { getLearningPathItemsForDate, type LearningPathPlanItem, type PlannedReviewPlanItem } from "@/lib/learningPathPlan"
@@ -367,6 +367,13 @@ export function LearningPathCalendar({
 
         const task = item.task
         const isCompleted = task.type === 'quiz' && task.quizId && attempts.some(a => a.quiz_id === task.quizId)
+        const resolvedQuizId = task.type === 'quiz'
+            ? (task.quizId ?? reusableReadyQuizIdByDocument.get(task.documentId))
+            : undefined
+        const resolvedQuizTitle = resolvedQuizId
+            ? quizzes.find((quiz) => quiz.id === resolvedQuizId)?.title
+            : undefined
+        const hoverTitle = resolvedQuizTitle || task.title
         
         const colors = isCompleted
             ? 'bg-green-50 text-green-700 border-green-200'
@@ -461,7 +468,7 @@ export function LearningPathCalendar({
                     e.dataTransfer.effectAllowed = 'move'
                 }}
                 className={`${compact ? 'mt-1 text-[10px] p-1.5 rounded-md' : 'p-3 rounded-xl mb-2'} w-full border text-xs shadow-sm ${colors} text-left transition-all duration-500 ${isCompleted ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'} hover:shadow-md flex items-center gap-2 ${dismissingTaskIds[task.id] ? 'opacity-0 scale-[0.98]' : ''}`}
-                title={isLocked ? `${task.title} (Locked until ${item.date}). Drag to reschedule.` : `${task.title}. ${isCompleted ? 'Completed. Click to retake.' : 'Drag to move or click to open.'}`}
+                title={isLocked ? `${hoverTitle} (Locked until ${item.date}). Drag to reschedule.` : `${hoverTitle}. ${isCompleted ? 'Completed. Click to retake.' : 'Drag to move or click to open.'}`}
             >
                 <div className={`p-1.5 rounded-md shrink-0 ${isCompleted ? 'bg-green-100/50' : 'bg-white/60'}`}>
                     {taskIcon}
@@ -651,7 +658,13 @@ export function LearningPathCalendar({
                                 dayItems = dayItems.filter((item) => {
                                     if (item.kind !== "adaptive_task") return true
                                     if (dismissedTaskIds[item.task.id]) return false
-                                    if (item.task.type === "quiz" && completedDocumentIdsToday.has(item.task.documentId)) return false
+                                    if (shouldSuppressAdaptiveQuizTask({
+                                        taskType: item.task.type,
+                                        taskDocumentId: item.task.documentId,
+                                        taskScheduledDate: item.task.scheduledDate,
+                                        todayLocal,
+                                        completedAdaptiveDocumentIdsToday: completedDocumentIdsToday,
+                                    })) return false
                                     if (item.task.type === "quiz" && item.task.quizId && completedQuizIds.has(item.task.quizId)) return false
                                     return true
                                 })
@@ -722,7 +735,13 @@ export function LearningPathCalendar({
                                     dayItems = dayItems.filter((item) => {
                                         if (item.kind !== "adaptive_task") return true
                                         if (dismissedTaskIds[item.task.id]) return false
-                                        if (item.task.type === "quiz" && completedDocumentIdsToday.has(item.task.documentId)) return false
+                                        if (shouldSuppressAdaptiveQuizTask({
+                                            taskType: item.task.type,
+                                            taskDocumentId: item.task.documentId,
+                                            taskScheduledDate: item.task.scheduledDate,
+                                            todayLocal,
+                                            completedAdaptiveDocumentIdsToday: completedDocumentIdsToday,
+                                        })) return false
                                         if (item.task.type === "quiz" && item.task.quizId && completedQuizIds.has(item.task.quizId)) return false
                                         return true
                                     })

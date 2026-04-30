@@ -65,6 +65,19 @@ export default function LearningPathPage() {
         const docsById = new Map(documents.map((document) => [document.id, document]))
         const latestQuizIdByDocument = buildLatestQuizIdByDocument(quizzes)
         const documentsWithExplicitQuizDeadlines = buildDocumentsWithExplicitQuizDeadlines(quizzes)
+        const completedQuizIds = new Set(
+            attempts
+                .filter((attempt) => !!attempt.completed_at)
+                .map((attempt) => attempt.quiz_id),
+        )
+        const reusableReadyQuizByDocument = new Map<string, (typeof quizzes)[number]>()
+        for (const quiz of quizzes) {
+            if (quiz.status !== "ready") continue
+            if (completedQuizIds.has(quiz.id)) continue
+            if (!reusableReadyQuizByDocument.has(quiz.document_id)) {
+                reusableReadyQuizByDocument.set(quiz.document_id, quiz)
+            }
+        }
 
         // 1. Get all quizzes that could be due today
         const allQuizzesForToday = quizzes
@@ -107,17 +120,23 @@ export default function LearningPathPage() {
         const adaptiveQuizTasks = adaptiveTasks
             .filter((task) => task.type === "quiz" && task.scheduledDate === todayLocal)
             .filter((task) => matchesQuizScope({ id: task.quizId || task.id, document_id: task.documentId }, scopeFilter))
-            .map((task) => ({
-                id: task.quizId || task.id,
-                title: task.title,
-                documentTitle: task.documentTitle,
-                dueDate: task.scheduledDate,
-                // Add metadata to allow the UI to handle generation if needed
-                taskId: task.id,
-                status: task.status,
-                documentId: task.documentId,
-                conceptIds: task.conceptIds,
-            }))
+            .map((task) => {
+                const resolvedQuiz = task.quizId
+                    ? quizzes.find((quiz) => quiz.id === task.quizId)
+                    : reusableReadyQuizByDocument.get(task.documentId)
+
+                return {
+                    id: resolvedQuiz?.id || task.quizId || task.id,
+                    title: resolvedQuiz?.title || task.title,
+                    documentTitle: task.documentTitle,
+                    dueDate: task.scheduledDate,
+                    // Add metadata to allow the UI to handle generation if needed
+                    taskId: task.id,
+                    status: resolvedQuiz ? "ready" : task.status,
+                    documentId: task.documentId,
+                    conceptIds: task.conceptIds,
+                }
+            })
 
         const combined = new Map<string, typeof allQuizzesForToday[0]>()
         allQuizzesForToday.forEach(q => combined.set(q.id, q))
@@ -125,7 +144,7 @@ export default function LearningPathPage() {
 
         return Array.from(combined.values())
             .sort((a, b) => a.title.localeCompare(b.title))
-    }, [documents, quizzes, adaptiveTasks, scopeFilter])
+    }, [documents, quizzes, adaptiveTasks, attempts, scopeFilter])
 
     const completedTodayQuizzes = useMemo(() => {
         const todayLocal = todayLocalDateString()

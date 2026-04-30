@@ -543,6 +543,7 @@ export function useGenerateReviewQuiz() {
                     enhanceWithLlm: true,
                     userId: session.user.id,
                     focusConceptIds: input.focusConceptIds,
+                    sourceTaskId: input.sourceTaskId,
                 },
             })
 
