@@ -196,6 +196,7 @@ export default function LearningPathPage() {
                 focusConceptIds: nextQuizTask.conceptIds,
                 questionCount: Math.max(10, Math.min(20, nextQuizTask.conceptIds.length * 2)),
                 forceNew: nextQuizTask.taskKey?.startsWith('manual:') === true,
+                sourceTaskId: nextQuizTask.id,
             },
             {
                 onSuccess: () => {

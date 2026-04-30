@@ -81,6 +81,7 @@ export interface GenerateReviewQuizInput {
     focusConceptIds: string[]
     questionCount?: number
     forceNew?: boolean
+    sourceTaskId?: string
 }
 
 export interface SubmitAttemptInput {
@@ -461,6 +462,15 @@ export function useGenerateReviewQuiz() {
     return useMutation({
         mutationFn: async (input: GenerateReviewQuizInput) => {
             console.log('[Quiz] Starting review quiz generation...', input)
+            const bindQuizToSourceTask = async (quizId: string, status: 'generating' | 'ready') => {
+                if (!input.sourceTaskId) return
+                const { error } = await supabase.rpc('bind_generated_quiz_to_adaptive_task', {
+                    p_task_id: input.sourceTaskId,
+                    p_quiz_id: quizId,
+                    p_status: status,
+                })
+                if (error) throw new Error(error.message)
+            }
 
             const session = await ensureFreshSession()
             if (!session) {
@@ -491,6 +501,7 @@ export function useGenerateReviewQuiz() {
                 const generatingQuiz = existingRows.find((q) => q.status === 'generating')
                 if (generatingQuiz) {
                     console.log('[Quiz] Reusing generating review quiz:', generatingQuiz.id)
+                    await bindQuizToSourceTask(generatingQuiz.id, 'generating')
                     return {
                         success: true,
                         quizId: generatingQuiz.id,
@@ -513,6 +524,7 @@ export function useGenerateReviewQuiz() {
 
                     if ((completedAttemptCount ?? 0) === 0) {
                         console.log('[Quiz] Reusing ready unattempted review quiz:', latestReadyQuiz.id)
+                        await bindQuizToSourceTask(latestReadyQuiz.id, 'ready')
                         return {
                             success: true,
                             quizId: latestReadyQuiz.id,
@@ -540,7 +552,11 @@ export function useGenerateReviewQuiz() {
             }
 
             console.log('[Quiz] Review quiz generation successful:', data)
-            return data as { success: boolean; quizId: string; questionCount: number }
+            const result = data as { success: boolean; quizId: string; questionCount: number }
+            if (result.quizId) {
+                await bindQuizToSourceTask(result.quizId, 'generating')
+            }
+            return result
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: quizKeys.all })

@@ -332,6 +332,7 @@ export function LearningPathCalendar({
                                  focusConceptIds: task.conceptIds,
                                 questionCount: Math.max(10, Math.min(20, task.conceptIds.length * 2)),
                                 forceNew: shouldForceNewQuiz,
+                                sourceTaskId: task.id,
                              },
                              {
                                  onSuccess: (data) => {
