@@ -1,12 +1,10 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Layers, ChevronRight, RotateCcw, CheckCircle2, Loader2, Maximize2, Minimize2, X, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useDocumentFlashcards, useReviewFlashcard, useGenerateFlashcards, type Flashcard } from '@/hooks/useFlashcards'
-import { adaptiveStudyKeys } from '@/hooks/useAdaptiveStudy'
 import { cn } from '@/lib/utils'
 
 interface FlashcardsTabProps {
@@ -17,7 +15,6 @@ interface FlashcardsTabProps {
 type ReviewRating = 'again' | 'hard' | 'good' | 'easy'
 
 export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps) {
-    const queryClient = useQueryClient()
     const { data: cards, isLoading } = useDocumentFlashcards(documentId)
     const reviewMutation = useReviewFlashcard()
     const generateFlashcards = useGenerateFlashcards()
@@ -80,28 +77,24 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
     const totalCards = cards?.length ?? 0
     const dueCount = dueCards.length
 
-    const exitStudyMode = (options?: { invalidateAdaptive?: boolean }) => {
+    const exitStudyMode = () => {
         setStudyMode(false)
         setCurrentIdx(0)
         setFlipped(false)
         setSessionCards([])
-        if (options?.invalidateAdaptive) {
-            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
-        }
     }
 
     const handleRate = async (card: Flashcard, rating: ReviewRating) => {
         await reviewMutation.mutateAsync({
             card,
             rating,
-            deferAdaptiveInvalidation: true,
         })
         setFlipped(false)
         setSessionDone(prev => prev + 1)
         if (currentIdx + 1 < sessionCards.length) {
             setCurrentIdx(prev => prev + 1)
         } else {
-            exitStudyMode({ invalidateAdaptive: true })
+            exitStudyMode()
         }
     }
 
@@ -155,7 +148,7 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
         const prevCard = currentIdx > 0 ? sessionCards[currentIdx - 1] : null
         const nextCard = currentIdx + 1 < sessionCards.length ? sessionCards[currentIdx + 1] : null
         if (!card) {
-            exitStudyMode({ invalidateAdaptive: true })
+            exitStudyMode()
             return null
         }
 
@@ -210,7 +203,7 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
                             variant="ghost"
                             size={isFullscreen ? "default" : "sm"}
                             className={cn("rounded-full", isFullscreen ? "bg-muted/50 hover:bg-muted" : "")}
-                            onClick={() => exitStudyMode({ invalidateAdaptive: true })}
+                            onClick={() => exitStudyMode()}
                         >
                             {isFullscreen ? <X className="w-4 h-4 mr-2" /> : null}
                             Exit
