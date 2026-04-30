@@ -26,7 +26,8 @@ import {
 } from "@/hooks/useLearning"
 import { useWeeklyProgress } from "@/hooks/useLearningProgress"
 import { useNavigate } from "react-router-dom"
-import { useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
+import { useGenerateReviewQuiz, useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
+import { useAdaptiveQuizPolicies } from "@/hooks/useAdaptiveQuizPolicies"
 import { useLearningPathPlan } from "@/hooks/useLearningPathPlan"
 import { useRescheduleAdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { getLearningPathItemsForDate, type LearningPathPlanItem, type PlannedReviewPlanItem } from "@/lib/learningPathPlan"
@@ -78,6 +79,7 @@ export function LearningPathCalendar({
     const { data: efficiency } = useStudyEfficiency();
     const { data: learningConfig } = useLearningConfig();
     const plan = useLearningPathPlan(scopeFilter)
+    const generateReview = useGenerateReviewQuiz()
     
     const rescheduleDueDate = useRescheduleConceptDueDate()
     const rescheduleAdaptiveTask = useRescheduleAdaptiveStudyTask()
@@ -85,27 +87,21 @@ export function LearningPathCalendar({
     const { data: attempts = [] } = useUserAttempts()
     const { data: quizzes = [] } = useQuizzes()
     const { profile } = useAuth()
-    const completedQuizIds = new Set(
-        attempts
-            .filter((a) => !!a.completed_at)
-            .map((a) => a.quiz_id),
-    )
-    const reusableReadyQuizIdByDocument = new Map<string, string>()
-    for (const quiz of quizzes) {
-        if (quiz.status !== 'ready') continue
-        if (completedQuizIds.has(quiz.id)) continue
-        if (!reusableReadyQuizIdByDocument.has(quiz.document_id)) {
-            reusableReadyQuizIdByDocument.set(quiz.document_id, quiz.id)
-        }
-    }
+    const adaptiveQuizPolicy = useAdaptiveQuizPolicies({
+        quizzes,
+        attempts,
+        adaptiveTasks: plan.adaptiveTasks.map((item) => item.task),
+    })
+    const todayLocal = adaptiveQuizPolicy.todayLocal
+    const completedDocumentIdsToday = adaptiveQuizPolicy.completedAdaptiveDocumentIdsToday
+    const reusableReadyQuizIdByDocument = adaptiveQuizPolicy.reusableReadyQuizIdByDocument
 
     const scopedStats = {
         masteredCount: plan.performancePlannedReviews.filter((item) => item.mastery.display_mastery_level === "mastered").length,
         needsReviewCount: plan.performancePlannedReviews.filter((item) => item.mastery.display_mastery_level === "needs_review").length,
         developingCount: plan.performancePlannedReviews.filter((item) => item.mastery.display_mastery_level === "developing").length,
     }
-    
-    const todayLocal = formatDateToLocalString(new Date())
+
     const dueTodayCount = plan.items.filter((item) => item.date === todayLocal).length
     const confidenceTarget = Math.round((learningConfig?.confidence_threshold_mastered ?? 0.67) * 100)
 
@@ -325,9 +321,27 @@ export function LearningPathCalendar({
                      if (task.status === 'generating') {
                          toast.info('Your adaptive quiz is still being prepared. Check the Quizzes page in a moment.')
                          navigate('/quizzes')
+                     } else if (task.status === 'needs_generation' && completedDocumentIdsToday.has(task.documentId)) {
+                         toast.info('You already completed today\'s quiz for this file. The next adaptive quiz will be prepared on the next available study day.')
                      } else {
-                         toast.info('This adaptive quiz is not ready yet. It auto-generates after document processing completes.')
-                         navigate('/quizzes')
+                         toast.loading('Preparing adaptive quiz...')
+                         generateReview.mutate(
+                             {
+                                 documentId: task.documentId,
+                                 focusConceptIds: task.conceptIds,
+                                 questionCount: Math.max(5, Math.min(12, task.conceptIds.length * 2)),
+                             },
+                             {
+                                 onSuccess: (data) => {
+                                     toast.dismiss()
+                                     routeToQuizzesWithHighlight(data.quizId, task.id)
+                                 },
+                                 onError: (err) => {
+                                     toast.dismiss()
+                                     toast.error('Adaptive quiz generation failed: ' + (err as Error).message)
+                                 },
+                             },
+                         )
                      }
                  }
                  return

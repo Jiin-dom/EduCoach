@@ -34,6 +34,7 @@ import { useWeeklyProgress } from "@/hooks/useLearningProgress"
 import { useGenerateReviewQuiz, useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
 import { useDocuments } from "@/hooks/useDocuments"
 import type { AdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
+import { useAdaptiveQuizPolicies } from "@/hooks/useAdaptiveQuizPolicies"
 import { useLearningPathPlan } from "@/hooks/useLearningPathPlan"
 import type {
     GoalMarkerPlanItem,
@@ -477,19 +478,6 @@ export function LearningPathContent({
         () => (quizzes || []).filter((quiz) => matchesQuizScope(quiz, scopeFilter)),
         [quizzes, scopeFilter],
     )
-    const completedQuizIds = useMemo(
-        () => new Set(attempts.filter((a) => !!a.completed_at).map((a) => a.quiz_id)),
-        [attempts],
-    )
-    const reusableReadyQuizIdByDocument = useMemo(() => {
-        const map = new Map<string, string>()
-        for (const quiz of scopedQuizzes) {
-            if (quiz.status !== 'ready') continue
-            if (completedQuizIds.has(quiz.id)) continue
-            if (!map.has(quiz.document_id)) map.set(quiz.document_id, quiz.id)
-        }
-        return map
-    }, [completedQuizIds, scopedQuizzes])
 
     const performanceMasteryList = useMemo(
         () => plan.performancePlannedReviews.map((item) => item.mastery as ConceptMasteryWithDetails),
@@ -500,6 +488,12 @@ export function LearningPathContent({
         () => plan.adaptiveTasks.map((item) => ({ task: item.task, scheduledTime: item.scheduledTime })),
         [plan.adaptiveTasks],
     )
+    const adaptiveQuizPolicy = useAdaptiveQuizPolicies({
+        quizzes: scopedQuizzes,
+        attempts,
+        adaptiveTasks: adaptiveTasks.map((item) => item.task),
+    })
+    const reusableReadyQuizIdByDocument = adaptiveQuizPolicy.reusableReadyQuizIdByDocument
     const upcomingGoals = useMemo(() => plan.goalMarkers.slice(0, 4), [plan.goalMarkers])
     const stats = useMemo(() => {
         const totalConcepts = performanceMasteryList.length
@@ -625,6 +619,10 @@ export function LearningPathContent({
                 navigate('/quizzes')
                 return
             }
+            if (task.status === 'needs_generation' && adaptiveQuizPolicy.completedAdaptiveDocumentIdsToday.has(task.documentId)) {
+                toast.info('You already completed today\'s quiz for this file. The next adaptive quiz will be prepared on the next available study day.')
+                return
+            }
 
             toast.loading('Generating adaptive quiz...')
             generateReview.mutate(
@@ -659,7 +657,7 @@ export function LearningPathContent({
         }
 
         navigate(`/files/${task.documentId}?tab=concepts`)
-    }, [generateReview, navigate, reusableReadyQuizIdByDocument])
+    }, [adaptiveQuizPolicy.completedAdaptiveDocumentIdsToday, generateReview, navigate, reusableReadyQuizIdByDocument])
 
     const isLoading = plan.isLoading
     
