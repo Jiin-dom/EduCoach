@@ -266,13 +266,13 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
                                     </div>
                                 </div>
 
-                                <div className="absolute inset-0 flex flex-col items-center justify-center p-8 md:p-12 [transform:rotateY(180deg)] [backface-visibility:hidden]">
+                                <div className="absolute inset-0 flex min-h-0 flex-col items-center justify-center p-8 md:p-12 [transform:rotateY(180deg)] [backface-visibility:hidden]">
                                     <div className="mb-6 flex flex-col items-center gap-1">
                                         <Badge variant="outline" className="rounded-full px-3 py-0.5 text-[10px] font-bold uppercase tracking-[0.2em] text-green-600 bg-green-50 border-green-200">Answer</Badge>
                                     </div>
-                                    <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto w-full custom-scrollbar">
+                                    <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center overflow-y-auto custom-scrollbar">
                                         <p className={cn(
-                                            "text-center leading-relaxed break-words font-medium transition-all duration-500",
+                                            "w-full text-center leading-relaxed break-words whitespace-pre-wrap font-medium transition-all duration-500",
                                             isFullscreen ? "text-2xl md:text-3xl" : "text-base"
                                         )}>{card.back}</p>
                                     </div>
