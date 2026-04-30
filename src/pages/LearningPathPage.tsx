@@ -27,6 +27,7 @@ import {
     buildLatestQuizIdByDocument,
     getEffectiveQuizDeadline,
 } from "@/lib/quizDeadlines"
+import { localDateFromTimestamp, todayLocalDateString } from "@/lib/localDate"
 
 export default function LearningPathPage() {
     const [searchParams] = useSearchParams()
@@ -60,8 +61,7 @@ export default function LearningPathPage() {
     const scopeFilter = useMemo(() => getLearningPathScopeFilter(resolvedScope), [resolvedScope])
 
     const dueTodayQuizzes = useMemo(() => {
-        const today = new Date()
-        const todayLocal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
+        const todayLocal = todayLocalDateString()
         const docsById = new Map(documents.map((document) => [document.id, document]))
         const latestQuizIdByDocument = buildLatestQuizIdByDocument(quizzes)
         const documentsWithExplicitQuizDeadlines = buildDocumentsWithExplicitQuizDeadlines(quizzes)
@@ -128,13 +128,12 @@ export default function LearningPathPage() {
     }, [documents, quizzes, adaptiveTasks, scopeFilter])
 
     const completedTodayQuizzes = useMemo(() => {
-        const today = new Date()
-        const todayLocal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
+        const todayLocal = todayLocalDateString()
 
         // Find all attempts completed today
         const completedToday = attempts.filter(a => {
             if (!a.completed_at) return false
-            return a.completed_at.split('T')[0] === todayLocal
+            return localDateFromTimestamp(a.completed_at) === todayLocal
         })
 
         // Map them to the QuizItem structure

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
+import { resolveAdaptiveQuizTaskTitle } from '@/lib/adaptiveQuizNaming'
 
 export type AdaptiveStudyTaskType = 'quiz' | 'flashcards' | 'review'
 export type AdaptiveStudyTaskReason = 'due_today' | 'needs_review' | 'developing'
@@ -94,8 +95,13 @@ export function useAdaptiveStudyTasks() {
             const rows = taskRows as AdaptiveStudyTaskRow[]
             const documentIds = [...new Set(rows.map((row) => row.document_id))]
             const conceptIds = [...new Set(rows.flatMap((row) => row.concept_ids || []))]
+            const linkedQuizIds = [...new Set(
+                rows
+                    .map((row) => row.linked_quiz_id)
+                    .filter((quizId): quizId is string => typeof quizId === 'string' && quizId.length > 0),
+            )]
 
-            const [docsRes, conceptsRes] = await Promise.all([
+            const [docsRes, conceptsRes, quizzesRes] = await Promise.all([
                 supabase
                     .from('documents')
                     .select('id, title')
@@ -111,13 +117,26 @@ export function useAdaptiveStudyTasks() {
                         data: [] as { id: string; name: string }[],
                         error: null,
                     }),
+                linkedQuizIds.length > 0
+                    ? supabase
+                        .from('quizzes')
+                        .select('id, title')
+                        .eq('user_id', user.id)
+                        .in('id', linkedQuizIds)
+                        .abortSignal(signal)
+                    : Promise.resolve({
+                        data: [] as { id: string; title: string }[],
+                        error: null,
+                    }),
             ])
 
             if (docsRes.error) throw new Error(docsRes.error.message)
             if (conceptsRes.error) throw new Error(conceptsRes.error.message)
+            if (quizzesRes.error) throw new Error(quizzesRes.error.message)
 
             const docsById = new Map((docsRes.data || []).map((doc) => [doc.id, doc.title]))
             const conceptsById = new Map((conceptsRes.data || []).map((concept) => [concept.id, concept.name]))
+            const quizzesById = new Map((quizzesRes.data || []).map((quiz) => [quiz.id, quiz.title]))
 
             const tasks = rows.map((row) => {
                 const metadata = row.metadata || {}
@@ -134,7 +153,10 @@ export function useAdaptiveStudyTasks() {
 
                 if (row.task_type === 'quiz') {
                     count = questionCount || Math.max(10, Math.min(20, row.concept_count * 2))
-                    title = `Adaptive quiz for ${documentTitle}`
+                    title = resolveAdaptiveQuizTaskTitle({
+                        linkedQuizTitle: row.linked_quiz_id ? quizzesById.get(row.linked_quiz_id) : null,
+                        documentTitle,
+                    })
                     description = `Focused on ${buildConceptSummary(conceptNames, 3)}.`
                 } else if (row.task_type === 'flashcards') {
                     count = totalCount || row.concept_count
