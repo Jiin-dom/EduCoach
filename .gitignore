@@ -33,5 +33,6 @@ docs/educoach-outstanding-work.md
 test/
 
 # Local mobile app repo (kept separate)
+.cursor/plans/
 educoach-mobile/
 

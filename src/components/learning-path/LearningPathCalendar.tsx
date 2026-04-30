@@ -910,6 +910,153 @@ export function LearningPathCalendar({
                 </CardContent>
             </Card>
 
+            {/* Due Today Quizzes Section */}
+            {((dueTodayQuizzes && dueTodayQuizzes.length > 0) || (completedTodayQuizzes && completedTodayQuizzes.length > 0)) && (
+                <Card className="mb-6 border-red-200 bg-red-50/10 shadow-sm overflow-hidden">
+                    <div className="flex flex-col lg:flex-row items-stretch divide-y lg:divide-y-0 lg:divide-x divide-red-100">
+                        {/* Due Section */}
+                        {dueTodayQuizzes.length > 0 && (
+                            <div className="flex-1">
+                                <CardHeader className="pb-2 pt-3 px-4 bg-red-50/50">
+                                    <CardTitle className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-red-600">
+                                        <div className="flex items-center gap-2">
+                                            <Target className="w-3.5 h-3.5" />
+                                            Due Today
+                                        </div>
+                                        <span className="bg-red-100 px-1.5 py-0.5 rounded text-[10px]">{dueTodayQuizzes.length}</span>
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="p-4 bg-white/50 overflow-y-auto max-h-[200px] scrollbar-thin">
+                                    <div className="flex flex-col gap-2">
+                                        {dueTodayQuizzes.filter((quiz) => !dismissedDueTodayQuizIds[quiz.id]).map((quiz) => (
+                                            <button
+                                                key={quiz.id}
+                                                type="button"
+                                                onClick={() => routeToQuizzesWithHighlight(quiz.id)}
+                                                className="flex items-center justify-between rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:border-red-400 hover:shadow-md text-left group"
+                                            >
+                                                <div className="min-w-0 pr-2">
+                                                    <p className="truncate font-bold text-xs tracking-tight group-hover:text-red-600 transition-colors">{quiz.title}</p>
+                                                    {quiz.documentTitle && (
+                                                        <p className="truncate text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
+                                                    )}
+                                                </div>
+                                                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 group-hover:text-red-500" />
+                                            </button>
+                                        ))}
+                                    </div>
+                                </CardContent>
+                            </div>
+                        )}
+
+                        {/* Completed Section */}
+                        {completedTodayQuizzes.length > 0 && (
+                            <div className="flex-1">
+                                <CardHeader className="pb-2 pt-3 px-4 bg-green-50/50">
+                                    <CardTitle className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-green-600">
+                                        <div className="flex items-center gap-2">
+                                            <CheckCircle2 className="w-3.5 h-3.5" />
+                                            Completed Today
+                                        </div>
+                                        <span className="bg-green-100 px-1.5 py-0.5 rounded text-[10px]">{completedTodayQuizzes.length}</span>
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="p-4 bg-white/50 overflow-y-auto max-h-[200px] scrollbar-thin">
+                                    <div className="flex flex-col gap-2">
+                                        {completedTodayQuizzes.map((quiz) => (
+                                            <button
+                                                key={quiz.id}
+                                                type="button"
+                                                onClick={() => routeToQuizzesWithHighlight(quiz.id)}
+                                                className="flex items-center justify-between rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:border-green-400 hover:shadow-md text-left group"
+                                            >
+                                                <div className="min-w-0 pr-2">
+                                                    <p className="truncate font-bold text-xs tracking-tight group-hover:text-green-600 transition-colors">{quiz.title}</p>
+                                                    {quiz.documentTitle && (
+                                                        <p className="truncate text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
+                                                    )}
+                                                </div>
+                                                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                                            </button>
+                                        ))}
+                                    </div>
+                                </CardContent>
+                            </div>
+                        )}
+                    </div>
+                </Card>
+            )}
+
+            {/* Schedule Stats Summary Tiles Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <Card className="bg-background shadow-sm hover:border-primary/50 transition-colors">
+                    <CardContent className="p-3">
+                        <p className="text-[10px] font-bold text-muted-foreground mb-0.5 uppercase tracking-wider">Due Today</p>
+                        <p className="text-xl font-black">{dueTodayCount}</p>
+                    </CardContent>
+                </Card>
+                <Card className="bg-red-50/50 shadow-sm hover:border-red-500/50 transition-colors">
+                    <CardContent className="p-3">
+                        <p className="text-[10px] font-bold text-red-600 mb-0.5 uppercase tracking-wider">Needs Review</p>
+                        <p className="text-xl font-black text-red-700">{scopedStats.needsReviewCount}</p>
+                    </CardContent>
+                </Card>
+                <Card className="bg-yellow-50/50 shadow-sm hover:border-yellow-500/50 transition-colors">
+                    <CardContent className="p-3">
+                        <p className="text-[10px] font-bold text-yellow-600 mb-0.5 uppercase tracking-wider">Developing</p>
+                        <p className="text-xl font-black text-yellow-700">{scopedStats.developingCount}</p>
+                    </CardContent>
+                </Card>
+                <Card className="bg-green-50/50 shadow-sm hover:border-green-500/50 transition-colors">
+                    <CardContent className="p-3">
+                        <p className="text-[10px] font-bold text-green-600 mb-0.5 uppercase tracking-wider">Mastered</p>
+                        <p className="text-xl font-black text-green-700">{scopedStats.masteredCount}</p>
+                    </CardContent>
+                </Card>
+            </div>
+
+            {/* Top Widgets Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+
+                {/* AI Insight Gradient Card (Takes 2 columns visually on lg, or full width on md) */}
+                <Card className="lg:col-span-2 overflow-hidden border-0 bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md relative">
+                    <div className="absolute top-0 right-0 p-4 opacity-20">
+                        <Zap className="w-24 h-24" />
+                    </div>
+                    <CardContent className="p-6 h-full flex flex-col justify-between relative z-10">
+                        <div>
+                            <div className="text-white/80 font-medium text-xs tracking-wider uppercase mb-2 flex items-center gap-1.5"><Zap className="w-3.5 h-3.5" /> AI Target Insight</div>
+                            <h3 className="text-xl font-bold leading-tight text-white mb-4">
+                                {getInsightText()}
+                            </h3>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Progress Card */}
+                <Card className="lg:col-span-2 shadow-sm">
+                    <CardContent className="p-6">
+                        <div className="flex justify-between items-start mb-6">
+                            <div>
+                                <h3 className="font-semibold text-lg">Study Progress</h3>
+                                <p className="text-sm text-muted-foreground">{stats?.totalConcepts ?? 0} total concepts tracking</p>
+                            </div>
+                            <div className="text-right">
+                                <span className="text-4xl font-bold tracking-tighter text-primary">{Math.round(stats?.averageMastery ?? 0)}</span><span className="text-muted-foreground font-medium">%</span>
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Progress value={Math.round(stats?.averageMastery ?? 0)} className="h-2.5" />
+                            <div className="flex justify-between text-xs font-medium text-muted-foreground">
+                                <span>Average Mastery</span>
+                                <span>Confidence Target: {confidenceTarget}%</span>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
+            </div>
+
             <div className="text-center text-xs text-muted-foreground py-4">
                 All sessions and goals are fully synchronized with your personalized Study AI.
             </div>

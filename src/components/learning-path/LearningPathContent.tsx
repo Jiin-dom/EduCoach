@@ -9,7 +9,6 @@ import {
     CheckCircle2,
     Loader2,
     ArrowUpRight,
-    Play,
     TrendingUp,
     Zap,
     HelpCircle,
@@ -159,6 +158,7 @@ function AdaptiveTaskCard({
 }
 
 function GeneratedPlanCard({ item }: { item: PlannedReviewPlanItem }) {
+    const navigate = useNavigate()
     const goalDate = item.mastery.document_exam_date?.split("T")[0] ?? null
 
     return (
@@ -219,6 +219,7 @@ function GeneratedPlanCard({ item }: { item: PlannedReviewPlanItem }) {
 }
 
 function GoalMarkerCard({ marker }: { marker: GoalMarkerPlanItem }) {
+    const navigate = useNavigate()
     return (
         <Card className="hover:shadow-sm transition-shadow">
             <CardContent className="p-4 flex items-start justify-between gap-4">
@@ -642,52 +643,6 @@ export function LearningPathContent({
         return { dueToday, completedToday, needsReview, developing, mastered }
     }, [performanceMasteryList, searchQuery])
 
-    const handleStartReview = useCallback(() => {
-        const reviewable = [...sections.dueToday, ...sections.needsReview]
-        if (reviewable.length === 0) {
-            toast.info('No concepts need review right now!')
-            return
-        }
-
-        const docGroups = new Map<string, string[]>()
-        for (const c of reviewable) {
-            if (!c.document_id) continue
-            const ids = docGroups.get(c.document_id) || []
-            ids.push(c.concept_id)
-            docGroups.set(c.document_id, ids)
-        }
-
-        let bestDocId = ''
-        let bestConceptIds: string[] = []
-        for (const [docId, cIds] of docGroups) {
-            if (cIds.length > bestConceptIds.length) {
-                bestDocId = docId
-                bestConceptIds = cIds
-            }
-        }
-
-        if (!bestDocId) {
-            toast.info('No document-linked concepts to review')
-            return
-        }
-
-        toast.loading('Generating review quiz...')
-        generateReview.mutate(
-            { documentId: bestDocId, focusConceptIds: bestConceptIds, questionCount: 10 },
-            {
-                onSuccess: (data) => {
-                    toast.dismiss()
-                    toast.success('Review quiz ready!')
-                    navigate(`/quizzes/${data.quizId}`)
-                },
-                onError: (err) => {
-                    toast.dismiss()
-                    toast.error('Failed to generate review quiz: ' + (err as Error).message)
-                },
-            }
-        )
-    }, [sections, generateReview, navigate])
-
     const handleAdaptiveTaskAction = useCallback((task: AdaptiveStudyTask) => {
         const isFuture = task.scheduledDate > todayLocal
         if (isFuture) {
@@ -935,22 +890,6 @@ export function LearningPathContent({
                                     </Card>
                                 )}
 
-                                {/* Start Review CTA */}
-                                {!isLoading && performanceMasteryList.length > 0 && (
-                                    <Button
-                                        onClick={handleStartReview}
-                                        disabled={generateReview.isPending || (sections.dueToday.length + sections.needsReview.length) === 0}
-                                        className="w-full h-14 text-base font-bold shadow-md rounded-xl"
-                                        size="lg"
-                                    >
-                                        {generateReview.isPending ? (
-                                            <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                                        ) : (
-                                            <Play className="w-5 h-5 align-middle mr-2 fill-current" />
-                                        )}
-                                        Start Smart Review {(sections.dueToday.length + sections.needsReview.length) > 0 ? `(${sections.dueToday.length + sections.needsReview.length} waiting)` : ""}
-                                    </Button>
-                                )}
                             </div>
                         </div>
 
@@ -1141,21 +1080,62 @@ export function LearningPathContent({
                             </div>
                             
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                <SectionBlock
-                                    title="Due Today"
-                                    icon={<Target className="w-6 h-6 text-red-500" />}
-                                    items={sections.dueToday}
-                                    emptyMessage="Nothing due today — you're caught up!"
-                                    onSelect={setSelectedConcept}
-                                />
+                                <Card className="shadow-sm border-muted h-full flex flex-col">
+                                    <CardHeader className="pb-3 bg-muted/20 border-b border-border/50 shrink-0">
+                                        <CardTitle className="flex items-center gap-2 text-lg">
+                                            <Target className="w-6 h-6 text-red-500" />
+                                            Due & Completed Today
+                                            <Badge variant="secondary" className="px-1.5 bg-background border shadow-sm ml-auto">
+                                                {sections.dueToday.length + sections.completedToday.length}
+                                            </Badge>
+                                        </CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="pt-4 flex-1 min-h-0">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full">
+                                            <div className="min-h-0 flex flex-col">
+                                                <div className="flex items-center gap-2 mb-3">
+                                                    <Target className="w-4 h-4 text-red-500" />
+                                                    <h3 className="text-sm font-semibold">Due Today</h3>
+                                                    <Badge variant="outline" className="ml-auto">{sections.dueToday.length}</Badge>
+                                                </div>
+                                                {sections.dueToday.length === 0 ? (
+                                                    <div className="flex-1 flex items-center justify-center border rounded-xl bg-muted/10 p-4">
+                                                        <p className="text-sm text-muted-foreground italic text-center">
+                                                            Nothing due today.
+                                                        </p>
+                                                    </div>
+                                                ) : (
+                                                    <div className="space-y-3 pr-1 overflow-y-auto max-h-[400px] scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/30">
+                                                        {sections.dueToday.map((topic) => (
+                                                            <TopicCard key={topic.id} topic={topic} onSelect={setSelectedConcept} />
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
 
-                                <SectionBlock
-                                    title="Completed Today"
-                                    icon={<CheckCircle2 className="w-6 h-6 text-green-500" />}
-                                    items={sections.completedToday}
-                                    emptyMessage="No tasks completed today yet."
-                                    onSelect={setSelectedConcept}
-                                />
+                                            <div className="min-h-0 flex flex-col">
+                                                <div className="flex items-center gap-2 mb-3">
+                                                    <CheckCircle2 className="w-4 h-4 text-green-500" />
+                                                    <h3 className="text-sm font-semibold">Completed Today</h3>
+                                                    <Badge variant="outline" className="ml-auto">{sections.completedToday.length}</Badge>
+                                                </div>
+                                                {sections.completedToday.length === 0 ? (
+                                                    <div className="flex-1 flex items-center justify-center border rounded-xl bg-muted/10 p-4">
+                                                        <p className="text-sm text-muted-foreground italic text-center">
+                                                            No tasks completed yet.
+                                                        </p>
+                                                    </div>
+                                                ) : (
+                                                    <div className="space-y-3 pr-1 overflow-y-auto max-h-[400px] scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/30">
+                                                        {sections.completedToday.map((topic) => (
+                                                            <TopicCard key={topic.id} topic={topic} onSelect={setSelectedConcept} />
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </CardContent>
+                                </Card>
 
                                 <SectionBlock
                                     title="Needs Review"
