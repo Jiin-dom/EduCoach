@@ -50,10 +50,12 @@ interface QuizItem {
     title: string;
     documentTitle: string | null;
     dueDate: string | null;
+    itemType?: 'quiz' | 'flashcards' | 'review';
     taskId?: string;
     status?: string;
     documentId?: string;
     conceptIds?: string[];
+    href?: string;
 }
 
 interface LearningPathCalendarProps {
@@ -796,7 +798,13 @@ export function LearningPathCalendar({
                                             <button
                                                 key={quiz.id}
                                                 type="button"
-                                                onClick={() => routeToQuizzesWithHighlight(quiz.id)}
+                                                onClick={() => {
+                                                    if (quiz.itemType && quiz.itemType !== 'quiz') {
+                                                        navigate(quiz.href ?? `/files/${quiz.documentId}`)
+                                                        return
+                                                    }
+                                                    routeToQuizzesWithHighlight(quiz.id)
+                                                }}
                                                 className="flex items-center justify-between rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:border-red-400 hover:shadow-md text-left group"
                                             >
                                                 <div className="min-w-0 pr-2">
@@ -831,7 +839,13 @@ export function LearningPathCalendar({
                                         <button
                                             key={quiz.id}
                                             type="button"
-                                            onClick={() => navigate(`/quizzes/${quiz.id}?review=true`)}
+                                            onClick={() => {
+                                                if (quiz.itemType && quiz.itemType !== 'quiz') {
+                                                    navigate(quiz.href ?? `/files/${quiz.documentId}`)
+                                                    return
+                                                }
+                                                navigate(quiz.href ?? `/quizzes/${quiz.id}?review=true`)
+                                            }}
                                             className="flex items-center justify-between rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:border-green-400 hover:shadow-md text-left group"
                                         >
                                                 <div className="min-w-0 pr-2">

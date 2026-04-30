@@ -17,6 +17,7 @@ import { useAdaptiveStudyTasks } from "@/hooks/useAdaptiveStudy"
 import { useGenerateReviewQuiz, useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
 import { useAdaptiveQuizPolicies } from "@/hooks/useAdaptiveQuizPolicies"
 import { useStudyGoals } from "@/hooks/useStudyGoals"
+import { useAllFlashcards } from "@/hooks/useFlashcards"
 import {
     getLearningPathScopeFilter,
     matchesQuizScope,
@@ -28,6 +29,20 @@ import {
     getEffectiveQuizDeadline,
 } from "@/lib/quizDeadlines"
 import { localDateFromTimestamp, todayLocalDateString } from "@/lib/localDate"
+
+type LearningPathScheduleItem = {
+    id: string
+    itemType: "quiz" | "flashcards" | "review"
+    title: string
+    documentTitle: string | null
+    dueDate: string | null
+    documentId: string
+    href: string
+    taskId?: string
+    status?: string
+    conceptIds?: string[]
+    completedAt?: string
+}
 
 export default function LearningPathPage() {
     const [searchParams] = useSearchParams()
@@ -59,6 +74,17 @@ export default function LearningPathPage() {
     }, [documents, isScopedRoute, masteryRows, quizzes, requestedId, requestedScope, studyGoals])
 
     const scopeFilter = useMemo(() => getLearningPathScopeFilter(resolvedScope), [resolvedScope])
+    const { data: allFlashcards = [] } = useAllFlashcards(scopeFilter?.documentId)
+
+    const matchesAdaptiveTaskScope = useMemo(() => {
+        return (task: { documentId: string; conceptIds: string[]; quizId?: string }) => {
+            if (!scopeFilter) return true
+            if (scopeFilter.quizId) return !!task.quizId && task.quizId === scopeFilter.quizId
+            if (scopeFilter.documentId && task.documentId !== scopeFilter.documentId) return false
+            if (scopeFilter.conceptId && !task.conceptIds.includes(scopeFilter.conceptId)) return false
+            return true
+        }
+    }, [scopeFilter])
 
     const dueTodayQuizzes = useMemo(() => {
         const todayLocal = todayLocalDateString()
@@ -78,10 +104,12 @@ export default function LearningPathPage() {
                 if (task) {
                     return {
                         id: quiz.id,
+                        itemType: "quiz" as const,
                         title: task.title,
                         documentTitle: document?.title ?? null,
                         dueDate: task.scheduledDate,
                         documentId: quiz.document_id,
+                        href: `/quizzes/${quiz.id}`,
                     }
                 }
 
@@ -95,10 +123,12 @@ export default function LearningPathPage() {
 
                 return {
                     id: quiz.id,
+                    itemType: "quiz" as const,
                     title: quiz.title,
                     documentTitle: document?.title ?? null,
                     dueDate,
                     documentId: quiz.document_id,
+                    href: `/quizzes/${quiz.id}`,
                 }
             })
             .filter((quiz) => quiz.dueDate === todayLocal)
@@ -109,6 +139,7 @@ export default function LearningPathPage() {
             .filter((task) => matchesQuizScope({ id: task.quizId || task.id, document_id: task.documentId }, scopeFilter))
             .map((task) => ({
                 id: task.quizId || task.id,
+                itemType: "quiz" as const,
                 title: task.title,
                 documentTitle: task.documentTitle,
                 dueDate: task.scheduledDate,
@@ -117,15 +148,35 @@ export default function LearningPathPage() {
                 status: task.status,
                 documentId: task.documentId,
                 conceptIds: task.conceptIds,
+                href: task.quizId ? `/quizzes/${task.quizId}` : `/quizzes`,
             }))
 
-        const combined = new Map<string, typeof allQuizzesForToday[0]>()
+        // 3. Add non-quiz adaptive tasks due today (flashcards and concept reviews)
+        const dueTodayStudyTasks = adaptiveTasks
+            .filter((task) => task.scheduledDate === todayLocal)
+            .filter((task) => task.type === "flashcards" || task.type === "review")
+            .filter((task) => matchesAdaptiveTaskScope({ documentId: task.documentId, conceptIds: task.conceptIds, quizId: task.quizId }))
+            .map((task) => ({
+                id: task.id,
+                itemType: task.type,
+                title: task.title,
+                documentTitle: task.documentTitle,
+                dueDate: task.scheduledDate,
+                documentId: task.documentId,
+                conceptIds: task.conceptIds,
+                href: task.type === "flashcards"
+                    ? `/files/${task.documentId}?tab=flashcards`
+                    : `/files/${task.documentId}?tab=concepts${task.conceptIds[0] ? `&concept=${task.conceptIds[0]}` : ""}`,
+            }))
+
+        const combined = new Map<string, LearningPathScheduleItem>()
         allQuizzesForToday.forEach(q => combined.set(q.id, q))
         adaptiveQuizTasks.forEach(q => combined.set(q.id, q))
+        dueTodayStudyTasks.forEach((task) => combined.set(task.id, task))
 
         return Array.from(combined.values())
             .sort((a, b) => a.title.localeCompare(b.title))
-    }, [documents, quizzes, adaptiveTasks, scopeFilter])
+    }, [documents, quizzes, adaptiveTasks, scopeFilter, matchesAdaptiveTaskScope])
 
     const completedTodayQuizzes = useMemo(() => {
         const todayLocal = todayLocalDateString()
@@ -150,10 +201,12 @@ export default function LearningPathPage() {
             const doc = documents.find(d => d.id === quiz?.document_id)
             return {
                 id: a.quiz_id,
+                itemType: "quiz" as const,
                 title: quiz?.title ?? "Completed Quiz",
                 documentTitle: doc?.title ?? null,
                 dueDate: todayLocal,
-                completedAt: a.completed_at
+                completedAt: a.completed_at,
+                href: `/quizzes/${a.quiz_id}?review=true`,
             }
         }).filter((q): q is NonNullable<typeof q> => q !== null)
 
@@ -165,6 +218,82 @@ export default function LearningPathPage() {
             return true
         })
     }, [attempts, quizzes, documents, scopeFilter])
+
+    const completedTodayFlashcardsAndReviews = useMemo(() => {
+        const todayLocal = todayLocalDateString()
+        if (scopeFilter?.quizId) return []
+
+        const results: Array<{
+            id: string
+            itemType: "flashcards" | "review"
+            title: string
+            documentTitle: string | null
+            dueDate: string
+            documentId: string
+            href: string
+        }> = []
+
+        const reviewedFlashcards = allFlashcards.filter((card) => {
+            if (!card.last_reviewed_at) return false
+            if (localDateFromTimestamp(card.last_reviewed_at) !== todayLocal) return false
+            if (scopeFilter?.documentId && card.document_id !== scopeFilter.documentId) return false
+            return true
+        })
+        const flashcardCountsByDocument = new Map<string, number>()
+        reviewedFlashcards.forEach((card) => {
+            flashcardCountsByDocument.set(card.document_id, (flashcardCountsByDocument.get(card.document_id) || 0) + 1)
+        })
+        flashcardCountsByDocument.forEach((count, documentId) => {
+            const doc = documents.find((d) => d.id === documentId)
+            results.push({
+                id: `flashcards:${documentId}`,
+                itemType: "flashcards",
+                title: `Flashcards reviewed (${count})`,
+                documentTitle: doc?.title ?? null,
+                dueDate: todayLocal,
+                documentId,
+                href: `/files/${documentId}?tab=flashcards`,
+            })
+        })
+
+        const completedReviews = masteryRows.filter((row) => {
+            if (!row.last_reviewed_at) return false
+            if (localDateFromTimestamp(row.last_reviewed_at) !== todayLocal) return false
+            if (!row.document_id) return false
+            if (scopeFilter?.documentId && row.document_id !== scopeFilter.documentId) return false
+            if (scopeFilter?.conceptId && row.concept_id !== scopeFilter.conceptId) return false
+            return true
+        })
+        const reviewByDocument = new Map<string, { count: number; conceptId: string | null }>()
+        completedReviews.forEach((row) => {
+            const existing = reviewByDocument.get(row.document_id!)
+            if (existing) {
+                existing.count += 1
+                return
+            }
+            reviewByDocument.set(row.document_id!, { count: 1, conceptId: row.concept_id ?? null })
+        })
+        reviewByDocument.forEach((entry, documentId) => {
+            const doc = documents.find((d) => d.id === documentId)
+            results.push({
+                id: `review:${documentId}`,
+                itemType: "review",
+                title: `Concepts reviewed (${entry.count})`,
+                documentTitle: doc?.title ?? null,
+                dueDate: todayLocal,
+                documentId,
+                href: `/files/${documentId}?tab=concepts${entry.conceptId ? `&concept=${entry.conceptId}` : ""}`,
+            })
+        })
+
+        return results
+    }, [allFlashcards, documents, masteryRows, scopeFilter])
+
+    const completedTodayItems = useMemo(
+        () => [...completedTodayQuizzes, ...completedTodayFlashcardsAndReviews]
+            .sort((a, b) => a.title.localeCompare(b.title)),
+        [completedTodayFlashcardsAndReviews, completedTodayQuizzes],
+    )
 
     const isSelectorView = !requestedScope
     const hasInvalidScope = isScopedRoute && !resolvedScope
@@ -277,7 +406,7 @@ export default function LearningPathPage() {
                                 <LearningPathCalendar
                                     scopeFilter={scopeFilter}
                                     dueTodayQuizzes={dueTodayQuizzes}
-                                    completedTodayQuizzes={completedTodayQuizzes}
+                                    completedTodayQuizzes={completedTodayItems}
                                 />
                             </div>
                         </TabsContent>

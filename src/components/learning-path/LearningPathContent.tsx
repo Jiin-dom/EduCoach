@@ -34,12 +34,14 @@ import { useGenerateReviewQuiz, useQuizzes, useUserAttempts } from "@/hooks/useQ
 import { useDocuments } from "@/hooks/useDocuments"
 import type { AdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { useAdaptiveQuizPolicies } from "@/hooks/useAdaptiveQuizPolicies"
+import { useAllFlashcards } from "@/hooks/useFlashcards"
 import { useLearningPathPlan } from "@/hooks/useLearningPathPlan"
 import type {
     GoalMarkerPlanItem,
     PlannedReviewPlanItem,
 } from "@/lib/learningPathPlan"
 import { matchesQuizScope, type LearningPathPlanScopeFilter } from "@/lib/learningPathScope"
+import { localDateFromTimestamp } from "@/lib/localDate"
 import { Link, useNavigate } from "react-router-dom"
 import { toast } from 'sonner'
 
@@ -218,7 +220,13 @@ function GeneratedPlanCard({ item }: { item: PlannedReviewPlanItem }) {
     )
 }
 
-function GoalMarkerCard({ marker }: { marker: GoalMarkerPlanItem }) {
+function GoalMarkerCard({
+    marker,
+    completedTodayQuizzes,
+}: {
+    marker: GoalMarkerPlanItem
+    completedTodayQuizzes: QuizItem[]
+}) {
     const navigate = useNavigate()
     return (
         <Card className="hover:shadow-sm transition-shadow">
@@ -494,6 +502,14 @@ interface QuizItem {
     conceptIds?: string[];
 }
 
+interface CompletedTodayStudyItem {
+    id: string
+    type: 'quiz' | 'flashcards' | 'review'
+    title: string
+    subtitle: string | null
+    to: string
+}
+
 interface LearningPathContentProps {
     scopeFilter?: LearningPathPlanScopeFilter
     dueTodayQuizzes?: QuizItem[]
@@ -508,6 +524,7 @@ export function LearningPathContent({
     const plan = useLearningPathPlan(scopeFilter)
     const { data: weeklyProgress } = useWeeklyProgress()
     const { data: documents } = useDocuments()
+    const { data: allFlashcards = [] } = useAllFlashcards(scopeFilter?.documentId)
     const { data: quizzes } = useQuizzes()
     const { data: attempts = [] } = useUserAttempts()
     const generateReview = useGenerateReviewQuiz()
@@ -653,6 +670,70 @@ export function LearningPathContent({
 
         return { dueToday, completedToday, needsReview, developing, mastered }
     }, [performanceMasteryList, searchQuery])
+
+    const completedTodayStudyItems = useMemo<CompletedTodayStudyItem[]>(() => {
+        const items: CompletedTodayStudyItem[] = []
+        const today = todayLocal
+
+        // Quiz completions remain first-class entries.
+        items.push(
+            ...completedTodayQuizzes.map((quiz) => ({
+                id: `quiz:${quiz.id}`,
+                type: 'quiz' as const,
+                title: quiz.title,
+                subtitle: quiz.documentTitle,
+                to: `/quizzes/${quiz.id}`,
+            })),
+        )
+
+        // Aggregate completed flashcard sessions by document.
+        const completedFlashcards = allFlashcards.filter((card) => {
+            if (!card.last_reviewed_at) return false
+            return localDateFromTimestamp(card.last_reviewed_at) === today
+        })
+        const flashcardCountsByDocument = new Map<string, number>()
+        completedFlashcards.forEach((card) => {
+            flashcardCountsByDocument.set(card.document_id, (flashcardCountsByDocument.get(card.document_id) || 0) + 1)
+        })
+        flashcardCountsByDocument.forEach((count, documentId) => {
+            const documentTitle = documents?.find((doc) => doc.id === documentId)?.title ?? null
+            items.push({
+                id: `flashcards:${documentId}`,
+                type: 'flashcards',
+                title: `Flashcards reviewed (${count})`,
+                subtitle: documentTitle,
+                to: `/files/${documentId}?tab=flashcards`,
+            })
+        })
+
+        // Aggregate concept reviews completed today from mastery updates.
+        const reviewsByDocument = new Map<string, { count: number; firstConceptId: string | null }>()
+        sections.completedToday.forEach((topic) => {
+            if (!topic.document_id) return
+            const existing = reviewsByDocument.get(topic.document_id)
+            if (existing) {
+                existing.count += 1
+                return
+            }
+            reviewsByDocument.set(topic.document_id, {
+                count: 1,
+                firstConceptId: topic.concept_id ?? null,
+            })
+        })
+        reviewsByDocument.forEach((entry, documentId) => {
+            const documentTitle = documents?.find((doc) => doc.id === documentId)?.title ?? null
+            const conceptParam = entry.firstConceptId ? `&concept=${entry.firstConceptId}` : ''
+            items.push({
+                id: `review:${documentId}`,
+                type: 'review',
+                title: `Concepts reviewed (${entry.count})`,
+                subtitle: documentTitle,
+                to: `/files/${documentId}?tab=concepts${conceptParam}`,
+            })
+        })
+
+        return items.sort((a, b) => a.title.localeCompare(b.title))
+    }, [allFlashcards, completedTodayQuizzes, documents, sections.completedToday, todayLocal])
 
     const handleAdaptiveTaskAction = useCallback((task: AdaptiveStudyTask) => {
         const isFuture = task.scheduledDate > todayLocal
@@ -968,22 +1049,22 @@ export function LearningPathContent({
                                     <div className="flex flex-col sm:flex-row items-stretch flex-1">
                                         <div className="bg-green-500 text-white p-4 flex flex-col justify-center items-center sm:w-32 shrink-0">
                                             <CheckCircle2 className="w-6 h-6 mb-1" />
-                                            <span className="text-xl font-black">{completedTodayQuizzes.length}</span>
+                                            <span className="text-xl font-black">{completedTodayStudyItems.length}</span>
                                             <span className="text-[9px] uppercase font-bold tracking-tighter">Completed Today</span>
                                         </div>
                                         <div className="p-4 flex-1 overflow-y-auto max-h-[200px] bg-green-50/30 scrollbar-thin">
-                                            {completedTodayQuizzes.length > 0 ? (
+                                            {completedTodayStudyItems.length > 0 ? (
                                                 <div className="flex flex-col gap-2">
-                                                    {completedTodayQuizzes.map((quiz) => (
+                                                    {completedTodayStudyItems.map((item) => (
                                                         <Link
-                                                            key={quiz.id}
-                                                            to={`/quizzes/${quiz.id}`}
+                                                            key={item.id}
+                                                            to={item.to}
                                                             className="flex items-center justify-between rounded-lg border bg-background p-2 shadow-sm transition-all hover:border-green-400 hover:shadow-md group min-w-[180px] sm:min-w-0"
                                                         >
                                                             <div className="min-w-0 pr-2">
-                                                                <p className="truncate font-bold text-[11px] tracking-tight group-hover:text-green-600 transition-colors">{quiz.title}</p>
-                                                                {quiz.documentTitle ? (
-                                                                    <p className="truncate text-[8px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{quiz.documentTitle}</p>
+                                                                <p className="truncate font-bold text-[11px] tracking-tight group-hover:text-green-600 transition-colors">{item.title}</p>
+                                                                {item.subtitle ? (
+                                                                    <p className="truncate text-[8px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">{item.subtitle}</p>
                                                                 ) : null}
                                                             </div>
                                                             <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500" />
@@ -1060,7 +1141,11 @@ export function LearningPathContent({
                                             <div className="space-y-3">
                                                 <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Milestones & Goals</h3>
                                                 {upcomingGoals.map((marker) => (
-                                                    <GoalMarkerCard key={marker.id} marker={marker} />
+                                                    <GoalMarkerCard
+                                                        key={marker.id}
+                                                        marker={marker}
+                                                        completedTodayQuizzes={completedTodayQuizzes}
+                                                    />
                                                 ))}
                                             </div>
                                         )}

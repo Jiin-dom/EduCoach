@@ -3,7 +3,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Layers, ChevronRight, RotateCcw, CheckCircle2, Loader2, Maximize2, Minimize2, X, Sparkles } from 'lucide-react'
-import { Link } from 'react-router-dom'
 import { useDocumentFlashcards, useReviewFlashcard, useGenerateFlashcards, type Flashcard } from '@/hooks/useFlashcards'
 import { cn } from '@/lib/utils'
 
@@ -411,11 +410,6 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
                 </div>
             )}
 
-            <div className="text-center">
-                <Link to="/quizzes" className="text-xs text-muted-foreground hover:text-primary transition-colors">
-                    View all flashcards across documents
-                </Link>
-            </div>
         </div>
     )
 }
