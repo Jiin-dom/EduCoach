@@ -376,6 +376,7 @@ export function FileViewer() {
                                     onPageJump={handlePageJump}
                                     onAskTutor={(prompt: string) => setTutorPrompt(prompt)}
                                     documentId={document.id}
+                                    focusedConceptId={searchParams.get('concept') ?? undefined}
                                 />
                             </TabsContent>
 

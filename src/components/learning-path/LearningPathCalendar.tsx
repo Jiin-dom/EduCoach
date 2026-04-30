@@ -148,8 +148,14 @@ export function LearningPathCalendar({
         }
 
         return (
-            <div
+            <button
+                type="button"
                 draggable
+                onClick={() => {
+                    if (session.documentId) {
+                        navigate(`/files/${session.documentId}?tab=concepts&concept=${session.conceptId}`)
+                    }
+                }}
                 onDragStart={(e) => {
                     e.dataTransfer.setData('text/plain', dragPayload({
                         kind: "planned_review",
@@ -157,7 +163,7 @@ export function LearningPathCalendar({
                     }))
                     e.dataTransfer.effectAllowed = 'move'
                 }}
-                className={`p-3 rounded-xl border text-xs mb-2 ${colors} cursor-grab active:cursor-grabbing transition-colors shadow-sm`}
+                className={`w-full text-left p-3 rounded-xl border text-xs mb-2 ${colors} cursor-grab active:cursor-grabbing transition-colors shadow-sm`}
                 title={session.source === "baseline" ? "Drag to reschedule baseline plan" : "Drag to reschedule review deadline"}
             >
                 <div className="flex items-center gap-2 font-medium truncate">
@@ -171,7 +177,7 @@ export function LearningPathCalendar({
                         <span className="ml-auto text-[10px] font-semibold tabular-nums opacity-80">{session.scheduledTime}</span>
                     ) : null}
                 </div>
-            </div>
+            </button>
         )
     }
 
@@ -187,8 +193,14 @@ export function LearningPathCalendar({
             colors = "bg-primary/10 text-primary border-primary/20"
         }
         return (
-            <div
+            <button
+                type="button"
                 draggable
+                onClick={() => {
+                    if (session.documentId) {
+                        navigate(`/files/${session.documentId}?tab=concepts&concept=${session.conceptId}`)
+                    }
+                }}
                 onDragStart={(e) => {
                     e.dataTransfer.setData('text/plain', dragPayload({
                         kind: "planned_review",
@@ -196,7 +208,7 @@ export function LearningPathCalendar({
                     }))
                     e.dataTransfer.effectAllowed = 'move'
                 }}
-                className={`mt-1 text-[10px] p-1.5 rounded-md truncate border flex items-center gap-1 ${colors} cursor-grab active:cursor-grabbing shadow-sm`}
+                className={`w-full mt-1 text-left text-[10px] p-1.5 rounded-md truncate border flex items-center gap-1 ${colors} cursor-grab active:cursor-grabbing shadow-sm`}
                 title={session.source === "baseline" ? "Drag to reschedule baseline plan" : "Drag to reschedule review deadline"}
             >
                 {session.mastery.display_mastery_level === 'mastered' && <CheckCircle2 className="w-2.5 h-2.5 hidden sm:block" />}
@@ -204,7 +216,7 @@ export function LearningPathCalendar({
                 {session.mastery.display_mastery_level === 'needs_review' && <BookOpen className="w-2.5 h-2.5 hidden sm:block" />}
                 <span className="truncate">{session.source === "baseline" ? `Planned: ${session.conceptName}` : session.conceptName}</span>
                 {session.scheduledTime ? <span className="ml-auto tabular-nums opacity-70">{session.scheduledTime}</span> : null}
-            </div>
+            </button>
         )
     }
 
@@ -336,6 +348,10 @@ export function LearningPathCalendar({
              }
              if (task.type === 'flashcards') {
                  navigate(`/files/${task.documentId}?tab=flashcards`)
+                 return
+             }
+             if (task.conceptIds.length > 0) {
+                 navigate(`/files/${task.documentId}?tab=concepts&concept=${task.conceptIds[0]}`)
                  return
              }
              navigate(`/files/${task.documentId}?tab=concepts`)

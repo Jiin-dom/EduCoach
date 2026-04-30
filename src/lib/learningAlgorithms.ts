@@ -289,7 +289,7 @@ export function calculatePriorityScore(
 ): PriorityResult {
     const weaknessComponent = 1 - finalMastery / 100
 
-    const todayStr = new Date().toISOString().split('T')[0]
+    const todayStr = todayUTC()
     const todayMs = Date.UTC(+todayStr.slice(0, 4), +todayStr.slice(5, 7) - 1, +todayStr.slice(8, 10))
     const dueMs = Date.UTC(+dueDateStr.slice(0, 4), +dueDateStr.slice(5, 7) - 1, +dueDateStr.slice(8, 10))
     const daysUntilDue = Math.floor((dueMs - todayMs) / (1000 * 60 * 60 * 24))
@@ -369,9 +369,13 @@ export function getMasteryLevelWithDecay(
 
 // ─── Date Helpers ───────────────────────────────────────────────────────────
 
-/** Returns today's date as a UTC YYYY-MM-DD string, avoiding timezone drift. */
+/** Returns today's local app date as a YYYY-MM-DD string. Name kept for API compatibility. */
 export function todayUTC(): string {
-    return new Date().toISOString().split('T')[0]
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const day = String(now.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

@@ -189,7 +189,7 @@ function GeneratedPlanCard({ item }: { item: PlannedReviewPlanItem }) {
                 </div>
                 {item.documentId ? (
                     <div className="flex flex-col gap-2 shrink-0">
-                        <Link to={`/files/${item.documentId}`}>
+                        <Link to={`/files/${item.documentId}?tab=concepts&concept=${item.conceptId}`}>
                             <Button variant="outline" size="sm" className="w-full bg-white text-xs h-8">
                                 <ArrowUpRight className="w-3.5 h-3.5 mr-1" />
                                 Open
@@ -648,6 +648,11 @@ export function LearningPathContent({
 
         if (task.type === 'flashcards') {
             navigate(`/files/${task.documentId}?tab=flashcards`)
+            return
+        }
+
+        if (task.conceptIds.length > 0) {
+            navigate(`/files/${task.documentId}?tab=concepts&concept=${task.conceptIds[0]}`)
             return
         }
 
