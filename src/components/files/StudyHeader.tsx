@@ -26,6 +26,11 @@ import { useGenerateFlashcards } from '@/hooks/useFlashcards'
 import { getFileUrl, formatFileSize } from '@/lib/storage'
 import { GenerateQuizDialog } from './GenerateQuizDialog'
 import { useScheduleDocumentGoalWindow, useDeactivateDocumentGoalWindowPlaceholders } from '@/hooks/useGoalWindowScheduling'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Calendar } from '@/components/ui/calendar'
+import { format } from 'date-fns'
+import { Calendar as CalendarIcon } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 
 interface StudyHeaderProps {
@@ -95,11 +100,10 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
     const scheduleGoalWindow = useScheduleDocumentGoalWindow()
     const deactivatePlaceholders = useDeactivateDocumentGoalWindowPlaceholders()
 
-    const handleGoalDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const val = e.target.value
+    const handleGoalDateChange = (date: Date | undefined) => {
         updateDocument.mutate({
             documentId: document.id,
-            updates: { exam_date: val ? new Date(val).toISOString() : null }
+            updates: { exam_date: date ? date.toISOString() : null }
         }, {
             onSuccess: (updatedDoc) => {
                 refetchDoc()
@@ -173,17 +177,37 @@ export function StudyHeader({ document, refetchDoc }: StudyHeaderProps) {
                 </div>
 
                 <div className="flex items-center gap-2.5 flex-wrap md:justify-end w-full md:w-auto mt-3 md:mt-0">
-                    <div className="flex items-center gap-2 bg-muted/30 hover:bg-muted/50 transition-colors px-3 py-1.5 rounded-full border border-border/40 text-[13px] shadow-sm mr-1">
-                        <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-                        <span className="text-muted-foreground font-medium">Goal:</span>
-                        <input
-                            type="date"
-                            className="bg-transparent border-none outline-none text-[13px] w-[105px] cursor-pointer font-semibold text-foreground focus:ring-0 p-0"
-                            value={document.exam_date ? new Date(document.exam_date).toISOString().split('T')[0] : ''}
-                            onChange={handleGoalDateChange}
-                            disabled={updateDocument.isPending}
-                        />
-                    </div>
+                    <Popover>
+                        <PopoverTrigger asChild>
+                            <Button
+                                variant="outline"
+                                className={cn(
+                                    "h-9 gap-2 shadow-sm rounded-full font-medium hover:bg-muted/50 px-4 transition-all",
+                                    !document.exam_date && "text-muted-foreground"
+                                )}
+                                disabled={updateDocument.isPending}
+                            >
+                                <CalendarIcon className="w-3.5 h-3.5 opacity-70" />
+                                {document.exam_date ? (
+                                    <span className="flex items-center gap-1.5">
+                                        <span className="opacity-60 text-[10px] font-bold uppercase tracking-wider">Goal:</span>
+                                        {format(new Date(document.exam_date), "PPP")}
+                                    </span>
+                                ) : (
+                                    <span>Set Study Goal</span>
+                                )}
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="end">
+                            <Calendar
+                                mode="single"
+                                selected={document.exam_date ? new Date(document.exam_date) : undefined}
+                                onSelect={handleGoalDateChange}
+                                initialFocus
+                                disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                            />
+                        </PopoverContent>
+                    </Popover>
                     {document.status === 'ready' && (
                         <Button variant="outline" className="gap-2 shadow-sm rounded-full font-medium hover:bg-muted/50 px-4" asChild>
                             <Link to={`/analytics/document/${document.id}`}>

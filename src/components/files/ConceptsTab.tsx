@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Search, Brain, ArrowUpDown, X, Sparkles, MessageCircle, FileText, Loader2, CheckCircle2 } from 'lucide-react'
+import { Search, Brain, ArrowUpDown, X, Sparkles, MessageCircle, FileText, Loader2, CheckCircle2, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import type { Concept } from '@/hooks/useConcepts'
 import { getDifficultyColor, getImportanceColor } from '@/hooks/useConcepts'
@@ -152,7 +152,7 @@ export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, o
             </div>
 
             {/* Concept list */}
-            <div className="space-y-2">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {filtered.map((concept) => {
                     const name = cleanDisplayText(concept.name)
                     const desc = cleanDisplayText(concept.description || '')
@@ -161,6 +161,8 @@ export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, o
                     const isFocusedConcept = concept.id === focusedConceptId
                     const isDue = !!mastery && mastery.due_date <= todayIso
                     const showReviewAction = isFocusedConcept || isDue
+                    const sourcePages = concept.source_pages || []
+                    const keywords = concept.keywords || []
 
                     return (
                         <div
@@ -175,65 +177,114 @@ export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, o
                                 }
                             }}
                             className={cn(
-                                "cursor-pointer",
-                                "w-full text-left p-3 rounded-lg border hover:bg-accent/50 transition-colors group",
-                                isFocusedConcept && "border-primary bg-primary/5",
+                                "group relative flex h-full min-h-[240px] w-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-card via-card to-primary/[0.04] p-5 text-left shadow-sm transition-[transform,box-shadow,border-color,background-color] duration-200 hover:-translate-y-1 hover:border-primary/25 hover:shadow-lg hover:shadow-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-background active:translate-y-0 active:scale-[0.995]",
+                                isFocusedConcept && "border-primary bg-primary/5 shadow-primary/10",
                             )}
+                            style={{ contentVisibility: 'auto', containIntrinsicSize: '240px' }}
                         >
-                            <div className="flex items-start gap-3">
-                                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${getImportanceColor(concept.importance)}`} />
-                                <div className="flex-1 min-w-0">
+                            <div className="flex h-full flex-col gap-4">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0 flex-1">
+                                        <div className="mb-3 flex items-center gap-2">
+                                            <div className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${getImportanceColor(concept.importance)}`} />
+                                            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                                                {concept.category ? cleanDisplayText(concept.category) : 'Core Concept'}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="line-clamp-2 text-base font-semibold leading-snug transition-colors group-hover:text-primary">
+                                                {name}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="rounded-xl bg-primary/8 px-3 py-2 text-right">
+                                        <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Impact</div>
+                                        <div className="text-lg font-semibold text-foreground">{concept.importance}/10</div>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-3">
                                     <div className="flex items-center gap-2 flex-wrap">
-                                        <span className="font-medium text-sm group-hover:text-primary transition-colors">{name}</span>
                                         {concept.difficulty_level && (
                                             <Badge variant="outline" className={`text-[10px] ${getDifficultyColor(concept.difficulty_level)}`}>
                                                 {concept.difficulty_level}
                                             </Badge>
                                         )}
+                                        {sourcePages.length > 0 && (
+                                            <Badge variant="secondary" className="text-[10px]">
+                                                {sourcePages.length} page{sourcePages.length !== 1 ? 's' : ''}
+                                            </Badge>
+                                        )}
                                     </div>
                                     {firstSentence && (
-                                        <p className="text-xs text-muted-foreground mt-0.5 truncate">{firstSentence}</p>
+                                        <p className="line-clamp-4 text-sm leading-relaxed text-muted-foreground">
+                                            {firstSentence}
+                                        </p>
                                     )}
-                                    <div className="flex flex-wrap gap-1 mt-2 min-w-0">
-                                        {(concept.keywords || []).slice(0, 3).map((kw) => (
-                                            <Badge key={kw} variant="secondary" className="text-[10px] hidden sm:inline-flex">{kw}</Badge>
+                                </div>
+
+                                <div className="mt-auto space-y-3">
+                                    <div className="space-y-1.5">
+                                        <div className="flex items-center justify-between text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                            <span>Importance</span>
+                                            <span>{concept.importance * 10}%</span>
+                                        </div>
+                                        <Progress value={concept.importance * 10} className="h-2" />
+                                    </div>
+
+                                    <div className="flex flex-wrap gap-1.5 min-w-0">
+                                        {keywords.slice(0, 3).map((kw) => (
+                                            <Badge key={kw} variant="secondary" className="text-[10px]">
+                                                {kw}
+                                            </Badge>
                                         ))}
-                                        {concept.source_pages?.slice(0, 6).map((p) => (
+                                        {keywords.length > 3 && (
+                                            <Badge variant="secondary" className="text-[10px]">
+                                                +{keywords.length - 3} more
+                                            </Badge>
+                                        )}
+                                    </div>
+
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {sourcePages.slice(0, 4).map((p) => (
                                             <Badge
                                                 key={p}
                                                 variant="outline"
-                                                className="text-[10px] gap-0.5 cursor-pointer hover:bg-primary/10 hidden sm:inline-flex"
+                                                className="text-[10px] gap-0.5 cursor-pointer hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                                                 onClick={(e) => { e.stopPropagation(); onPageJump?.(p) }}
                                             >
                                                 <FileText className="w-2.5 h-2.5" />p.{p}
                                             </Badge>
                                         ))}
-                                        {(concept.source_pages?.length ?? 0) > 6 && (
-                                            <Badge variant="outline" className="text-[10px] hidden sm:inline-flex">
-                                                +{concept.source_pages!.length - 6}
+                                        {sourcePages.length > 4 && (
+                                            <Badge variant="outline" className="text-[10px]">
+                                                +{sourcePages.length - 4}
                                             </Badge>
                                         )}
                                     </div>
                                 </div>
-                                <div className="w-28 flex-shrink-0 pt-1 flex flex-col items-end gap-2">
-                                    <Progress value={concept.importance * 10} className="h-1.5 w-16" />
                                     {showReviewAction && (
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="sm"
-                                            className="h-7 gap-1.5 px-2 text-[11px]"
-                                            disabled={markConceptReviewed.isPending}
-                                            onClick={(event) => {
-                                                event.stopPropagation()
-                                                handleMarkReviewed(concept)
-                                            }}
-                                        >
-                                            <CheckCircle2 className="h-3.5 w-3.5" />
-                                            Mark Reviewed
-                                        </Button>
+                                        <div>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-8 gap-1.5 rounded-xl px-2 text-[11px]"
+                                                disabled={markConceptReviewed.isPending}
+                                                onClick={(event) => {
+                                                    event.stopPropagation()
+                                                    handleMarkReviewed(concept)
+                                                }}
+                                            >
+                                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                                Mark Reviewed
+                                            </Button>
+                                        </div>
                                     )}
-                                </div>
+                            </div>
+
+                            <div className="pointer-events-none absolute right-4 top-4 flex translate-x-1 items-center gap-1 rounded-full border border-border/60 bg-background/70 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[opacity,transform] duration-200 group-hover:translate-x-0 group-hover:opacity-100">
+                                Open <ChevronRight className="h-3 w-3" />
                             </div>
                         </div>
                     )
@@ -243,76 +294,104 @@ export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, o
             {/* Concept detail dialog */}
             <Dialog open={!!selectedConcept} onOpenChange={(open) => { if (!open) setSelectedConcept(null) }}>
                 {selectedConcept && (
-                    <DialogContent className="max-w-lg">
-                        <DialogHeader>
-                            <DialogTitle className="flex items-center gap-2">
-                                <div className={`w-3 h-3 rounded-full ${getImportanceColor(selectedConcept.importance)}`} />
-                                {cleanDisplayText(selectedConcept.name)}
-                                {selectedConcept.difficulty_level && (
-                                    <Badge variant="outline" className={`text-xs ${getDifficultyColor(selectedConcept.difficulty_level)}`}>
-                                        {selectedConcept.difficulty_level}
-                                    </Badge>
-                                )}
-                            </DialogTitle>
-                        </DialogHeader>
+                    <DialogContent className="max-w-3xl p-0 overflow-hidden [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:right-5 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:bg-background/80 [&_[data-slot=dialog-close]]:backdrop-blur [&_[data-slot=dialog-close]]:border [&_[data-slot=dialog-close]]:border-border/60 [&_[data-slot=dialog-close]]:opacity-90 [&_[data-slot=dialog-close]]:hover:opacity-100 [&_[data-slot=dialog-close]]:hover:bg-muted">
+                        <div className="max-h-[80vh] overflow-y-auto">
+                            <div className="border-b bg-background py-5 pl-6 pr-16">
+                                <DialogHeader className="space-y-2">
+                                    <DialogTitle className="flex items-start justify-between gap-4">
+                                        <div className="min-w-0">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <div className={`mt-1 w-3 h-3 rounded-full ${getImportanceColor(selectedConcept.importance)}`} />
+                                                <span className="text-xl font-semibold leading-snug">
+                                                    {cleanDisplayText(selectedConcept.name)}
+                                                </span>
+                                                {selectedConcept.difficulty_level && (
+                                                    <Badge variant="outline" className={`text-xs ${getDifficultyColor(selectedConcept.difficulty_level)}`}>
+                                                        {selectedConcept.difficulty_level}
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                            <div className="mt-2 flex items-center gap-2 flex-wrap">
+                                                {selectedConcept.category && (
+                                                    <Badge variant="secondary" className="text-[11px]">
+                                                        {cleanDisplayText(selectedConcept.category)}
+                                                    </Badge>
+                                                )}
+                                                {selectedConcept.source_pages?.length ? (
+                                                    <Badge variant="secondary" className="text-[11px]">
+                                                        {selectedConcept.source_pages.length} page{selectedConcept.source_pages.length !== 1 ? 's' : ''}
+                                                    </Badge>
+                                                ) : null}
+                                            </div>
+                                        </div>
 
-                        <div className="space-y-4">
-                            {selectedConcept.category && (
-                                <div>
-                                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Category</span>
-                                    <p className="text-sm mt-0.5">{selectedConcept.category}</p>
-                                </div>
-                            )}
-
-                            <div>
-                                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Definition</span>
-                                <p className="text-sm text-muted-foreground mt-0.5 leading-relaxed">
-                                    {cleanDisplayText(selectedConcept.description || 'No description available.')}
-                                </p>
+                                        <div className="rounded-xl border border-border/60 bg-card px-4 py-3 text-right">
+                                            <div className="text-xs font-medium text-muted-foreground">Importance</div>
+                                            <div className="mt-0.5 text-2xl font-semibold text-foreground">{selectedConcept.importance}/10</div>
+                                        </div>
+                                    </DialogTitle>
+                                </DialogHeader>
                             </div>
 
-                            <div>
-                                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Importance</span>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <Progress value={selectedConcept.importance * 10} className="h-2 flex-1" />
-                                    <span className="text-xs text-muted-foreground">{selectedConcept.importance}/10</span>
+                            <div className="grid gap-5 px-6 py-5 md:grid-cols-[1.3fr_0.9fr]">
+                                <div className="space-y-5">
+                                    <div className="rounded-2xl border border-border/60 bg-card p-5">
+                                        <div className="text-sm font-medium text-foreground">Definition</div>
+                                        <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
+                                            {cleanDisplayText(selectedConcept.description || 'No description available.')}
+                                        </p>
+                                    </div>
+
+                                    {selectedConcept.keywords && selectedConcept.keywords.length > 0 && (
+                                        <div className="rounded-2xl border border-border/60 bg-card p-5">
+                                            <div className="text-sm font-medium text-foreground">Keywords</div>
+                                            <div className="mt-2 flex flex-wrap gap-1.5">
+                                                {selectedConcept.keywords.map((kw) => (
+                                                    <Badge key={kw} variant="secondary" className="text-xs">
+                                                        {kw}
+                                                    </Badge>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div className="rounded-2xl border border-border/60 bg-card p-5">
+                                        <div className="flex items-center justify-between text-sm font-medium text-foreground">
+                                            <span>Importance</span>
+                                            <span>{selectedConcept.importance * 10}%</span>
+                                        </div>
+                                        <Progress value={selectedConcept.importance * 10} className="mt-2 h-2.5" />
+                                    </div>
+
+                                    {selectedConcept.source_pages && selectedConcept.source_pages.length > 0 && (
+                                        <div className="rounded-2xl border border-border/60 bg-card p-5">
+                                            <div className="text-sm font-medium text-foreground">Source pages</div>
+                                            <div className="mt-2 flex flex-wrap gap-1.5">
+                                                {selectedConcept.source_pages.map((p) => (
+                                                    <Badge
+                                                        key={p}
+                                                        variant="outline"
+                                                        className="text-xs gap-1 cursor-pointer hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                                                        onClick={() => onPageJump?.(p)}
+                                                    >
+                                                        <FileText className="w-3 h-3" />Page {p}
+                                                    </Badge>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
+                        </div>
 
-                            {selectedConcept.keywords && selectedConcept.keywords.length > 0 && (
-                                <div>
-                                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Keywords</span>
-                                    <div className="flex flex-wrap gap-1.5 mt-1">
-                                        {selectedConcept.keywords.map((kw) => (
-                                            <Badge key={kw} variant="secondary" className="text-xs">{kw}</Badge>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {selectedConcept.source_pages && selectedConcept.source_pages.length > 0 && (
-                                <div>
-                                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Source</span>
-                                    <div className="flex flex-wrap gap-1.5 mt-1">
-                                        {selectedConcept.source_pages.map((p) => (
-                                            <Badge
-                                                key={p}
-                                                variant="outline"
-                                                className="text-xs gap-1 cursor-pointer hover:bg-primary/10"
-                                                onClick={() => onPageJump?.(p)}
-                                            >
-                                                <FileText className="w-3 h-3" />Page {p}
-                                            </Badge>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="flex gap-2 pt-2 border-t">
+                        <div className="border-t bg-background px-6 py-4">
+                            <div className="flex flex-col gap-2 sm:flex-row">
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    className="gap-1.5 text-xs flex-1"
+                                    className="gap-1.5 text-sm flex-1 h-10 rounded-xl"
                                     onClick={() => {
                                         const name = cleanDisplayText(selectedConcept.name)
                                         onAskTutor?.(`Explain "${name}" like I'm a complete beginner. Use simple analogies and everyday examples.`)
@@ -325,7 +404,7 @@ export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, o
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    className="gap-1.5 text-xs flex-1"
+                                    className="gap-1.5 text-sm flex-1 h-10 rounded-xl"
                                     disabled={!documentId || generateQuiz.isPending}
                                     onClick={() => {
                                         if (!documentId) return
