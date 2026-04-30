@@ -144,14 +144,7 @@ function AdaptiveTaskCard({
                     </div>
                 </div>
                 <Button
-                    onClick={() => {
-                        const today = new Date().toISOString().split('T')[0]
-                        if (task.scheduledDate > today) {
-                            toast.info(`This ${task.type} session is scheduled for ${task.scheduledDate}. You can start it when that day arrives.`)
-                            return
-                        }
-                        onAction(task)
-                    }}
+                    onClick={() => onAction(task)}
                     variant={task.type === 'quiz' ? 'default' : 'outline'}
                     className={`w-full sm:w-auto shadow-sm ${task.type !== 'quiz' && 'bg-white hover:bg-gray-50'}`}
                 >
@@ -536,8 +529,9 @@ export function LearningPathContent({
     })
     const reusableReadyQuizIdByDocument = adaptiveQuizPolicy.reusableReadyQuizIdByDocument
     const completedAdaptiveDocumentIdsToday = adaptiveQuizPolicy.completedAdaptiveDocumentIdsToday
+    const todayLocal = adaptiveQuizPolicy.todayLocal
 
-    const handleAdaptiveQuizAction = (task: {
+    const handleAdaptiveQuizAction = useCallback((task: {
         id?: string;
         taskId?: string;
         status?: string;
@@ -585,7 +579,7 @@ export function LearningPathContent({
                 },
             },
         )
-    }
+    }, [completedAdaptiveDocumentIdsToday, generateReview, navigate, reusableReadyQuizIdByDocument])
     const upcomingGoals = useMemo(() => plan.goalMarkers.slice(0, 4), [plan.goalMarkers])
     const stats = useMemo(() => {
         const totalConcepts = performanceMasteryList.length
@@ -691,10 +685,17 @@ export function LearningPathContent({
     }, [sections, generateReview, navigate])
 
     const handleAdaptiveTaskAction = useCallback((task: AdaptiveStudyTask) => {
+        const isFuture = task.scheduledDate > todayLocal
+        if (isFuture) {
+             toast.info(`This ${task.type} session is scheduled for ${task.scheduledDate}. You can start it when that day arrives.`)
+             return
+        }
+
         if (task.type === 'quiz') {
             const shouldForceNewQuiz = task.taskKey?.startsWith('manual:') === true
             const fallbackQuizId = shouldForceNewQuiz ? undefined : reusableReadyQuizIdByDocument.get(task.documentId)
             const effectiveQuizId = task.quizId ?? fallbackQuizId
+            
             if (task.status === 'ready' && effectiveQuizId) {
                 navigate(`/quizzes/${effectiveQuizId}`)
                 return
@@ -717,12 +718,6 @@ export function LearningPathContent({
                 return
             }
 
-            const today = new Date().toISOString().split('T')[0]
-            if (task.scheduledDate > today) {
-                 toast.info(`This adaptive quiz is scheduled for ${task.scheduledDate}. You can start it when that day arrives.`)
-                 return
-            }
-
             handleAdaptiveQuizAction({
                 id: task.quizId,
                 taskId: task.id,
@@ -734,27 +729,17 @@ export function LearningPathContent({
         }
 
         if (task.type === 'flashcards') {
-            const today = new Date().toISOString().split('T')[0]
-            if (task.scheduledDate > today) {
-                 toast.info(`This flashcard session is scheduled for ${task.scheduledDate}. You can start it when that day arrives.`)
-                 return
-            }
             navigate(`/files/${task.documentId}?tab=flashcards`)
             return
         }
 
         if (task.conceptIds.length > 0) {
-            const today = new Date().toISOString().split('T')[0]
-            if (task.scheduledDate > today) {
-                 toast.info(`This concept review is scheduled for ${task.scheduledDate}. You can start it when that day arrives.`)
-                 return
-            }
             navigate(`/files/${task.documentId}?tab=concepts&concept=${task.conceptIds[0]}`)
             return
         }
 
         navigate(`/files/${task.documentId}?tab=concepts`)
-    }, [adaptiveQuizPolicy.completedAdaptiveDocumentIdsToday, generateReview, navigate, reusableReadyQuizIdByDocument])
+    }, [completedAdaptiveDocumentIdsToday, handleAdaptiveQuizAction, navigate, reusableReadyQuizIdByDocument, todayLocal])
 
     const isLoading = plan.isLoading
     
