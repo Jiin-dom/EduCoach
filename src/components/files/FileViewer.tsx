@@ -15,6 +15,12 @@ import { NotesTab } from './NotesTab'
 import { FlashcardsTab } from './FlashcardsTab'
 import { DocumentPane } from './DocumentPane'
 import type { DocumentHighlight } from '@/hooks/useHighlights'
+import { DocumentProcessingOverlay } from './DocumentProcessingOverlay'
+import type { DocumentProcessingOverlayPhase } from '@/lib/documentProcessingOverlay'
+
+function holdOverlayPhase(ms: number) {
+    return new Promise<void>((resolve) => window.setTimeout(resolve, ms))
+}
 
 export function FileViewer() {
     const { id } = useParams<{ id: string }>()
@@ -27,6 +33,8 @@ export function FileViewer() {
     const [tutorPrompt, setTutorPrompt] = useState<string | null>(null)
     const [showMobileDoc, setShowMobileDoc] = useState(false)
     const [isDocFullscreen, setIsDocFullscreen] = useState(false)
+    const [manualProcessingPhase, setManualProcessingPhase] = useState<DocumentProcessingOverlayPhase>("processing")
+    const [showManualProcessingOverlay, setShowManualProcessingOverlay] = useState(false)
 
     const { data: document, isLoading: docLoading, error: docError, refetch: refetchDoc } = useDocument(id)
     const { data: concepts, isLoading: conceptsLoading } = useDocumentConcepts(id)
@@ -105,6 +113,27 @@ export function FileViewer() {
         if (highlight.selection_data?.type === 'docx') {
             setHighlightTarget({ type: 'docx', id: highlight.id })
             setShowMobileDoc(true)
+        }
+    }
+
+    const handleProcessDocument = async () => {
+        if (!document) return
+
+        setManualProcessingPhase("processing")
+        setShowManualProcessingOverlay(true)
+
+        try {
+            await processDocument.mutateAsync(document.id)
+            await refetchDoc()
+            setManualProcessingPhase("finalizing")
+            await holdOverlayPhase(500)
+        } catch (processingError) {
+            console.warn("[FileViewer] Manual processing did not finish cleanly", {
+                documentId: document.id,
+                error: processingError instanceof Error ? processingError.message : processingError,
+            })
+        } finally {
+            setShowManualProcessingOverlay(false)
         }
     }
 
@@ -231,7 +260,20 @@ export function FileViewer() {
 
     return (
         <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-500">
-            <StudyHeader document={document} refetchDoc={refetchDoc} />
+            {showManualProcessingOverlay && (
+                <DocumentProcessingOverlay
+                    context="detail_manual"
+                    phase={manualProcessingPhase}
+                    documentTitle={document.title}
+                />
+            )}
+
+            <StudyHeader
+                document={document}
+                refetchDoc={refetchDoc}
+                onProcessDocument={handleProcessDocument}
+                isProcessPending={processDocument.isPending}
+            />
 
             {isPending && (
                 <Card className="group relative overflow-hidden border-orange-200/50 bg-gradient-to-br from-orange-50/80 via-background to-amber-50/80 dark:border-orange-900/30 dark:from-orange-950/30 dark:via-background dark:to-amber-950/30 shadow-sm transition-all hover:shadow-md">
@@ -250,7 +292,7 @@ export function FileViewer() {
                             </div>
                         </div>
                         <Button
-                            onClick={() => processDocument.mutate(document.id)}
+                            onClick={handleProcessDocument}
                             disabled={processDocument.isPending}
                             className="gap-2 self-start sm:self-auto shadow-sm hover:shadow transition-all bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white border-0 rounded-xl"
                             size="lg"

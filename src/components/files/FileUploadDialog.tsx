@@ -12,6 +12,8 @@ import { useScheduleDocumentGoalWindow } from "@/hooks/useGoalWindowScheduling"
 import { getDefaultDocumentTitle, getUploadItemStatusLabel, getUploadProcessingMode, type UploadItemStatus } from "@/lib/documentBatchProcessing"
 import { FREE_DOCUMENT_LIMIT, canUploadMoreDocuments, getRemainingUploadSlots } from "@/lib/subscription"
 import { AlertCircle, CheckCircle2, Crown, FileText, Loader2, Upload, X } from "lucide-react"
+import { DocumentProcessingOverlay } from "@/components/files/DocumentProcessingOverlay"
+import type { DocumentProcessingOverlayPhase } from "@/lib/documentProcessingOverlay"
 
 interface FileUploadDialogProps {
     open: boolean
@@ -47,6 +49,10 @@ function makeUploadBatchItems(files: File[]): UploadBatchItem[] {
     })
 }
 
+function holdOverlayPhase(ms: number) {
+    return new Promise<void>((resolve) => window.setTimeout(resolve, ms))
+}
+
 export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplete, documentCount, hasPremiumEntitlement: hasPremium }: FileUploadDialogProps) {
     const { user } = useAuth()
     const navigate = useNavigate()
@@ -62,6 +68,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
     const [singleTitle, setSingleTitle] = useState("")
     const [goalLabel, setGoalLabel] = useState("")
     const [goalDate, setGoalDate] = useState("")
+    const [singleUploadOverlayPhase, setSingleUploadOverlayPhase] = useState<DocumentProcessingOverlayPhase>("uploading")
     const previousSingleItemIdRef = useRef<string | null>(null)
 
     const isBusy = phase === "uploading"
@@ -107,6 +114,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
         setSingleTitle("")
         setGoalLabel("")
         setGoalDate("")
+        setSingleUploadOverlayPhase("uploading")
         previousSingleItemIdRef.current = null
     }
 
@@ -172,6 +180,7 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
         if (!user || uploadableItems.length === 0) return
 
         setPhase("uploading")
+        setSingleUploadOverlayPhase("uploading")
 
         let anyUploaded = false
         let uploadedInBatch = 0
@@ -247,7 +256,10 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
 
                 if (shouldProcessImmediately) {
                     try {
+                        setSingleUploadOverlayPhase("processing")
                         await processDocument.mutateAsync(insertedDoc.id)
+                        setSingleUploadOverlayPhase("finalizing")
+                        await holdOverlayPhase(500)
                         lastDocumentId = insertedDoc.id
 
                         if (goalDate) {
@@ -321,16 +333,24 @@ export function FileUploadDialog({ open, onOpenChange, onUpload, onUploadComplet
     }
 
     const allowedTypesText = Object.values(ALLOWED_FILE_TYPES).map((type) => type.toUpperCase()).join(", ")
+    const showSingleUploadOverlay = isBusy && uploadMode === "process_immediately"
 
     return (
         <>
             {isBusy && (
                 <div className="fixed inset-0 z-[60] bg-background/80 backdrop-blur-sm" />
             )}
+            {showSingleUploadOverlay && (
+                <DocumentProcessingOverlay
+                    context="single_upload"
+                    phase={singleUploadOverlayPhase}
+                    documentTitle={singleTitle.trim() || items[0]?.file.name}
+                />
+            )}
 
             <Dialog open={open} onOpenChange={handleOpenChange}>
                 <DialogContent
-                    className={`max-w-[calc(100vw-2rem)] sm:max-w-2xl w-full overflow-hidden ${isBusy ? "z-[70]" : ""}`}
+                    className={`max-w-[calc(100vw-2rem)] sm:max-w-2xl w-full overflow-hidden ${isBusy ? "z-[70]" : ""} ${showSingleUploadOverlay ? "opacity-0 pointer-events-none" : ""}`}
                     onPointerDownOutside={(e) => { if (isBusy) e.preventDefault() }}
                     onEscapeKeyDown={(e) => { if (isBusy) e.preventDefault() }}
                     onInteractOutside={(e) => { if (isBusy) e.preventDefault() }}
