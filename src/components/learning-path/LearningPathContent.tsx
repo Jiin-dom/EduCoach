@@ -250,7 +250,13 @@ function GoalMarkerCard({ marker }: { marker: GoalMarkerPlanItem }) {
                                 toast.info(`This quiz deadline is scheduled for ${marker.date}. You can start it when that day arrives.`)
                                 return
                             }
-                            navigate(`/quizzes/${marker.quizId}`)
+                            
+                            const isCompletedToday = completedTodayQuizzes.some(q => q.id === marker.quizId)
+                            if (isCompletedToday) {
+                                navigate(`/quizzes/${marker.quizId}?review=true`)
+                            } else {
+                                navigate(`/quizzes/${marker.quizId}`)
+                            }
                         }}
                     >
                         <ArrowUpRight className="w-3.5 h-3.5 mr-1" />
@@ -545,6 +551,11 @@ export function LearningPathContent({
         const effectiveQuizId = (task.id && task.id !== task.taskId ? task.id : null) ?? fallbackQuizId
 
         if (effectiveQuizId) {
+            const isCompletedToday = completedTodayQuizzes.some(q => q.id === effectiveQuizId)
+            if (isCompletedToday) {
+                navigate(`/quizzes/${effectiveQuizId}?review=true`)
+                return
+            }
             navigate(`/quizzes/${effectiveQuizId}`)
             return
         }
@@ -697,7 +708,12 @@ export function LearningPathContent({
             const effectiveQuizId = task.quizId ?? fallbackQuizId
             
             if (task.status === 'ready' && effectiveQuizId) {
-                navigate(`/quizzes/${effectiveQuizId}`)
+                const isCompletedToday = completedTodayQuizzes.some(q => q.id === effectiveQuizId)
+                if (isCompletedToday) {
+                    navigate(`/quizzes/${effectiveQuizId}?review=true`)
+                } else {
+                    navigate(`/quizzes/${effectiveQuizId}`)
+                }
                 return
             }
             if (task.status === 'generating' && effectiveQuizId) {
@@ -705,7 +721,12 @@ export function LearningPathContent({
                 return
             }
             if (effectiveQuizId) {
-                navigate(`/quizzes/${effectiveQuizId}`)
+                const isCompletedToday = completedTodayQuizzes.some(q => q.id === effectiveQuizId)
+                if (isCompletedToday) {
+                    navigate(`/quizzes/${effectiveQuizId}?review=true`)
+                } else {
+                    navigate(`/quizzes/${effectiveQuizId}`)
+                }
                 return
             }
             if (task.status === 'generating' && !task.quizId) {

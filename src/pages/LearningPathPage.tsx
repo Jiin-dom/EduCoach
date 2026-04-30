@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { AlertTriangle, ArrowLeft } from "lucide-react"
 import { toast } from "sonner"
@@ -31,6 +31,7 @@ import {
 
 export default function LearningPathPage() {
     const [searchParams] = useSearchParams()
+    const [bypassedTaskIds, setBypassedTaskIds] = useState<Set<string>>(new Set())
     const requestedScope = searchParams.get("scope")
     const requestedId = searchParams.get("id")
 
@@ -280,6 +281,8 @@ export default function LearningPathPage() {
                                     scopeFilter={scopeFilter}
                                     dueTodayQuizzes={dueTodayQuizzes}
                                     completedTodayQuizzes={completedTodayQuizzes}
+                                    bypassedTaskIds={bypassedTaskIds}
+                                    setBypassedTaskIds={setBypassedTaskIds}
                                 />
                             </div>
                         </TabsContent>
@@ -289,6 +292,8 @@ export default function LearningPathPage() {
                                 scopeFilter={scopeFilter}
                                 dueTodayQuizzes={dueTodayQuizzes}
                                 completedTodayQuizzes={completedTodayQuizzes}
+                                bypassedTaskIds={bypassedTaskIds}
+                                setBypassedTaskIds={setBypassedTaskIds}
                             />
                         </TabsContent>
 

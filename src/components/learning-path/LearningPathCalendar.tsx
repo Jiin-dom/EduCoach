@@ -13,11 +13,20 @@ import {
     Zap,
 
     AlertCircle,
-    ArrowUpRight
+    ArrowUpRight,
+    TriangleAlert
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    DialogFooter,
+} from "@/components/ui/dialog"
 import {
     useLearningStats,
     useRescheduleConceptDueDate,
@@ -62,12 +71,16 @@ interface LearningPathCalendarProps {
     scopeFilter?: LearningPathPlanScopeFilter
     dueTodayQuizzes?: QuizItem[]
     completedTodayQuizzes?: QuizItem[]
+    bypassedTaskIds: Set<string>
+    setBypassedTaskIds: (setter: (prev: Set<string>) => Set<string>) => void
 }
 
 export function LearningPathCalendar({
     scopeFilter,
     dueTodayQuizzes = [],
     completedTodayQuizzes = [],
+    bypassedTaskIds,
+    setBypassedTaskIds,
 }: LearningPathCalendarProps) {
     const navigate = useNavigate()
     const [viewMode, setViewMode] = useState<"week" | "month">("week")
@@ -76,6 +89,7 @@ export function LearningPathCalendar({
     const [dismissingTaskIds, setDismissingTaskIds] = useState<Record<string, true>>({})
     const [dismissedTaskIds, setDismissedTaskIds] = useState<Record<string, true>>({})
     const [dismissedDueTodayQuizIds, setDismissedDueTodayQuizIds] = useState<Record<string, true>>({})
+    const [fatigueConfirmation, setFatigueConfirmation] = useState<{ rawPayload: string; targetDateStr: string } | null>(null)
 
     const { data: stats } = useLearningStats();
     const { data: weeklyProgress } = useWeeklyProgress();
@@ -118,6 +132,13 @@ export function LearningPathCalendar({
         const effectiveQuizId = (task.id && task.id !== task.taskId ? task.id : null) ?? fallbackQuizId
         
         if (effectiveQuizId) {
+            // If the quiz is already completed today, redirect to results page
+            const isCompletedToday = completedTodayQuizzes.some(q => q.id === effectiveQuizId)
+            if (isCompletedToday) {
+                navigate(`/quizzes/${effectiveQuizId}?review=true`)
+                return
+            }
+
             routeToQuizzesWithHighlight(effectiveQuizId, task.taskId)
             return
         }
@@ -129,8 +150,12 @@ export function LearningPathCalendar({
         }
 
         if (task.status === 'needs_generation' && completedDocumentIdsToday.has(documentId)) {
-            toast.info('You already completed today\'s quiz for this file. The next adaptive quiz will be prepared on the next available study day.')
-            return
+            // Check if this specific task was bypassed via the fatigue dialog
+            const isBypassed = task.taskId && bypassedTaskIds.has(task.taskId)
+            if (!isBypassed) {
+                toast.info('You already completed today\'s quiz for this file. The next adaptive quiz will be prepared on the next available study day.')
+                return
+            }
         }
 
         toast.loading('Preparing adaptive quiz...')
@@ -324,7 +349,12 @@ export function LearningPathCalendar({
                     return
                 }
                 if (item.quizId) {
-                    routeToQuizzesWithHighlight(item.quizId)
+                    const isCompletedToday = completedTodayQuizzes.some(q => q.id === item.quizId)
+                    if (isCompletedToday) {
+                        navigate(`/quizzes/${item.quizId}?review=true`)
+                    } else {
+                        routeToQuizzesWithHighlight(item.quizId)
+                    }
                 }
             }
 
@@ -472,6 +502,12 @@ export function LearningPathCalendar({
 
             if (source.task.scheduledDate === targetDateStr) return
 
+            // Check for study fatigue if moving from future to today
+            if (targetDateStr === todayLocal && source.task.scheduledDate > todayLocal) {
+                setFatigueConfirmation({ rawPayload, targetDateStr })
+                return
+            }
+
             rescheduleAdaptiveTask.mutate(
                 { taskId: source.task.id, newScheduledDate: targetDateStr, task: source.task },
                 {
@@ -616,7 +652,12 @@ export function LearningPathCalendar({
                                                 if (quiz.taskId) {
                                                     handleAdaptiveQuizAction(quiz)
                                                 } else {
-                                                    routeToQuizzesWithHighlight(quiz.id)
+                                                    const isCompletedToday = completedTodayQuizzes.some(q => q.id === quiz.id)
+                                                    if (isCompletedToday) {
+                                                        navigate(`/quizzes/${quiz.id}?review=true`)
+                                                    } else {
+                                                        routeToQuizzesWithHighlight(quiz.id)
+                                                    }
                                                 }
                                             }}
                                             className="flex items-center justify-between rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:border-red-400 hover:shadow-md text-left group"
@@ -662,7 +703,7 @@ export function LearningPathCalendar({
                                         <button
                                             key={quiz.id}
                                             type="button"
-                                            onClick={() => routeToQuizzesWithHighlight(quiz.id)}
+                                            onClick={() => navigate(`/quizzes/${quiz.id}?review=true`)}
                                             className="flex items-center justify-between rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:border-green-400 hover:shadow-md text-left group"
                                         >
                                             <div className="min-w-0 pr-2">
@@ -744,6 +785,18 @@ export function LearningPathCalendar({
                                             return d
                                         })
                                     }}
+                                    onDragEnter={() => {
+                                        if (viewMode === 'month') {
+                                            setAnchorDate((prev) => {
+                                                const d = new Date(prev)
+                                                const day = d.getDate()
+                                                d.setMonth(d.getMonth() - 1)
+                                                const last = getDaysInMonth(d.getFullYear(), d.getMonth())
+                                                d.setDate(Math.min(day, last))
+                                                return d
+                                            })
+                                        }
+                                    }}
                                 >
                                     <ChevronLeft className="h-4 w-4" />
                                 </Button>
@@ -766,6 +819,18 @@ export function LearningPathCalendar({
                                             }
                                             return d
                                         })
+                                    }}
+                                    onDragEnter={() => {
+                                        if (viewMode === 'month') {
+                                            setAnchorDate((prev) => {
+                                                const d = new Date(prev)
+                                                const day = d.getDate()
+                                                d.setMonth(d.getMonth() + 1)
+                                                const last = getDaysInMonth(d.getFullYear(), d.getMonth())
+                                                d.setDate(Math.min(day, last))
+                                                return d
+                                            })
+                                        }
                                     }}
                                 >
                                     <ChevronRight className="h-4 w-4" />
@@ -840,56 +905,79 @@ export function LearningPathCalendar({
                                 <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
                             </div>
                             <div className="grid grid-cols-7 gap-2">
-                                {Array.from({ length: emptyCellsBefore }).map((_, i) => (
-                                    <div key={`empty-${i}`} className="aspect-square p-2 border rounded-xl bg-muted/20 border-dashed"></div>
-                                ))}
-                                {Array.from({ length: monthDaysCount }).map((_, i) => {
-                                    const dayDate = new Date(now.getFullYear(), now.getMonth(), i + 1);
-                                    const dateStr = formatDateToLocalString(dayDate);
-                                    let dayItems = getLearningPathItemsForDate(plan.items, dateStr)
-                                    dayItems = dayItems.filter((item) => !(item.kind === "adaptive_task" && item.task.type === "quiz" && dismissedTaskIds[item.task.id]))
-
-                                    if (focusFilter !== 'all') {
-                                        if (focusFilter === 'due') {
-                                            if (dateStr !== todayLocal) dayItems = [];
-                                        } else {
-                                            dayItems = dayItems.filter(item => 
-                                                item.kind === "planned_review" && item.mastery.display_mastery_level === focusFilter
-                                            );
-                                        }
+                                {(() => {
+                                    const cells = []
+                                    const year = now.getFullYear()
+                                    const month = now.getMonth()
+                                    
+                                    // Previous month padding
+                                    for (let i = 0; i < emptyCellsBefore; i++) {
+                                        const day = new Date(year, month, 0).getDate() - emptyCellsBefore + 1 + i
+                                        const paddingDate = new Date(year, month - 1, day)
+                                        cells.push({ date: paddingDate, isPadding: true })
+                                    }
+                                    
+                                    // Current month
+                                    for (let i = 1; i <= monthDaysCount; i++) {
+                                        cells.push({ date: new Date(year, month, i), isPadding: false })
+                                    }
+                                    
+                                    // Next month padding to fill 6 weeks (42 cells)
+                                    const totalCellsNeeded = 42
+                                    const paddingAfter = totalCellsNeeded - cells.length
+                                    for (let i = 1; i <= paddingAfter; i++) {
+                                        cells.push({ date: new Date(year, month + 1, i), isPadding: true })
                                     }
 
-                                    const isToday = dateStr === todayLocal
-                                    const isPast = dateStr < todayLocal
+                                    return cells.map((cell, i) => {
+                                        const dateStr = formatDateToLocalString(cell.date)
+                                        let dayItems = getLearningPathItemsForDate(plan.items, dateStr)
+                                        dayItems = dayItems.filter((item) => !(item.kind === "adaptive_task" && item.task.type === "quiz" && dismissedTaskIds[item.task.id]))
 
-                                    return (
-                                        <div
-                                            key={i}
-                                            className={`aspect-square p-1.5 sm:p-2 border rounded-xl relative min-h-[80px] sm:min-h-[100px] overflow-hidden transition-colors ${isToday ? 'bg-primary/5 ring-1 ring-primary/20 border-primary/30' : 'bg-card'} ${isPast ? 'bg-muted/40 opacity-60 grayscale-[0.2]' : 'hover:border-primary/50'}`}
-                                            onDragOver={(e) => { 
-                                                if (!isPast) e.preventDefault() 
-                                            }}
-                                            onDrop={(e) => {
-                                                e.preventDefault()
-                                                if (isMovingItem || isPast) return
-                                                const payload = e.dataTransfer.getData('text/plain')
-                                                handleRescheduleDrop(payload, dateStr)
-                                            }}
-                                        >
-                                            <span className={`text-xs font-bold ${isToday ? 'text-primary' : 'opacity-70'}`}>{i + 1}</span>
-                                            <div className="mt-1 space-y-1">
-                                                {dayItems.slice(0, 3).map((item) => (
-                                                    <div key={item.id}>{renderCalendarItem(item, true)}</div>
-                                                ))}
-                                                {dayItems.length > 3 && (
-                                                    <div className="mt-1.5 text-[10px] font-medium text-muted-foreground px-1 py-0.5 rounded bg-muted w-max">
-                                                        +{dayItems.length - 3}
-                                                    </div>
-                                                )}
+                                        if (focusFilter !== 'all') {
+                                            if (focusFilter === 'due') {
+                                                if (dateStr !== todayLocal) dayItems = [];
+                                            } else {
+                                                dayItems = dayItems.filter(item => 
+                                                    item.kind === "planned_review" && item.mastery.display_mastery_level === focusFilter
+                                                );
+                                            }
+                                        }
+
+                                        const isToday = dateStr === todayLocal
+                                        const isPast = dateStr < todayLocal
+
+                                        return (
+                                            <div
+                                                key={i}
+                                                className={`aspect-square p-1.5 sm:p-2 border rounded-xl relative min-h-[80px] sm:min-h-[100px] overflow-hidden transition-colors ${isToday ? 'bg-primary/5 ring-1 ring-primary/20 border-primary/30' : 'bg-card'} ${isPast ? 'bg-muted/40 opacity-60 grayscale-[0.2]' : 'hover:border-primary/50'} ${cell.isPadding ? 'bg-muted/20 border-dashed opacity-50' : ''}`}
+                                                onDragOver={(e) => { 
+                                                    if (!isPast) e.preventDefault() 
+                                                }}
+                                                onDrop={(e) => {
+                                                    e.preventDefault()
+                                                    if (isMovingItem || isPast) return
+                                                    const payload = e.dataTransfer.getData('text/plain')
+                                                    handleRescheduleDrop(payload, dateStr)
+                                                }}
+                                            >
+                                                <span className={`text-xs font-bold ${isToday ? 'text-primary' : 'opacity-70'}`}>
+                                                    {cell.date.getDate()}
+                                                </span>
+                                                <div className="mt-1 space-y-1">
+                                                    {dayItems.slice(0, 3).map((item) => (
+                                                        <div key={item.id}>{renderCalendarItem(item, true)}</div>
+                                                    ))}
+                                                    {dayItems.length > 3 && (
+                                                        <div className="mt-1.5 text-[10px] font-medium text-muted-foreground px-1 py-0.5 rounded bg-muted w-max">
+                                                            +{dayItems.length - 3}
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    )
-                                })}
+                                        )
+                                    })
+                                })()}
                             </div>
                         </div>
                     )}
@@ -899,6 +987,67 @@ export function LearningPathCalendar({
             <div className="text-center text-xs text-muted-foreground py-4">
                 All sessions and goals are fully synchronized with your personalized Study AI.
             </div>
+
+            {/* Study Fatigue Confirmation Dialog */}
+            <Dialog open={!!fatigueConfirmation} onOpenChange={(open) => !open && setFatigueConfirmation(null)}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-red-600">
+                            <TriangleAlert className="w-5 h-5" />
+                            Study Fatigue Warning
+                        </DialogTitle>
+                        <DialogDescription className="pt-2">
+                            Moving a future quiz to today can lead to study fatigue and reduced retention. 
+                            The system usually limits you to one adaptive session per day to keep your learning optimal.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 text-sm text-amber-800 flex items-start gap-3">
+                        <Zap className="w-5 h-5 shrink-0 mt-0.5" />
+                        <p>
+                            Confirming this move will **bypass** the daily limit for this specific quiz, allowing you to generate and take it immediately.
+                        </p>
+                    </div>
+                    <DialogFooter className="flex flex-col sm:flex-row gap-2 pt-4">
+                        <Button variant="outline" onClick={() => setFatigueConfirmation(null)} className="sm:flex-1">
+                            Cancel
+                        </Button>
+                        <Button 
+                            variant="default" 
+                            className="sm:flex-1 bg-red-600 hover:bg-red-700"
+                            onClick={() => {
+                                if (!fatigueConfirmation) return
+                                const { rawPayload, targetDateStr } = fatigueConfirmation
+                                const payload = JSON.parse(rawPayload)
+                                
+                                const source = plan.items.find((item) => item.kind === "adaptive_task" && item.task.id === payload?.taskId)
+                                if (source && source.kind === "adaptive_task") {
+                                    // Mark as bypassed
+                                    setBypassedTaskIds(prev => new Set(prev).add(source.task.id))
+                                    
+                                    // Execute the move
+                                    rescheduleAdaptiveTask.mutate(
+                                        { taskId: source.task.id, newScheduledDate: targetDateStr, task: source.task },
+                                        {
+                                            onSuccess: () => {
+                                                toast.success(`Bypassed limit: ${source.task.type} moved to today.`)
+                                                setFatigueConfirmation(null)
+                                            },
+                                            onError: (error) => {
+                                                toast.error(error instanceof Error ? error.message : "Failed to move study task.")
+                                                setFatigueConfirmation(null)
+                                            },
+                                        },
+                                    )
+                                } else {
+                                    setFatigueConfirmation(null)
+                                }
+                            }}
+                        >
+                            Confirm & Bypass
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }
