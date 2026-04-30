@@ -37,6 +37,7 @@ export interface LearningPathAdaptiveTaskInput {
     title: string
     description: string
     quizId?: string
+    taskKey?: string
     clickable?: boolean
 }
 

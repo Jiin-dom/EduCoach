@@ -542,7 +542,8 @@ export function LearningPathContent({
 
     const handleAdaptiveTaskAction = useCallback((task: AdaptiveStudyTask) => {
         if (task.type === 'quiz') {
-            const fallbackQuizId = reusableReadyQuizIdByDocument.get(task.documentId)
+            const shouldForceNewQuiz = task.taskKey?.startsWith('manual:') === true
+            const fallbackQuizId = shouldForceNewQuiz ? undefined : reusableReadyQuizIdByDocument.get(task.documentId)
             const effectiveQuizId = task.quizId ?? fallbackQuizId
             if (task.status === 'ready' && effectiveQuizId) {
                 navigate(`/quizzes/${effectiveQuizId}`)
@@ -571,7 +572,8 @@ export function LearningPathContent({
                 {
                     documentId: task.documentId,
                     focusConceptIds: task.conceptIds,
-                    questionCount: Math.max(5, Math.min(12, task.conceptIds.length * 2)),
+                    questionCount: Math.max(10, Math.min(20, task.conceptIds.length * 2)),
+                    forceNew: shouldForceNewQuiz,
                 },
                 {
                     onSuccess: (data) => {
