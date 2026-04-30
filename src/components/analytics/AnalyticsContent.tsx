@@ -18,7 +18,6 @@ import {
     ArrowLeft,
 
     Zap,
-    Timer,
     Gauge,
     Sparkles,
     Trophy,

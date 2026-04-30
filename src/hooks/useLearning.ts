@@ -131,7 +131,7 @@ const DEFAULT_CONFIG: LearningConfig = {
     priority_w_practice: 0.10,
     mastery_threshold_mastered: 80,
     mastery_threshold_developing: 60,
-    confidence_threshold_mastered: 0.67,
+    confidence_threshold_mastered: 0.8,
 }
 
 function normalizeLearningConfig(data: Record<string, unknown> | null | undefined): LearningConfig {
