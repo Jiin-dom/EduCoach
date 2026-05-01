@@ -737,28 +737,32 @@ export function LearningPathCalendar({
                 return
             }
 
-            const targetAdaptiveCount = plan.items
-                .filter((item): item is Extract<LearningPathPlanItem, { kind: "adaptive_task" }> => item.kind === "adaptive_task")
-                .filter((item) => item.date === targetDateStr && item.task.id !== source.task.id)
-                .length
+            if (source.task.type === "flashcards") {
+                const targetCardCount = plan.items
+                    .filter((item): item is Extract<LearningPathPlanItem, { kind: "adaptive_task" }> => item.kind === "adaptive_task")
+                    .filter((item) => item.date === targetDateStr && item.task.id !== source.task.id)
+                    .filter((item) => item.task.type === "flashcards")
+                    .length
 
-            if (targetAdaptiveCount >= adaptiveTaskDailyCap) {
-                debugLearningPath("drop:adaptive_task_blocked_capacity_reached", {
-                    taskId: source.task.id,
-                    sourceDate: source.task.scheduledDate,
-                    targetDate: targetDateStr,
-                    currentCount: targetAdaptiveCount,
-                    cap: adaptiveTaskDailyCap,
-                })
-                setPendingCapacityReschedule({
-                    payload,
-                    targetDateStr,
-                    type: source.task.type,
-                    currentCount: targetAdaptiveCount,
-                    cap: adaptiveTaskDailyCap,
-                })
-                toast.info("Move blocked: only one card is allowed per day in calendar.")
-                return
+                if (targetCardCount >= adaptiveTaskDailyCap) {
+                    debugLearningPath("drop:adaptive_task_blocked_capacity_reached", {
+                        taskId: source.task.id,
+                        sourceDate: source.task.scheduledDate,
+                        targetDate: targetDateStr,
+                        currentCount: targetCardCount,
+                        cap: adaptiveTaskDailyCap,
+                        reason: "flashcards_only_limit",
+                    })
+                    setPendingCapacityReschedule({
+                        payload,
+                        targetDateStr,
+                        type: source.task.type,
+                        currentCount: targetCardCount,
+                        cap: adaptiveTaskDailyCap,
+                    })
+                    toast.info("Move blocked: only one flashcard card is allowed per day.")
+                    return
+                }
             }
 
             debugLearningPath("drop:adaptive_task_mutate", {
