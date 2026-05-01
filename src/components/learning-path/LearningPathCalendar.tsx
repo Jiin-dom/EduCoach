@@ -34,9 +34,11 @@ import { useNavigate } from "react-router-dom"
 import { useGenerateReviewQuiz, useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
 import { shouldSuppressAdaptiveQuizTask, useAdaptiveQuizPolicies } from "@/hooks/useAdaptiveQuizPolicies"
 import { useLearningPathPlan } from "@/hooks/useLearningPathPlan"
+import { useAllFlashcards, useGenerateAdaptiveFlashcards } from "@/hooks/useFlashcards"
 import { useRescheduleAdaptiveStudyTask } from "@/hooks/useAdaptiveStudy"
 import { getLearningPathItemsForDate, type LearningPathPlanItem, type PlannedReviewPlanItem } from "@/lib/learningPathPlan"
 import type { LearningPathPlanScopeFilter } from "@/lib/learningPathScope"
+import { localDateFromTimestamp, todayLocalDateString } from "@/lib/localDate"
 import { toast } from "sonner"
 import { DueCompletedTodayCard, type LearningPathTodayItem } from "@/components/learning-path/DueCompletedTodayCard"
 
@@ -60,6 +62,24 @@ interface QuizItem extends LearningPathTodayItem {
     href?: string;
 }
 
+type ConfirmTaskState = {
+    id?: string;
+    quizId?: string;
+    taskId?: string;
+    taskKey?: string;
+    status?: string;
+    documentId?: string;
+    conceptIds?: string[];
+    type?: 'quiz' | 'flashcards' | 'review';
+    scheduledDate?: string;
+} | null
+
+type PendingReschedulePayload = {
+    kind?: string;
+    conceptId?: string;
+    taskId?: string;
+}
+
 interface LearningPathCalendarProps {
     scopeFilter?: LearningPathPlanScopeFilter
     dueTodayQuizzes?: QuizItem[]
@@ -78,9 +98,9 @@ export function LearningPathCalendar({
     const [dismissingTaskIds, setDismissingTaskIds] = useState<Record<string, true>>({})
     const [dismissedTaskIds, setDismissedTaskIds] = useState<Record<string, true>>({})
     const [dismissedDueTodayQuizIds, setDismissedDueTodayQuizIds] = useState<Record<string, true>>({})
-    const [confirmTask, setConfirmTask] = useState<any | null>(null)
+    const [confirmTask, setConfirmTask] = useState<ConfirmTaskState>(null)
     const [pendingReschedule, setPendingReschedule] = useState<{
-        payload: any;
+        payload: PendingReschedulePayload;
         targetDateStr: string;
         type: string;
     } | null>(null)
@@ -91,6 +111,7 @@ export function LearningPathCalendar({
     const { data: learningConfig } = useLearningConfig();
     const plan = useLearningPathPlan(scopeFilter)
     const generateReview = useGenerateReviewQuiz()
+    const generateAdaptiveFlashcards = useGenerateAdaptiveFlashcards()
     
     const rescheduleDueDate = useRescheduleConceptDueDate()
     const rescheduleAdaptiveTask = useRescheduleAdaptiveStudyTask()
@@ -101,6 +122,7 @@ export function LearningPathCalendar({
         attempts,
         adaptiveTasks: plan.adaptiveTasks.map((item) => item.task),
     })
+    const { data: allFlashcards = [] } = useAllFlashcards(scopeFilter?.documentId)
     const todayLocal = adaptiveQuizPolicy.todayLocal
     const completedDocumentIdsToday = adaptiveQuizPolicy.completedAdaptiveDocumentIdsToday
     const reusableReadyQuizIdByDocument = adaptiveQuizPolicy.reusableReadyQuizIdByDocument
@@ -175,10 +197,29 @@ export function LearningPathCalendar({
 
     const dueTodayCount = plan.items.filter((item) => item.date === todayLocal).length
     const confidenceTarget = Math.round((learningConfig?.confidence_threshold_mastered ?? 0.8) * 100)
-    const completedQuizIds = useMemo(
-        () => new Set(attempts.filter((a) => !!a.completed_at).map((a) => a.quiz_id)),
-        [attempts],
-    )
+    const completedQuizIds = new Set(attempts.filter((a) => !!a.completed_at).map((a) => a.quiz_id))
+    const dueFlashcardsByDocument = useMemo(() => {
+        const nowIso = new Date().toISOString()
+        const byDocument = new Map<string, number>()
+        allFlashcards.forEach((card) => {
+            if (!card.due_date || card.due_date <= nowIso) {
+                byDocument.set(card.document_id, (byDocument.get(card.document_id) || 0) + 1)
+            }
+        })
+        return byDocument
+    }, [allFlashcards])
+    const flashcardActivityDocumentIdsToday = useMemo(() => {
+        const todayLocalDate = todayLocalDateString()
+        const ids = new Set<string>()
+        allFlashcards.forEach((card) => {
+            const reviewedToday = !!card.last_reviewed_at && localDateFromTimestamp(card.last_reviewed_at) === todayLocalDate
+            const createdToday = localDateFromTimestamp(card.created_at) === todayLocalDate
+            if (reviewedToday || createdToday) {
+                ids.add(card.document_id)
+            }
+        })
+        return ids
+    }, [allFlashcards])
     // Compute Dates
     const now = anchorDate
     const dayOfWeek = now.getDay() === 0 ? 6 : now.getDay() - 1;
@@ -416,7 +457,7 @@ export function LearningPathCalendar({
         const isFuture = item.date > todayLocal
         const isLocked = isFuture && !isCompleted
 
-        const openTask = () => {
+        const openTask = async () => {
              if (isLocked) {
                  setConfirmTask({ ...task, scheduledDate: item.date })
                  return
@@ -443,6 +484,35 @@ export function LearningPathCalendar({
                          return next
                      })
                  }, 480)
+                const hasDueFlashcards = (dueFlashcardsByDocument.get(task.documentId) || 0) > 0
+                if (!hasDueFlashcards) {
+                    if (flashcardActivityDocumentIdsToday.has(task.documentId)) {
+                        toast.info('You already generated or reviewed flashcards for this file today.')
+                        navigate(`/files/${task.documentId}?tab=flashcards`)
+                        return
+                    }
+                    if (generateAdaptiveFlashcards.isPending) {
+                        toast.info('Adaptive flashcard generation is already in progress.')
+                        navigate(`/files/${task.documentId}?tab=flashcards`)
+                        return
+                    }
+                    toast.loading('Generating adaptive flashcards...')
+                    try {
+                        const result = await generateAdaptiveFlashcards.mutateAsync({
+                            documentId: task.documentId,
+                            focusConceptIds: task.conceptIds,
+                        })
+                        toast.dismiss()
+                        if (result.createdCount > 0) {
+                            toast.success(`Generated ${result.createdCount} adaptive flashcards for this task.`)
+                        } else {
+                            toast.info('No additional weak-topic flashcards were available to generate.')
+                        }
+                    } catch (error) {
+                        toast.dismiss()
+                        toast.error('Adaptive flashcard generation failed: ' + (error as Error).message)
+                    }
+                }
                  navigate(`/files/${task.documentId}?tab=flashcards`)
                  return
              }
@@ -746,6 +816,11 @@ export function LearningPathCalendar({
                                 dayItems = dayItems.filter((item) => {
                                     if (item.kind !== "adaptive_task") return true
                                     if (dismissedTaskIds[item.task.id]) return false
+                                    if (
+                                        item.task.type === "flashcards" &&
+                                        item.task.scheduledDate === todayLocal &&
+                                        flashcardActivityDocumentIdsToday.has(item.task.documentId)
+                                    ) return false
                                     if (shouldSuppressAdaptiveQuizTask({
                                         taskType: item.task.type,
                                         taskDocumentId: item.task.documentId,
@@ -828,6 +903,11 @@ export function LearningPathCalendar({
                                     dayItems = dayItems.filter((item) => {
                                         if (item.kind !== "adaptive_task") return true
                                         if (dismissedTaskIds[item.task.id]) return false
+                                        if (
+                                            item.task.type === "flashcards" &&
+                                            item.task.scheduledDate === todayLocal &&
+                                            flashcardActivityDocumentIdsToday.has(item.task.documentId)
+                                        ) return false
                                         if (shouldSuppressAdaptiveQuizTask({
                                             taskType: item.task.type,
                                             taskDocumentId: item.task.documentId,

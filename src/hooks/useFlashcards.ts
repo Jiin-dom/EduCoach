@@ -21,6 +21,18 @@ export interface Flashcard {
     created_at: string
 }
 
+interface GenerateAdaptiveFlashcardsInput {
+    documentId: string
+    focusConceptIds?: string[]
+}
+
+interface GenerateAdaptiveFlashcardsResult {
+    createdCount: number
+    conceptIds: string[]
+}
+
+const adaptiveFlashcardGenerationInFlight = new Map<string, Promise<GenerateAdaptiveFlashcardsResult>>()
+
 export const flashcardKeys = {
     all: ['flashcards'] as const,
     byDocument: (documentId: string) => [...flashcardKeys.all, 'document', documentId] as const,
@@ -124,6 +136,139 @@ export function useGenerateFlashcards() {
             if (documentId) {
                 queryClient.invalidateQueries({ queryKey: flashcardKeys.byDocument(documentId) })
             }
+            queryClient.invalidateQueries({ queryKey: learningKeys.all })
+            queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
+        },
+    })
+}
+
+type MasterySelectionRow = {
+    concept_id: string | null
+    due_date: string
+    priority_score: number
+    mastery_level: 'needs_review' | 'developing' | 'mastered'
+}
+
+function pickWeakConceptIds(rows: MasterySelectionRow[]): string[] {
+    const today = new Date().toISOString().split('T')[0]
+    const actionable = rows.filter((row): row is MasterySelectionRow & { concept_id: string } => !!row.concept_id)
+
+    const urgent = actionable.filter(
+        (row) =>
+            row.due_date <= today ||
+            row.mastery_level === 'needs_review' ||
+            row.mastery_level === 'developing',
+    )
+
+    const urgentIds = new Set(urgent.map((row) => row.concept_id))
+    const reinforcement = actionable.filter(
+        (row) => !urgentIds.has(row.concept_id) && row.mastery_level === 'developing',
+    )
+
+    return [...urgent, ...reinforcement].map((row) => row.concept_id)
+}
+
+export function useGenerateAdaptiveFlashcards() {
+    const queryClient = useQueryClient()
+    const { user } = useAuth()
+
+    return useMutation({
+        mutationFn: async (input: GenerateAdaptiveFlashcardsInput): Promise<GenerateAdaptiveFlashcardsResult> => {
+            if (!user) {
+                throw new Error('You must be logged in to generate adaptive flashcards.')
+            }
+            if (!input.documentId) {
+                throw new Error('Document ID is required.')
+            }
+            const existing = adaptiveFlashcardGenerationInFlight.get(input.documentId)
+            if (existing) {
+                return existing
+            }
+
+            const runGeneration = async (): Promise<GenerateAdaptiveFlashcardsResult> => {
+            const nowIso = new Date().toISOString()
+
+            const { count: dueCount, error: dueCountError } = await supabase
+                .from('flashcards')
+                .select('id', { count: 'exact', head: true })
+                .eq('document_id', input.documentId)
+                .eq('user_id', user.id)
+                .or(`due_date.is.null,due_date.lte.${nowIso}`)
+
+            if (dueCountError) throw new Error(dueCountError.message)
+            if ((dueCount ?? 0) > 0) {
+                return { createdCount: 0, conceptIds: [] }
+            }
+
+            let conceptIds = (input.focusConceptIds || []).filter(Boolean)
+            if (conceptIds.length === 0) {
+                const { data: masteryRows, error: masteryError } = await supabase
+                    .from('user_concept_mastery')
+                    .select('concept_id, due_date, priority_score, mastery_level')
+                    .eq('user_id', user.id)
+                    .eq('document_id', input.documentId)
+                    .order('priority_score', { ascending: false })
+
+                if (masteryError) throw new Error(masteryError.message)
+                conceptIds = pickWeakConceptIds((masteryRows || []) as MasterySelectionRow[])
+            }
+
+            if (conceptIds.length === 0) {
+                return { createdCount: 0, conceptIds: [] }
+            }
+
+            const selectedConceptIds = conceptIds.slice(0, 12)
+            const { data: concepts, error: conceptsError } = await supabase
+                .from('concepts')
+                .select('id, name, description, difficulty_level, source_pages')
+                .eq('document_id', input.documentId)
+                .in('id', selectedConceptIds)
+                .order('importance', { ascending: false })
+
+            if (conceptsError) throw new Error(conceptsError.message)
+            if (!concepts || concepts.length === 0) {
+                return { createdCount: 0, conceptIds: selectedConceptIds }
+            }
+
+            const records = concepts.map((concept) => {
+                const difficultyLevel = concept.difficulty_level || 'intermediate'
+                const sourcePage = Array.isArray(concept.source_pages) && concept.source_pages.length > 0
+                    ? Number(concept.source_pages[0]) || null
+                    : null
+                const baseDescription = (concept.description || '').trim()
+
+                return {
+                    document_id: input.documentId,
+                    user_id: user.id,
+                    concept_id: concept.id,
+                    front: `Explain the concept: ${concept.name}`,
+                    back: baseDescription.length > 0
+                        ? baseDescription
+                        : `Describe the core idea behind ${concept.name}, when to use it, and one practical example.`,
+                    difficulty_level: difficultyLevel,
+                    source_page: sourcePage,
+                    due_date: nowIso,
+                }
+            })
+
+            const { error: insertError } = await supabase
+                .from('flashcards')
+                .insert(records)
+
+            if (insertError) throw new Error(insertError.message)
+
+            return { createdCount: records.length, conceptIds: selectedConceptIds }
+            }
+
+            const request = runGeneration().finally(() => {
+                adaptiveFlashcardGenerationInFlight.delete(input.documentId)
+            })
+            adaptiveFlashcardGenerationInFlight.set(input.documentId, request)
+            return request
+        },
+        onSuccess: (_data, input) => {
+            queryClient.invalidateQueries({ queryKey: flashcardKeys.all })
+            queryClient.invalidateQueries({ queryKey: flashcardKeys.byDocument(input.documentId) })
             queryClient.invalidateQueries({ queryKey: learningKeys.all })
             queryClient.invalidateQueries({ queryKey: adaptiveStudyKeys.all })
         },
