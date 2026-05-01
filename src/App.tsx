@@ -3,6 +3,8 @@ import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import LandingPage from './pages/LandingPage'
 import RegisterPage from './pages/RegisterPage'
 import LoginPage from './pages/LoginPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import SetNewPasswordPage from './pages/SetNewPasswordPage'
 import ProfilingPage from './pages/ProfilingPage'
 import DashboardPage from './pages/DashboardPage'
 import FilesPage from './pages/FilesPage'
@@ -23,6 +25,8 @@ const router = createBrowserRouter([
   { path: '/', element: <LandingPage /> },
   { path: '/register', element: <RegisterPage /> },
   { path: '/login', element: <LoginPage /> },
+  { path: '/forgot-password', element: <ForgotPasswordPage /> },
+  { path: '/forgot-password/set', element: <SetNewPasswordPage /> },
 
   // Protected routes (require authentication)
   {
