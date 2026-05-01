@@ -236,7 +236,7 @@ export function StudyHeader({ document, refetchDoc, onProcessDocument, isProcess
                                 <Sparkles className="w-4 h-4" />
                                 Generate Quiz
                             </Button>
-                            <Button
+                            {/* <Button
                                 variant="outline"
                                 className="gap-2 shadow-sm rounded-full font-medium hover:bg-muted/50 px-4"
                                 disabled={generateFlashcards.isPending}
@@ -248,7 +248,7 @@ export function StudyHeader({ document, refetchDoc, onProcessDocument, isProcess
                                     <Layers className="w-4 h-4 text-muted-foreground" />
                                 )}
                                 Flashcards
-                            </Button>
+                            </Button> */}
                         </>
                     )}
                 </div>

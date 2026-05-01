@@ -41,6 +41,8 @@ import type { LearningPathPlanScopeFilter } from "@/lib/learningPathScope"
 import { localDateFromTimestamp, todayLocalDateString } from "@/lib/localDate"
 import { toast } from "sonner"
 import { DueCompletedTodayCard, type LearningPathTodayItem } from "@/components/learning-path/DueCompletedTodayCard"
+import { useAuth } from "@/contexts/AuthContext"
+import { useDocuments } from "@/hooks/useDocuments"
 
 function getDaysInMonth(year: number, month: number) {
     return new Date(year, month + 1, 0).getDate();
@@ -114,6 +116,7 @@ export function LearningPathCalendar({
     dueTodayQuizzes = [],
     completedTodayQuizzes = [],
 }: LearningPathCalendarProps) {
+    const { profile } = useAuth()
     const debugLearningPath = (...args: unknown[]) => {
         if (import.meta.env.DEV) {
             console.debug("[LearningPathCalendar]", ...args)
@@ -155,6 +158,7 @@ export function LearningPathCalendar({
         adaptiveTasks: plan.adaptiveTasks.map((item) => item.task),
     })
     const { data: allFlashcards = [] } = useAllFlashcards(scopeFilter?.documentId)
+    const { data: documents = [] } = useDocuments()
     const todayLocal = adaptiveQuizPolicy.todayLocal
     const completedDocumentIdsToday = adaptiveQuizPolicy.completedAdaptiveDocumentIdsToday
     const reusableReadyQuizIdByDocument = adaptiveQuizPolicy.reusableReadyQuizIdByDocument
@@ -228,6 +232,7 @@ export function LearningPathCalendar({
     }
 
     const dueTodayCount = plan.items.filter((item) => item.date === todayLocal).length
+    const maxTasksPerDay = Math.max(2, Math.round((profile?.daily_study_minutes ?? 30) / 30))
     const adaptiveTaskDailyCap = 1
     const confidenceTarget = Math.round((learningConfig?.confidence_threshold_mastered ?? 0.8) * 100)
     const completedQuizIds = new Set(attempts.filter((a) => !!a.completed_at).map((a) => a.quiz_id))
@@ -275,6 +280,26 @@ export function LearningPathCalendar({
 
     const isMovingItem = rescheduleDueDate.isPending || rescheduleAdaptiveTask.isPending
     const dragPayload = (payload: Record<string, string>) => JSON.stringify(payload)
+    const getTargetDayTaskCount = (
+        targetDateStr: string,
+        exclude?: { kind: "adaptive_task"; taskId: string } | { kind: "planned_review"; conceptId: string },
+    ) =>
+        plan.items
+            .filter((item) => item.date === targetDateStr)
+            .filter((item): item is Extract<LearningPathPlanItem, { kind: "adaptive_task" | "planned_review" }> =>
+                item.kind === "adaptive_task" || item.kind === "planned_review",
+            )
+            .filter((item) => {
+                if (!exclude) return true
+                if (exclude.kind === "adaptive_task" && item.kind === "adaptive_task") {
+                    return item.task.id !== exclude.taskId
+                }
+                if (exclude.kind === "planned_review" && item.kind === "planned_review") {
+                    return item.conceptId !== exclude.conceptId
+                }
+                return true
+            })
+            .length
 
     const getVisibleDayItems = (dateStr: string) => {
         let dayItems = getLearningPathItemsForDate(plan.items, dateStr)
@@ -306,6 +331,58 @@ export function LearningPathCalendar({
                     (item) => item.kind === "planned_review" && item.mastery.display_mastery_level === focusFilter,
                 )
             }
+        }
+
+        if (dateStr === todayLocal) {
+            const flashcardDocIdsOnDay = new Set(
+                dayItems
+                    .filter((item): item is Extract<LearningPathPlanItem, { kind: "adaptive_task" }> => item.kind === "adaptive_task")
+                    .filter((item) => item.task.type === "flashcards")
+                    .map((item) => item.task.documentId),
+            )
+
+            dueFlashcardsByDocument.forEach((count, documentId) => {
+                if (count <= 0) return
+                if (flashcardDocIdsOnDay.has(documentId)) return
+
+                const existingPlanItem = plan.items.find((item) => {
+                    if (item.kind === "adaptive_task") return item.task.documentId === documentId
+                    return item.documentId === documentId
+                })
+                const existingPlanDocumentTitle = existingPlanItem
+                    ? existingPlanItem.kind === "adaptive_task"
+                        ? existingPlanItem.task.documentTitle
+                        : existingPlanItem.documentTitle
+                    : null
+                const documentTitle =
+                    documents.find((doc) => doc.id === documentId)?.title ||
+                    existingPlanDocumentTitle ||
+                    "Untitled document"
+
+                dayItems.push({
+                    kind: "adaptive_task",
+                    id: `synthetic-due-flashcards-${documentId}`,
+                    date: todayLocal,
+                    priorityScore: Number.MAX_SAFE_INTEGER - 1,
+                    scheduledTime: null,
+                    task: {
+                        id: `synthetic-due-flashcards-${documentId}`,
+                        type: "flashcards",
+                        status: "ready",
+                        reason: "due_today",
+                        documentId,
+                        documentTitle,
+                        conceptIds: [],
+                        conceptNames: [],
+                        scheduledDate: todayLocal,
+                        priorityScore: Number.MAX_SAFE_INTEGER - 1,
+                        count,
+                        title: `Flashcard review for ${documentTitle}`,
+                        description: `${count} flashcard${count === 1 ? "" : "s"} due for review.`,
+                        taskKey: `synthetic:due-flashcards:${documentId}`,
+                    },
+                })
+            })
         }
 
         return dayItems
@@ -737,6 +814,26 @@ export function LearningPathCalendar({
                 return
             }
 
+            const targetTaskCount = getTargetDayTaskCount(targetDateStr, {
+                kind: "adaptive_task",
+                taskId: source.task.id,
+            })
+            if (targetTaskCount >= maxTasksPerDay) {
+                setMoveBlockedNotice({
+                    title: "Move Blocked",
+                    description: `The target date already has ${targetTaskCount} scheduled task${targetTaskCount === 1 ? "" : "s"}. Your daily limit is ${maxTasksPerDay}. Choose another date.`,
+                })
+                toast.info(`Move blocked: daily limit (${maxTasksPerDay}) reached for ${targetDateStr}.`)
+                debugLearningPath("drop:adaptive_task_blocked_daily_limit", {
+                    taskId: source.task.id,
+                    sourceDate: source.task.scheduledDate,
+                    targetDate: targetDateStr,
+                    targetTaskCount,
+                    maxTasksPerDay,
+                })
+                return
+            }
+
             if (source.task.type === "flashcards") {
                 const targetCardCount = plan.items
                     .filter((item): item is Extract<LearningPathPlanItem, { kind: "adaptive_task" }> => item.kind === "adaptive_task")
@@ -818,6 +915,26 @@ export function LearningPathCalendar({
             debugLearningPath("drop:planned_review_noop_same_date", {
                 conceptId,
                 date: targetDateStr,
+            })
+            return
+        }
+
+        const targetTaskCount = getTargetDayTaskCount(targetDateStr, {
+            kind: "planned_review",
+            conceptId,
+        })
+        if (targetTaskCount >= maxTasksPerDay) {
+            setMoveBlockedNotice({
+                title: "Move Blocked",
+                description: `The target date already has ${targetTaskCount} scheduled task${targetTaskCount === 1 ? "" : "s"}. Your daily limit is ${maxTasksPerDay}. Choose another date.`,
+            })
+            toast.info(`Move blocked: daily limit (${maxTasksPerDay}) reached for ${targetDateStr}.`)
+            debugLearningPath("drop:planned_review_blocked_daily_limit", {
+                conceptId,
+                sourceDate: currentMastery.due_date,
+                targetDate: targetDateStr,
+                targetTaskCount,
+                maxTasksPerDay,
             })
             return
         }

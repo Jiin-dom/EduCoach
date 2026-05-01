@@ -403,7 +403,7 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
                         <ChevronRight className="w-4 h-4" />
                         Study {dueCount} Due Card{dueCount !== 1 ? 's' : ''}
                     </Button>
-
+{/* 
                     <div className="rounded-xl border border-border/60 bg-card p-3">
                         <div className="mb-2 flex items-center justify-between">
                             <p className="text-sm font-semibold">Due Today Cards</p>
@@ -431,7 +431,7 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
                                 </button>
                             ))}
                         </div>
-                    </div>
+                    </div> */}
                 </div>
             ) : (
                 <div className="text-center py-6 text-muted-foreground">

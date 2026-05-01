@@ -4,7 +4,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -22,8 +21,6 @@ import {
     Brain,
     TrendingUp,
     Shield,
-    Bell,
-    Moon,
     Trash2,
     Target,
     Award,
@@ -70,14 +67,42 @@ function formatTimeRange(start: string | null | undefined, end: string | null | 
     return `${start} - ${end}`
 }
 
+function toMinutes(value: string): number | null {
+    const normalized = value.trim()
+    const twentyFourHour = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(normalized)
+    if (twentyFourHour) {
+        const hours = Number(twentyFourHour[1])
+        const minutes = Number(twentyFourHour[2])
+        if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
+        if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null
+        return (hours * 60) + minutes
+    }
+
+    const twelveHour = /^(\d{1,2}):(\d{2})(?::\d{2})?\s*([AaPp][Mm])$/.exec(normalized)
+    if (twelveHour) {
+        const rawHours = Number(twelveHour[1])
+        const minutes = Number(twelveHour[2])
+        const meridiem = twelveHour[3].toUpperCase()
+        if (!Number.isFinite(rawHours) || !Number.isFinite(minutes)) return null
+        if (rawHours < 1 || rawHours > 12 || minutes < 0 || minutes > 59) return null
+        const baseHours = rawHours % 12
+        const hours = meridiem === "PM" ? baseHours + 12 : baseHours
+        return (hours * 60) + minutes
+    }
+
+    return null
+}
+
+function clampDailyMinutes(value: number, maxDailyStudyMinutes: number): number {
+    const bounded = Math.min(Math.max(value, 30), maxDailyStudyMinutes)
+    return Math.round(bounded / 30) * 30
+}
+
 export function ProfileContent() {
     const { profile, user, signOut, updateProfile } = useAuth()
     const { data: stats, isLoading: statsLoading } = useLearningStats()
     const { data: masteryList } = useConceptMasteryList()
     const { data: documents } = useDocuments()
-
-    const [darkMode, setDarkMode] = useState(false)
-    const [notifications, setNotifications] = useState(true)
 
     // Change Password modal state
     const [changePasswordOpen, setChangePasswordOpen] = useState(false)
@@ -240,6 +265,21 @@ export function ProfileContent() {
         .join('')
         .toUpperCase()
         .slice(0, 2)
+    const studyStartMinutes = toMinutes(studyTimeStartInput)
+    const studyEndMinutes = toMinutes(studyTimeEndInput)
+    const studyWindowMinutes =
+        studyStartMinutes != null && studyEndMinutes != null && studyEndMinutes > studyStartMinutes
+            ? studyEndMinutes - studyStartMinutes
+            : null
+    const maxDailyStudyMinutes = Math.min(480, Math.max(30, studyWindowMinutes ?? 480))
+
+    useEffect(() => {
+        setDailyStudyMinutesInput((prev) => {
+            if (prev > maxDailyStudyMinutes) return maxDailyStudyMinutes
+            if (prev < 30) return 30
+            return prev
+        })
+    }, [maxDailyStudyMinutes])
 
     const joinDate = user?.created_at
         ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
@@ -353,13 +393,19 @@ export function ProfileContent() {
             return
         }
 
-        if (!studyTimeStartInput || !studyTimeEndInput || studyTimeStartInput >= studyTimeEndInput) {
+        if (
+            !studyTimeStartInput ||
+            !studyTimeEndInput ||
+            studyStartMinutes == null ||
+            studyEndMinutes == null ||
+            studyEndMinutes <= studyStartMinutes
+        ) {
             toast.error("Please set a valid study time window.")
             return
         }
 
-        if (dailyStudyMinutesInput < 15 || dailyStudyMinutesInput > 480) {
-            toast.error("Daily study minutes must be between 15 and 480.")
+        if (dailyStudyMinutesInput < 30 || dailyStudyMinutesInput > maxDailyStudyMinutes || dailyStudyMinutesInput % 30 !== 0) {
+            toast.error(`Daily study minutes must be between 30 and ${maxDailyStudyMinutes}, in 30-minute intervals.`)
             return
         }
 
@@ -592,11 +638,18 @@ export function ProfileContent() {
                                     <Input
                                         id="dailyMinutes"
                                         type="number"
-                                        min={15}
-                                        max={480}
-                                        step={15}
+                                        min={30}
+                                        max={maxDailyStudyMinutes}
+                                        step={30}
                                         value={dailyStudyMinutesInput}
-                                        onChange={(e) => setDailyStudyMinutesInput(Number(e.target.value) || 0)}
+                                        onChange={(e) => {
+                                            const nextRaw = Number(e.target.value)
+                                            if (!Number.isFinite(nextRaw)) {
+                                                setDailyStudyMinutesInput(30)
+                                                return
+                                            }
+                                            setDailyStudyMinutesInput(clampDailyMinutes(nextRaw, maxDailyStudyMinutes))
+                                        }}
                                         disabled={isSavingProfile}
                                     />
                                 </div>
@@ -697,28 +750,6 @@ export function ProfileContent() {
                             <CardDescription>Manage your account preferences</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <Moon className="w-5 h-5 text-muted-foreground" />
-                                    <div>
-                                        <p className="font-medium">Dark Mode</p>
-                                        <p className="text-sm text-muted-foreground">Toggle dark theme</p>
-                                    </div>
-                                </div>
-                                <Switch checked={darkMode} onCheckedChange={setDarkMode} />
-                            </div>
-
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <Bell className="w-5 h-5 text-muted-foreground" />
-                                    <div>
-                                        <p className="font-medium">Notifications</p>
-                                        <p className="text-sm text-muted-foreground">Receive study reminders</p>
-                                    </div>
-                                </div>
-                                <Switch checked={notifications} onCheckedChange={setNotifications} />
-                            </div>
-
                             <div className="pt-4 border-t">
                                 <Button
                                     variant="outline"

@@ -173,6 +173,14 @@ function toTimeLabel(totalMinutes: number): string {
     return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`
 }
 
+function normalizeDailyStudyMinutes(input: number | null | undefined): number {
+    const numeric = Number(input)
+    const fallback = 30
+    if (!Number.isFinite(numeric)) return fallback
+    const roundedToInterval = Math.round(numeric / 30) * 30
+    return Math.max(30, Math.min(480, roundedToInterval))
+}
+
 function assignScheduledTimes(params: {
     plannedReviews: PlannedReviewPlanItem[]
     adaptiveTasks: AdaptiveTaskPlanItem[]
@@ -190,7 +198,7 @@ function assignScheduledTimes(params: {
     const startMinutes = parseTimeToMinutes(preferredStudyTimeStart)
     const endMinutes = parseTimeToMinutes(preferredStudyTimeEnd)
     const hasValidWindow = startMinutes != null && endMinutes != null && endMinutes > startMinutes
-    const dailyMinutes = Math.max(15, Number.isFinite(dailyStudyMinutes) ? dailyStudyMinutes : 30)
+    const dailyMinutes = normalizeDailyStudyMinutes(dailyStudyMinutes)
     const anchorStart = hasValidWindow ? startMinutes! : (18 * 60)
     const preferredWindowDuration = hasValidWindow ? (endMinutes! - startMinutes!) : dailyMinutes
     // Prefer fitting inside the selected window, but if it's too tight keep minutes feasibility.
@@ -213,7 +221,7 @@ function assignScheduledTimes(params: {
     for (const dayItems of byDate.values()) {
         const count = dayItems.length
         if (count === 0) continue
-        const stepMinutes = Math.max(15, Math.floor(placementSpanMinutes / count))
+        const stepMinutes = Math.max(30, Math.floor(placementSpanMinutes / count))
         for (let i = 0; i < dayItems.length; i++) {
             dayItems[i].scheduledTime = toTimeLabel(anchorStart + (i * stepMinutes))
         }
@@ -256,7 +264,7 @@ export function buildLearningPathPlan(input: {
         }))
 
     const horizonDays = 14
-    const dailyStudyMinutes = Number(input.dailyStudyMinutes ?? 30)
+    const dailyStudyMinutes = normalizeDailyStudyMinutes(input.dailyStudyMinutes)
     const maxTasksPerDay = Math.max(2, Math.round(dailyStudyMinutes / 30))
     const generatedAdaptiveTasks: AdaptiveTaskPlanItem[] = []
     const reviewedTodayConceptIds = new Set(
