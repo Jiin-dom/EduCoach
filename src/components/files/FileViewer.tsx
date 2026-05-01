@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ArrowLeft, Loader2, AlertCircle, BookOpen, Brain, StickyNote, Layers, FileText, Sparkles } from 'lucide-react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { useDocument, useProcessDocument } from '@/hooks/useDocuments'
+import { useDocument, useProcessDocument, useUpdateDocument } from '@/hooks/useDocuments'
 import { useDocumentConcepts } from '@/hooks/useConcepts'
 import { AiTutorChat } from '@/components/shared/AiTutorChat'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -17,6 +17,17 @@ import { DocumentPane } from './DocumentPane'
 import type { DocumentHighlight } from '@/hooks/useHighlights'
 import { DocumentProcessingOverlay } from './DocumentProcessingOverlay'
 import type { DocumentProcessingOverlayPhase } from '@/lib/documentProcessingOverlay'
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import { useScheduleDocumentGoalWindow } from '@/hooks/useGoalWindowScheduling'
 
 function holdOverlayPhase(ms: number) {
     return new Promise<void>((resolve) => window.setTimeout(resolve, ms))
@@ -39,6 +50,12 @@ export function FileViewer() {
     const { data: document, isLoading: docLoading, error: docError, refetch: refetchDoc } = useDocument(id)
     const { data: concepts, isLoading: conceptsLoading } = useDocumentConcepts(id)
     const processDocument = useProcessDocument()
+    const updateDocument = useUpdateDocument()
+    const scheduleGoalWindow = useScheduleDocumentGoalWindow()
+    const [showManualGoalDialog, setShowManualGoalDialog] = useState(false)
+    const [manualGoalLabel, setManualGoalLabel] = useState("")
+    const [manualGoalDate, setManualGoalDate] = useState("")
+    const [manualGoalError, setManualGoalError] = useState<string | null>(null)
 
     const MIN_SKELETON_MS = 350
     const [showDocSkeleton, setShowDocSkeleton] = useState(false)
@@ -116,8 +133,8 @@ export function FileViewer() {
         }
     }
 
-    const handleProcessDocument = async () => {
-        if (!document) return
+    const startManualProcessing = async () => {
+        if (!document) return false
 
         setManualProcessingPhase("processing")
         setShowManualProcessingOverlay(true)
@@ -127,13 +144,74 @@ export function FileViewer() {
             await refetchDoc()
             setManualProcessingPhase("finalizing")
             await holdOverlayPhase(500)
+            return true
         } catch (processingError) {
             console.warn("[FileViewer] Manual processing did not finish cleanly", {
                 documentId: document.id,
                 error: processingError instanceof Error ? processingError.message : processingError,
             })
+            return false
         } finally {
             setShowManualProcessingOverlay(false)
+        }
+    }
+
+    const handleProcessDocument = () => {
+        if (!document) return
+        setManualGoalLabel(document.goal_label || "")
+        setManualGoalDate(document.exam_date ? document.exam_date.split("T")[0] : "")
+        setManualGoalError(null)
+        setShowManualGoalDialog(true)
+    }
+
+    const closeManualGoalDialog = () => {
+        if (processDocument.isPending || updateDocument.isPending) return
+        setShowManualGoalDialog(false)
+        setManualGoalError(null)
+    }
+
+    const handleManualProcessWithGoal = async () => {
+        if (!document) return
+
+        if (manualGoalDate) {
+            const today = new Date().toISOString().split("T")[0]
+            if (manualGoalDate < today) {
+                setManualGoalError("Target date cannot be in the past.")
+                return
+            }
+        }
+
+        setManualGoalError(null)
+
+        try {
+            const updatedDoc = await updateDocument.mutateAsync({
+                documentId: document.id,
+                updates: {
+                    goal_label: manualGoalLabel.trim() ? manualGoalLabel.trim() : null,
+                    exam_date: manualGoalDate || null,
+                },
+            })
+
+            setShowManualGoalDialog(false)
+            const didProcess = await startManualProcessing()
+            if (didProcess && updatedDoc.exam_date) {
+                try {
+                    await scheduleGoalWindow.mutateAsync({
+                        document: {
+                            id: updatedDoc.id,
+                            exam_date: updatedDoc.exam_date,
+                        },
+                        examDate: updatedDoc.exam_date,
+                    })
+                } catch (scheduleError) {
+                    console.warn("[FileViewer] Goal-window scheduling failed during manual process", {
+                        documentId: updatedDoc.id,
+                        error: scheduleError instanceof Error ? scheduleError.message : scheduleError,
+                    })
+                }
+            }
+        } catch (error) {
+            setManualGoalError(error instanceof Error ? error.message : "Failed to save study goal before processing.")
         }
     }
 
@@ -459,6 +537,68 @@ export function FileViewer() {
                 pendingPrompt={tutorPrompt}
                 onPromptConsumed={() => setTutorPrompt(null)}
             />
+
+            <Dialog open={showManualGoalDialog} onOpenChange={(open) => { if (!open) closeManualGoalDialog() }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Set study goal before processing</DialogTitle>
+                        <DialogDescription>
+                            Add an optional goal name and completion date, then process this document.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="detail-goal-label">Study Goal Name (optional)</Label>
+                            <Input
+                                id="detail-goal-label"
+                                value={manualGoalLabel}
+                                onChange={(event) => setManualGoalLabel(event.target.value)}
+                                placeholder="e.g., Midterm review, Finish Chapter 4"
+                                maxLength={80}
+                                disabled={processDocument.isPending || updateDocument.isPending}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="detail-goal-date">Study Goal (Completion Date)</Label>
+                            <Input
+                                id="detail-goal-date"
+                                type="date"
+                                value={manualGoalDate}
+                                onChange={(event) => setManualGoalDate(event.target.value)}
+                                min={new Date().toISOString().split("T")[0]}
+                                disabled={processDocument.isPending || updateDocument.isPending}
+                            />
+                        </div>
+                        {manualGoalError && (
+                            <p className="text-sm text-destructive">{manualGoalError}</p>
+                        )}
+                    </div>
+
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={closeManualGoalDialog}
+                            disabled={processDocument.isPending || updateDocument.isPending}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={() => handleManualProcessWithGoal()}
+                            disabled={processDocument.isPending || updateDocument.isPending}
+                        >
+                            {(processDocument.isPending || updateDocument.isPending) ? (
+                                <>
+                                    <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+                                    Processing...
+                                </>
+                            ) : (
+                                "Save Goal and Process"
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

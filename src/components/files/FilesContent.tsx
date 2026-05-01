@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/contexts/AuthContext"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDocuments, useDeleteDocument, useProcessDocument, processDocumentRequest, type Document } from "@/hooks/useDocuments"
+import { useUpdateDocument } from "@/hooks/useDocuments"
 import { formatFileSize } from "@/lib/storage"
 import { FREE_DOCUMENT_LIMIT, canUploadMoreDocuments } from "@/lib/subscription"
 import { GenerateQuizDialog } from "@/components/files/GenerateQuizDialog"
@@ -24,6 +25,9 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { useScheduleDocumentGoalWindow } from "@/hooks/useGoalWindowScheduling"
 
 type BatchProcessSummary = {
     mode: "running" | "complete"
@@ -63,10 +67,22 @@ export function FilesContent() {
     const batchActiveIdsRef = useRef<string[]>([])
     const batchRunIdRef = useRef(0)
     const batchSummaryRef = useRef<BatchProcessSummary | null>(null)
+    const batchGoalDateRef = useRef<string | null>(null)
 
     const { data: documents, isLoading, error, refetch } = useDocuments()
     const deleteDocument = useDeleteDocument()
     const processDocument = useProcessDocument()
+    const updateDocument = useUpdateDocument()
+    const scheduleGoalWindow = useScheduleDocumentGoalWindow()
+    const [manualGoalDoc, setManualGoalDoc] = useState<Document | null>(null)
+    const [manualGoalLabel, setManualGoalLabel] = useState("")
+    const [manualGoalDate, setManualGoalDate] = useState("")
+    const [manualGoalError, setManualGoalError] = useState<string | null>(null)
+    const [showBatchGoalDialog, setShowBatchGoalDialog] = useState(false)
+    const [batchGoalLabel, setBatchGoalLabel] = useState("")
+    const [batchGoalDate, setBatchGoalDate] = useState("")
+    const [batchGoalError, setBatchGoalError] = useState<string | null>(null)
+    const [batchGoalTargetIds, setBatchGoalTargetIds] = useState<string[]>([])
 
     const files = documents || []
     const hasPremium = Boolean(profile?.has_premium_entitlement)
@@ -148,6 +164,7 @@ export function FilesContent() {
         batchQueueRef.current = []
         batchActiveIdsRef.current = []
         batchSummaryRef.current = null
+        batchGoalDateRef.current = null
         syncBatchState()
     }
 
@@ -186,9 +203,9 @@ export function FilesContent() {
         })
     }
 
-    const handleProcess = async (doc: Document) => {
+    const startManualProcessing = async (doc: Document) => {
         const clientStatus = getClientDocumentStatus(doc, claimedIds, activeIds)
-        if (clientStatus.key !== "pending") return
+        if (clientStatus.key !== "pending" && clientStatus.key !== "error") return false
 
         console.log("[FilesContent] ▶️ Processing requested", {
             documentId: doc.id,
@@ -202,13 +219,80 @@ export function FilesContent() {
             await processDocument.mutateAsync(doc.id)
             setManualProcessingPhase("finalizing")
             await sleep(500)
+            return true
         } catch (processingError) {
             console.warn("[FilesContent] Manual processing did not finish cleanly", {
                 documentId: doc.id,
                 error: processingError instanceof Error ? processingError.message : processingError,
             })
+            return false
         } finally {
             setManualProcessingTitle(null)
+        }
+    }
+
+    const handleProcess = (doc: Document) => {
+        const clientStatus = getClientDocumentStatus(doc, claimedIds, activeIds)
+        if (clientStatus.key !== "pending" && clientStatus.key !== "error") return
+
+        setManualGoalDoc(doc)
+        setManualGoalLabel(doc.goal_label || "")
+        setManualGoalDate(doc.exam_date ? doc.exam_date.split("T")[0] : "")
+        setManualGoalError(null)
+    }
+
+    const closeManualGoalDialog = () => {
+        if (processDocument.isPending || updateDocument.isPending) return
+        setManualGoalDoc(null)
+        setManualGoalLabel("")
+        setManualGoalDate("")
+        setManualGoalError(null)
+    }
+
+    const handleManualProcessWithGoal = async () => {
+        if (!manualGoalDoc) return
+
+        if (manualGoalDate) {
+            const today = new Date().toISOString().split("T")[0]
+            if (manualGoalDate < today) {
+                setManualGoalError("Target date cannot be in the past.")
+                return
+            }
+        }
+
+        setManualGoalError(null)
+
+        try {
+            const updatedDoc = await updateDocument.mutateAsync({
+                documentId: manualGoalDoc.id,
+                updates: {
+                    goal_label: manualGoalLabel.trim() ? manualGoalLabel.trim() : null,
+                    exam_date: manualGoalDate || null,
+                },
+            })
+
+            const docToProcess = manualGoalDoc
+            closeManualGoalDialog()
+            const didProcess = await startManualProcessing(docToProcess)
+
+            if (didProcess && updatedDoc.exam_date) {
+                try {
+                    await scheduleGoalWindow.mutateAsync({
+                        document: {
+                            id: updatedDoc.id,
+                            exam_date: updatedDoc.exam_date,
+                        },
+                        examDate: updatedDoc.exam_date,
+                    })
+                } catch (scheduleError) {
+                    console.warn("[FilesContent] Goal-window scheduling failed during manual process", {
+                        documentId: updatedDoc.id,
+                        error: scheduleError instanceof Error ? scheduleError.message : scheduleError,
+                    })
+                }
+            }
+        } catch (error) {
+            setManualGoalError(error instanceof Error ? error.message : "Failed to save study goal before processing.")
         }
     }
 
@@ -249,6 +333,22 @@ export function FilesContent() {
                 if (batchSummaryRef.current) {
                     batchSummaryRef.current.succeeded += 1
                 }
+                if (batchGoalDateRef.current) {
+                    try {
+                        await scheduleGoalWindow.mutateAsync({
+                            document: {
+                                id: nextId,
+                                exam_date: batchGoalDateRef.current,
+                            },
+                            examDate: batchGoalDateRef.current,
+                        })
+                    } catch (scheduleError) {
+                        console.warn("[FilesContent] Goal-window scheduling failed during batch process", {
+                            documentId: nextId,
+                            error: scheduleError instanceof Error ? scheduleError.message : scheduleError,
+                        })
+                    }
+                }
             } catch (workerError) {
                 console.error("[FilesContent] Batch processing failed", {
                     documentId: nextId,
@@ -269,12 +369,15 @@ export function FilesContent() {
         }
     }
 
-    const handleProcessAllPending = async () => {
+    const startBatchProcessRun = async (targetIds?: string[]) => {
         if (isBatchRunning) return
 
         const latest = await refetch()
         const latestDocs = latest.data || []
-        const pendingDocs = selectNextPendingDocuments(latestDocs, [], latestDocs.length)
+        const selectedPendingDocs = targetIds?.length
+            ? latestDocs.filter((doc) => targetIds.includes(doc.id) && doc.status === "pending")
+            : latestDocs
+        const pendingDocs = selectNextPendingDocuments(selectedPendingDocs, [], selectedPendingDocs.length)
 
         if (pendingDocs.length === 0) {
             batchSummaryRef.current = {
@@ -317,6 +420,71 @@ export function FilesContent() {
         }
         syncBatchState()
         await refetch()
+    }
+
+    const handleProcessAllPending = async () => {
+        if (isBatchRunning) return
+
+        const latest = await refetch()
+        const latestDocs = latest.data || []
+        const pendingDocs = selectNextPendingDocuments(latestDocs, [], latestDocs.length)
+
+        if (pendingDocs.length === 0) {
+            batchSummaryRef.current = {
+                mode: "complete",
+                total: 0,
+                started: 0,
+                succeeded: 0,
+                failed: 0,
+                skipped: 0,
+            }
+            syncBatchState()
+            return
+        }
+
+        setBatchGoalLabel("")
+        setBatchGoalDate("")
+        setBatchGoalError(null)
+        setBatchGoalTargetIds(pendingDocs.map((doc) => doc.id))
+        setShowBatchGoalDialog(true)
+    }
+
+    const closeBatchGoalDialog = () => {
+        if (isBatchRunning) return
+        setShowBatchGoalDialog(false)
+        setBatchGoalError(null)
+        setBatchGoalTargetIds([])
+    }
+
+    const handleBatchGoalAndProcess = async () => {
+        if (batchGoalTargetIds.length === 0) return
+
+        if (batchGoalDate) {
+            const today = new Date().toISOString().split("T")[0]
+            if (batchGoalDate < today) {
+                setBatchGoalError("Target date cannot be in the past.")
+                return
+            }
+        }
+
+        const updates = {
+            goal_label: batchGoalLabel.trim() ? batchGoalLabel.trim() : null,
+            exam_date: batchGoalDate || null,
+        }
+        const { error: updateError } = await supabase
+            .from("documents")
+            .update(updates)
+            .in("id", batchGoalTargetIds)
+
+        if (updateError) {
+            setBatchGoalError(updateError.message)
+            return
+        }
+
+        batchGoalDateRef.current = batchGoalDate || null
+        setShowBatchGoalDialog(false)
+        setBatchGoalError(null)
+        await startBatchProcessRun(batchGoalTargetIds)
     }
 
     const getFileIcon = (type: string) => {
@@ -772,6 +940,112 @@ export function FilesContent() {
                             ) : (
                                 "Delete File and Related Data"
                             )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={!!manualGoalDoc} onOpenChange={(open) => { if (!open) closeManualGoalDialog() }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Set study goal before processing</DialogTitle>
+                        <DialogDescription>
+                            Add an optional goal name and completion date for this bulk-uploaded file, then start manual processing.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="manual-goal-label">Study Goal Name (optional)</Label>
+                            <Input
+                                id="manual-goal-label"
+                                value={manualGoalLabel}
+                                onChange={(event) => setManualGoalLabel(event.target.value)}
+                                placeholder="e.g., Midterm review, Finish Chapter 4"
+                                maxLength={80}
+                                disabled={processDocument.isPending || updateDocument.isPending}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="manual-goal-date">Study Goal (Completion Date)</Label>
+                            <Input
+                                id="manual-goal-date"
+                                type="date"
+                                value={manualGoalDate}
+                                onChange={(event) => setManualGoalDate(event.target.value)}
+                                min={new Date().toISOString().split("T")[0]}
+                                disabled={processDocument.isPending || updateDocument.isPending}
+                            />
+                        </div>
+                        {manualGoalError && (
+                            <p className="text-sm text-destructive">{manualGoalError}</p>
+                        )}
+                    </div>
+
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={closeManualGoalDialog}
+                            disabled={processDocument.isPending || updateDocument.isPending}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={() => handleManualProcessWithGoal()}
+                            disabled={processDocument.isPending || updateDocument.isPending}
+                        >
+                            {(processDocument.isPending || updateDocument.isPending) ? (
+                                <>
+                                    <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+                                    Processing...
+                                </>
+                            ) : (
+                                "Save Goal and Process"
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={showBatchGoalDialog} onOpenChange={(open) => { if (!open) closeBatchGoalDialog() }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Set shared goal for pending files</DialogTitle>
+                        <DialogDescription>
+                            This goal will be applied to all pending files in this batch before processing.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="batch-goal-label">Study Goal Name (optional)</Label>
+                            <Input
+                                id="batch-goal-label"
+                                value={batchGoalLabel}
+                                onChange={(event) => setBatchGoalLabel(event.target.value)}
+                                placeholder="e.g., Midterm review"
+                                maxLength={80}
+                                disabled={isBatchRunning}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="batch-goal-date">Study Goal (Completion Date)</Label>
+                            <Input
+                                id="batch-goal-date"
+                                type="date"
+                                value={batchGoalDate}
+                                onChange={(event) => setBatchGoalDate(event.target.value)}
+                                min={new Date().toISOString().split("T")[0]}
+                                disabled={isBatchRunning}
+                            />
+                        </div>
+                        {batchGoalError && <p className="text-sm text-destructive">{batchGoalError}</p>}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={closeBatchGoalDialog} disabled={isBatchRunning}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleBatchGoalAndProcess} disabled={isBatchRunning}>
+                            Save Goal and Process
                         </Button>
                     </DialogFooter>
                 </DialogContent>
