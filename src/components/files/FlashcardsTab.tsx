@@ -3,7 +3,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Layers, ChevronRight, RotateCcw, CheckCircle2, Loader2, Maximize2, Minimize2, X, Sparkles } from 'lucide-react'
-import { Link } from 'react-router-dom'
 import { useDocumentFlashcards, useReviewFlashcard, useGenerateFlashcards, type Flashcard } from '@/hooks/useFlashcards'
 import { cn } from '@/lib/utils'
 
@@ -241,7 +240,7 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
                             type="button"
                             className={cn(
                                 "relative z-10 mx-auto block w-full [perspective:1200px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 transition-all duration-500 ease-in-out",
-                                isFullscreen ? "max-w-2xl aspect-[16/10] h-auto" : "max-w-xl h-72"
+                                isFullscreen ? "max-w-2xl aspect-[16/10] h-auto" : "max-w-xl h-[24rem]"
                             )}
                             onClick={() => setFlipped(!flipped)}
                         >
@@ -252,28 +251,30 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
                                     isFullscreen ? "border-primary/20" : ""
                                 )}
                             >
-                                <div className="absolute inset-0 flex flex-col items-center justify-center p-8 md:p-12 [backface-visibility:hidden]">
+                                <div className="absolute inset-0 flex min-h-0 flex-col items-center justify-center p-8 md:p-12 [backface-visibility:hidden]">
                                     <div className="mb-6 flex flex-col items-center gap-1">
                                         <Badge variant="outline" className="rounded-full px-3 py-0.5 text-[10px] font-bold uppercase tracking-[0.2em] text-primary bg-primary/5 border-primary/20">Question</Badge>
                                     </div>
-                                    <p className={cn(
-                                        "text-center font-semibold leading-relaxed break-words transition-all duration-500",
-                                        isFullscreen ? "text-3xl md:text-4xl" : "text-xl"
-                                    )}>{card.front}</p>
+                                    <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center">
+                                        <p className={cn(
+                                            "w-full text-center font-semibold leading-relaxed break-words whitespace-pre-wrap transition-all duration-500",
+                                            isFullscreen ? "text-3xl md:text-4xl" : "text-xl"
+                                        )}>{card.front}</p>
+                                    </div>
                                     <div className="mt-auto pt-8 flex items-center gap-2 text-muted-foreground/60 group">
                                         <Sparkles className="w-3.5 h-3.5 animate-pulse" />
                                         <p className="text-[11px] font-medium uppercase tracking-widest">Tap or Press Space to reveal</p>
                                     </div>
                                 </div>
 
-                                <div className="absolute inset-0 flex flex-col items-center justify-center p-8 md:p-12 [transform:rotateY(180deg)] [backface-visibility:hidden]">
+                                <div className="absolute inset-0 flex min-h-0 flex-col items-center justify-center p-8 md:p-12 [transform:rotateY(180deg)] [backface-visibility:hidden]">
                                     <div className="mb-6 flex flex-col items-center gap-1">
                                         <Badge variant="outline" className="rounded-full px-3 py-0.5 text-[10px] font-bold uppercase tracking-[0.2em] text-green-600 bg-green-50 border-green-200">Answer</Badge>
                                     </div>
-                                    <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto w-full custom-scrollbar">
+                                    <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center overflow-y-auto custom-scrollbar">
                                         <p className={cn(
-                                            "text-center leading-relaxed break-words font-medium transition-all duration-500",
-                                            isFullscreen ? "text-2xl md:text-3xl" : "text-base"
+                                            "w-full text-center leading-relaxed break-words whitespace-pre-wrap font-medium transition-all duration-500",
+                                            isFullscreen ? "text-xl md:text-2xl" : "text-sm"
                                         )}>{card.back}</p>
                                     </div>
                                     <div className="mt-auto pt-8 flex items-center gap-2 text-muted-foreground/60">
@@ -409,11 +410,6 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
                 </div>
             )}
 
-            <div className="text-center">
-                <Link to="/quizzes" className="text-xs text-muted-foreground hover:text-primary transition-colors">
-                    View all flashcards across documents
-                </Link>
-            </div>
         </div>
     )
 }

@@ -325,6 +325,195 @@ If May 4 is already full (capacity reached), that item shifts to next valid stud
 
 ---
 
+## 6) Realistic EduCoach scenario with full calculations
+
+This scenario mirrors how EduCoach actually behaves across:
+- quiz attempts,
+- mastery update (WMS + confidence),
+- SM-2 due date,
+- priority score,
+- final learning-path plotting.
+
+### Scenario setup
+
+Student: **Ana**  
+Today: **2026-05-01 (Fri)**  
+Document: **"Intro to Statistics"**  
+Document exam date: **2026-05-12**  
+Profile:
+- `dailyStudyMinutes = 60`
+- `availableStudyDays = [mon, wed, fri]`
+- preferred study window `19:00` to `21:00`
+
+From profile, planner capacity is:
+
+`maxTasksPerDay = max(2, round(60/30)) = 2`
+
+We track two concepts:
+- Concept A: **Mean vs Median** (weaker)
+- Concept B: **Standard Deviation** (stronger)
+
+---
+
+### Concept A (Mean vs Median) — calculation
+
+#### A1) Attempt history used by WMS (newest first)
+
+1. Incorrect, intermediate, 50s  
+2. Correct, beginner, 18s  
+3. Incorrect, intermediate, 130s
+
+#### A2) Attempt scores
+
+- Attempt 1: incorrect -> `0`
+- Attempt 2: correct -> `1.0 * 1.05 = 1.05`, capped -> `1.0`
+- Attempt 3: incorrect -> `0`
+
+#### A3) Raw mastery
+
+Recency weights: `[1.0, 0.85, 0.70]`
+
+- weighted sum = `0*1.0 + 1.0*0.85 + 0*0.70 = 0.85`
+- weight sum = `2.55`
+- raw mastery = `100 * 0.85 / 2.55 = 33.33`
+
+#### A4) Confidence and final mastery
+
+- attempts = 3 -> confidence = `min(1, 3/3) = 1.0`
+- final mastery = `1.0*33.33 + 0*50 = 33.33`
+- level = **needs_review** (below 60)
+
+#### A5) SM-2 update for this concept
+
+Assume latest concept-level accuracy maps to quality `q=2` (50-64 band).
+
+Previous SM-2 state:
+- repetition = 1
+- interval = 6
+- easeFactor = 2.5
+
+Since `q < 3`:
+- repetition -> `0`
+- interval -> `1`
+
+Ease factor:
+- `EF' = 2.5 + (0.1 - (5-2)*(0.08 + (5-2)*0.02))`
+- `EF' = 2.5 + (0.1 - 3*(0.08+0.06))`
+- `EF' = 2.5 + (0.1 - 0.42) = 2.18`
+
+Due date:
+- `today + 1 day = 2026-05-02`
+
+#### A6) Priority score
+
+Use defaults:
+- weakness weight 0.65
+- deadline weight 0.25
+- practice weight 0.10
+
+Inputs:
+- finalMastery = 33.33 -> weakness = `1 - 0.3333 = 0.6667`
+- due in 1 day -> deadlinePressure = `1 - 1/14 = 0.9286`
+- confidence = 1.0 -> lowPracticePenalty = `0`
+
+Priority:
+- `0.65*0.6667 + 0.25*0.9286 + 0.10*0`
+- `= 0.4334 + 0.2322 + 0`
+- `= 0.6656`
+
+High urgency.
+
+---
+
+### Concept B (Standard Deviation) — calculation
+
+#### B1) Attempt history (newest first)
+
+1. Correct, advanced, 22s  
+2. Correct, intermediate, 40s  
+3. Correct, intermediate, 55s
+
+#### B2) Attempt scores
+
+- Attempt 1: `1.2 * 1.05 = 1.26` -> capped to `1.0`
+- Attempt 2: `1.1 * 1.0 = 1.1` -> capped to `1.0`
+- Attempt 3: `1.1 * 1.0 = 1.1` -> capped to `1.0`
+
+#### B3) Raw + final mastery
+
+- weighted sum = `1.0*1.0 + 1.0*0.85 + 1.0*0.70 = 2.55`
+- raw mastery = `100`
+- confidence = `1.0`
+- final mastery = `100`
+- level = **mastered**
+
+#### B4) SM-2 update
+
+Assume quality `q=5` (>=90 band).
+
+Previous state:
+- repetition = 2
+- interval = 10
+- EF = 2.5
+
+Since `q >= 3` and rep >=2:
+- interval -> `round(10 * 2.5) = 25`
+- repetition -> `3`
+
+EF:
+- `EF' = 2.5 + (0.1 - (5-5)*(...)) = 2.6`
+
+Due date:
+- `today + 25 days = 2026-05-26`
+
+#### B5) Priority
+
+Inputs:
+- weakness = `1 - 100/100 = 0`
+- daysUntilDue = 25 -> deadlinePressure = `max(0, 1 - 25/14) = 0`
+- lowPracticePenalty = `1 - 1.0 = 0`
+
+Priority = `0`
+
+Very low urgency.
+
+---
+
+### How planner plots these on specific days
+
+Now combine both concepts with planning rules:
+
+1. **Planned review dates come from due_date**
+   - Concept A planned review date starts at `2026-05-02`
+   - Concept B planned review date starts at `2026-05-26` (beyond exam date)
+
+2. **Exam-date cutoff applied**
+   - Document exam date is `2026-05-12`
+   - B due date `2026-05-26` is after exam -> this planned review can be excluded for this document horizon
+
+3. **Needs-review adaptive sequence generated for Concept A**
+   - Start day = max(due_date, today) = `2026-05-02`
+   - But available study days are Mon/Wed/Fri
+   - So next valid study days:
+     - review -> `2026-05-04` (Mon)
+     - flashcards -> `2026-05-06` (Wed)
+     - quiz -> `2026-05-08` (Fri)
+
+4. **Capacity check**
+   - Max 2 tasks/day. If May 6 already has 2 tasks, flashcards move to next valid day.
+
+5. **Time assignment**
+   - Preferred window 19:00-21:00 (120 mins)
+   - If one task that day -> around `19:00`
+   - If two tasks same day -> likely `19:00` and `20:00` (step-based spacing)
+
+### Final learner-facing outcome in this scenario
+
+- The weak concept (A) appears quickly and repeatedly in the coming study days.
+- The strong concept (B) does not compete for near-term slots.
+- This is why Ana sees A-focused activities in early May and not B-focused ones.
+
+---
 ## How these calculations drive the Learning Path UI
 
 1. `useProcessQuizResults` computes/updates mastery + SM-2 state.

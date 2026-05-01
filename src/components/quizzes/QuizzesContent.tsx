@@ -6,12 +6,14 @@ import { Brain, Loader2, AlertCircle, RefreshCw, FileText } from "lucide-react"
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom"
 import { QuizCard } from "@/components/dashboard/QuizCard"
 import { useQuizzes, useUserAttempts } from "@/hooks/useQuizzes"
+import { useDocuments } from "@/hooks/useDocuments"
 import { SelectDocumentDialog } from "./SelectDocumentDialog"
 import { GenerateQuizDialog } from "@/components/files/GenerateQuizDialog"
 
 export function QuizzesContent() {
     const { data: quizzes, isLoading, error, refetch } = useQuizzes()
     const { data: attempts } = useUserAttempts()
+    const { data: documents } = useDocuments()
     const location = useLocation()
     const navigate = useNavigate()
     const [searchParams, setSearchParams] = useSearchParams()
@@ -33,6 +35,8 @@ export function QuizzesContent() {
     const [isSelectDocOpen, setIsSelectDocOpen] = useState(false)
     const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
     const [isGenerateQuizOpen, setIsGenerateQuizOpen] = useState(false)
+    const [collapsedFileIds, setCollapsedFileIds] = useState<Set<string>>(new Set())
+    const [collapsedCompletedFileIds, setCollapsedCompletedFileIds] = useState<Set<string>>(new Set())
 
     useEffect(() => {
         if (routeHighlightQuizId) {
@@ -105,6 +109,78 @@ export function QuizzesContent() {
             (q) => q.status === 'ready' && completedQuizIds.has(q.id)
         )
     }, [quizzes, completedQuizIds])
+
+    const availableQuizzesByFile = useMemo(() => {
+        const docTitleById = new Map((documents || []).map((doc) => [doc.id, doc.title]))
+        const grouped = new Map<string, { documentTitle: string; quizzes: typeof availableQuizzes }>()
+
+        for (const quiz of availableQuizzes) {
+            const documentTitle = docTitleById.get(quiz.document_id) || "Unknown file"
+            if (!grouped.has(quiz.document_id)) {
+                grouped.set(quiz.document_id, {
+                    documentTitle,
+                    quizzes: [],
+                })
+            }
+            grouped.get(quiz.document_id)?.quizzes.push(quiz)
+        }
+
+        return Array.from(grouped.entries())
+            .map(([documentId, value]) => ({
+                documentId,
+                documentTitle: value.documentTitle,
+                quizzes: value.quizzes,
+            }))
+            .sort((a, b) => a.documentTitle.localeCompare(b.documentTitle))
+    }, [availableQuizzes, documents])
+
+    const completedQuizzesByFile = useMemo(() => {
+        const docTitleById = new Map((documents || []).map((doc) => [doc.id, doc.title]))
+        const grouped = new Map<string, { documentTitle: string; quizzes: typeof completedQuizzes }>()
+
+        for (const quiz of completedQuizzes) {
+            const documentTitle = docTitleById.get(quiz.document_id) || "Unknown file"
+            if (!grouped.has(quiz.document_id)) {
+                grouped.set(quiz.document_id, {
+                    documentTitle,
+                    quizzes: [],
+                })
+            }
+            grouped.get(quiz.document_id)?.quizzes.push(quiz)
+        }
+
+        return Array.from(grouped.entries())
+            .map(([documentId, value]) => ({
+                documentId,
+                documentTitle: value.documentTitle,
+                quizzes: value.quizzes,
+            }))
+            .sort((a, b) => a.documentTitle.localeCompare(b.documentTitle))
+    }, [completedQuizzes, documents])
+
+    const toggleFileCollapse = (documentId: string) => {
+        setCollapsedFileIds((prev) => {
+            const next = new Set(prev)
+            if (next.has(documentId)) {
+                next.delete(documentId)
+            } else {
+                next.add(documentId)
+            }
+            return next
+        })
+    }
+
+    const toggleCompletedFileCollapse = (documentId: string) => {
+        setCollapsedCompletedFileIds((prev) => {
+            const next = new Set(prev)
+            if (next.has(documentId)) {
+                next.delete(documentId)
+            } else {
+                next.add(documentId)
+            }
+            return next
+        })
+    }
 
     if (isLoading) {
         return (
@@ -228,19 +304,39 @@ export function QuizzesContent() {
                                     </Button>
                                 </div>
                             ) : (
-                                <div className="space-y-3">
-                                    {availableQuizzes.map((quiz) => (
-                                        <div
-                                            key={quiz.id}
-                                            className={quiz.id === activeHighlightQuizId
-                                                ? "ring-2 ring-primary rounded-lg bg-primary/5 animate-pulse transition-all duration-700"
-                                                : ""}
-                                        >
-                                            <QuizCard
-                                                quiz={quiz}
-                                                lastScore={lastScoreByQuiz.get(quiz.id) ?? null}
-                                            />
-                                        </div>
+                                <div className="space-y-6">
+                                    {availableQuizzesByFile.map((group) => (
+                                        <section key={group.documentId} className="space-y-3">
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleFileCollapse(group.documentId)}
+                                                className="w-full flex items-center justify-between gap-3 pb-2 text-left hover:text-primary transition-colors"
+                                            >
+                                                <h4 className="text-sm font-semibold text-foreground truncate">
+                                                    {group.documentTitle}
+                                                </h4>
+                                                <span className="text-xs text-muted-foreground shrink-0">
+                                                    {group.quizzes.length} {group.quizzes.length === 1 ? "quiz" : "quizzes"} · {collapsedFileIds.has(group.documentId) ? "Show" : "Hide"}
+                                                </span>
+                                            </button>
+                                            {!collapsedFileIds.has(group.documentId) && (
+                                                <div className="space-y-3">
+                                                    {group.quizzes.map((quiz) => (
+                                                        <div
+                                                            key={quiz.id}
+                                                            className={quiz.id === activeHighlightQuizId
+                                                                ? "ring-2 ring-primary rounded-lg bg-primary/5 animate-pulse transition-all duration-700"
+                                                                : ""}
+                                                        >
+                                                            <QuizCard
+                                                                quiz={quiz}
+                                                                lastScore={lastScoreByQuiz.get(quiz.id) ?? null}
+                                                            />
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </section>
                                     ))}
                                 </div>
                             )}
@@ -264,13 +360,33 @@ export function QuizzesContent() {
                                     </p>
                                 </div>
                             ) : (
-                                <div className="space-y-3">
-                                    {completedQuizzes.map((quiz) => (
-                                        <QuizCard
-                                            key={quiz.id}
-                                            quiz={quiz}
-                                            lastScore={lastScoreByQuiz.get(quiz.id) ?? null}
-                                        />
+                                <div className="space-y-6">
+                                    {completedQuizzesByFile.map((group) => (
+                                        <section key={group.documentId} className="space-y-3">
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleCompletedFileCollapse(group.documentId)}
+                                                className="w-full flex items-center justify-between gap-3 pb-2 text-left hover:text-primary transition-colors"
+                                            >
+                                                <h4 className="text-sm font-semibold text-foreground truncate">
+                                                    {group.documentTitle}
+                                                </h4>
+                                                <span className="text-xs text-muted-foreground shrink-0">
+                                                    {group.quizzes.length} {group.quizzes.length === 1 ? "quiz" : "quizzes"} · {collapsedCompletedFileIds.has(group.documentId) ? "Show" : "Hide"}
+                                                </span>
+                                            </button>
+                                            {!collapsedCompletedFileIds.has(group.documentId) && (
+                                                <div className="space-y-3">
+                                                    {group.quizzes.map((quiz) => (
+                                                        <QuizCard
+                                                            key={quiz.id}
+                                                            quiz={quiz}
+                                                            lastScore={lastScoreByQuiz.get(quiz.id) ?? null}
+                                                        />
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </section>
                                     ))}
                                 </div>
                             )}
