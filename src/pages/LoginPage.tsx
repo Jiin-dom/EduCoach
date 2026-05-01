@@ -1,7 +1,21 @@
 import { LoginForm } from "@/components/forms/LoginForm"
+import { useEffect } from "react"
+import { useLocation, useNavigate } from "react-router-dom"
 import { CheckCircle2 } from "lucide-react"
+import { toast } from "sonner"
 
 export default function LoginPage() {
+    const location = useLocation()
+    const navigate = useNavigate()
+
+    useEffect(() => {
+        const state = location.state as { passwordResetSuccess?: boolean } | null
+        if (!state?.passwordResetSuccess) return
+
+        toast.success("Password updated successfully. Please log in.")
+        navigate(location.pathname, { replace: true, state: null })
+    }, [location.pathname, location.state, navigate])
+
     return (
         <div className="min-h-[100dvh] w-full flex bg-background">
             {/* Left Side - Hidden on mobile, visible on lg */}
