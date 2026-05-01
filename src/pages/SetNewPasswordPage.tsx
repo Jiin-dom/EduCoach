@@ -20,7 +20,6 @@ export default function SetNewPasswordPage() {
     const [confirmPassword, setConfirmPassword] = useState("")
     const [error, setError] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
-    const [success, setSuccess] = useState(false)
     const passwordRequirements = getPasswordRequirementChecks(newPassword)
     const showPasswordChecklistFeedback = newPassword.length > 0
 
@@ -56,9 +55,10 @@ export default function SetNewPasswordPage() {
                 setError(resetError.message)
                 return
             }
-            setSuccess(true)
-            setNewPassword("")
-            setConfirmPassword("")
+            navigate("/login", {
+                replace: true,
+                state: { passwordResetSuccess: true },
+            })
         } catch {
             setError("An unexpected error occurred. Please try again.")
         } finally {
@@ -87,12 +87,6 @@ export default function SetNewPasswordPage() {
                                 {error}
                             </div>
                         )}
-                        {success && (
-                            <div className="p-3 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md">
-                                Password updated successfully.
-                            </div>
-                        )}
-
                         <div className="space-y-2">
                             <Label htmlFor="newPassword" className="font-bold text-sm">New Password</Label>
                             <div className="relative">
@@ -169,17 +163,6 @@ export default function SetNewPasswordPage() {
                                 "Set new password"
                             )}
                         </Button>
-
-                        {success && (
-                            <Button
-                                type="button"
-                                variant="outline"
-                                className="w-full h-11 rounded-full text-[15px] font-bold"
-                                onClick={() => navigate("/login")}
-                            >
-                                Go to login
-                            </Button>
-                        )}
                     </form>
                 </CardContent>
             </Card>
