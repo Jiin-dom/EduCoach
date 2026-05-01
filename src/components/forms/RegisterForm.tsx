@@ -89,22 +89,6 @@ export function RegisterForm() {
                                 {error}
                             </div>
                         )}
-
-                        <div className="space-y-2">
-                            <Label htmlFor="email" className="font-bold text-sm">Email</Label>
-                            <Input
-                                id="email"
-                                type="email"
-                                placeholder="Enter email address"
-                                value={formData.email}
-                                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                                disabled={loading}
-                                required
-                                className="h-11 rounded-full px-4 border-muted-foreground/30 focus-visible:ring-primary/50"
-                            />
-                            {fieldErrors.email && <p className="text-xs text-destructive">{fieldErrors.email}</p>}
-                        </div>
-
                         <div className="grid grid-cols-2 gap-3">
                             <div className="space-y-2">
                                 <Label htmlFor="firstName" className="font-bold text-sm">First Name</Label>
@@ -134,6 +118,21 @@ export function RegisterForm() {
                                 />
                                 {fieldErrors.lastName && <p className="text-xs text-destructive">{fieldErrors.lastName}</p>}
                             </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="email" className="font-bold text-sm">Email</Label>
+                            <Input
+                                id="email"
+                                type="email"
+                                placeholder="Enter email address"
+                                value={formData.email}
+                                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                disabled={loading}
+                                required
+                                className="h-11 rounded-full px-4 border-muted-foreground/30 focus-visible:ring-primary/50"
+                            />
+                            {fieldErrors.email && <p className="text-xs text-destructive">{fieldErrors.email}</p>}
                         </div>
 
                         <div className="space-y-2">
