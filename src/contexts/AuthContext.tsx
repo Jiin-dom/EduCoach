@@ -50,6 +50,8 @@ interface AuthContextType {
     loading: boolean
     signIn: (email: string, password: string) => Promise<{ error: Error | null; profile: UserProfile | null }>
     signUp: (email: string, password: string, firstName: string, lastName: string) => Promise<{ error: Error | null }>
+    checkEmailExists: (email: string) => Promise<{ error: Error | null; exists: boolean }>
+    resetPasswordByEmail: (email: string, newPassword: string) => Promise<{ error: Error | null }>
     signInWithOAuth: (provider: OAuthProvider, returnTo?: string) => Promise<{ error: Error | null }>
     signOut: () => Promise<void>
     updateProfile: (updates: Partial<UserProfile>) => Promise<{ error: Error | null }>
@@ -285,6 +287,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: error as Error | null }
     }
 
+    const checkEmailExists = async (email: string) => {
+        const normalizedEmail = email.trim().toLowerCase()
+        const { data, error } = await supabase.rpc('check_email_exists', {
+            p_email: normalizedEmail,
+        })
+        return {
+            error: error as Error | null,
+            exists: Boolean(data),
+        }
+    }
+
+    const resetPasswordByEmail = async (email: string, newPassword: string) => {
+        const normalizedEmail = email.trim().toLowerCase()
+        const { data, error } = await supabase.functions.invoke('public-password-reset', {
+            body: {
+                email: normalizedEmail,
+                newPassword,
+            },
+        })
+
+        if (error) {
+            return { error: error as Error }
+        }
+
+        const payload = data as { success?: boolean; error?: string } | null
+        if (!payload?.success) {
+            return { error: new Error(payload?.error || 'Failed to reset password') }
+        }
+
+        return { error: null }
+    }
+
     const signInWithOAuth = async (provider: OAuthProvider, returnTo?: string) => {
         if (returnTo) {
             saveOAuthReturnPath(returnTo)
@@ -350,6 +384,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         signIn,
         signUp,
+        checkEmailExists,
+        resetPasswordByEmail,
         signInWithOAuth,
         signOut,
         updateProfile,

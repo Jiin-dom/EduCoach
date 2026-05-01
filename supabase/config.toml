@@ -367,6 +367,10 @@ inspector_port = 8083
 # The Deno major version to use.
 deno_version = 2
 
+# Public password reset helper used by the unauthenticated forgot-password flow.
+[functions.public-password-reset]
+verify_jwt = false
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
