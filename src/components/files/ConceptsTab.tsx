@@ -4,12 +4,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Search, Brain, ArrowUpDown, X, Sparkles, MessageCircle, FileText, Loader2, CheckCircle2, ChevronRight } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { Search, Brain, ArrowUpDown, X, MessageCircle, FileText, Loader2, CheckCircle2, ChevronRight } from 'lucide-react'
 import type { Concept } from '@/hooks/useConcepts'
 import { getDifficultyColor, getImportanceColor } from '@/hooks/useConcepts'
 import { useConceptMasteryByDocument, useMarkConceptReviewed } from '@/hooks/useLearning'
-import { useGenerateQuiz } from '@/hooks/useQuizzes'
 import { cleanDisplayText } from '@/lib/studyUtils'
 import { isReviewedOnDate } from '@/lib/conceptReviewState'
 import { cn } from '@/lib/utils'
@@ -30,8 +28,6 @@ type SortField = 'importance' | 'difficulty' | 'name'
 const DIFFICULTY_ORDER: Record<string, number> = { beginner: 0, intermediate: 1, advanced: 2 }
 
 export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, onAskTutor, documentId, focusedConceptId }: ConceptsTabProps) {
-    const navigate = useNavigate()
-    const generateQuiz = useGenerateQuiz()
     const markConceptReviewed = useMarkConceptReviewed()
     const { data: conceptMastery = [] } = useConceptMasteryByDocument(documentId)
     const [search, setSearch] = useState('')
@@ -418,25 +414,6 @@ export function ConceptsTab({ concepts, isLoading, documentStatus, onPageJump, o
                                 >
                                     <MessageCircle className="w-3.5 h-3.5" />
                                     Explain like I&apos;m new
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="gap-1.5 text-sm flex-1 h-10 rounded-xl"
-                                    disabled={!documentId || generateQuiz.isPending}
-                                    onClick={() => {
-                                        if (!documentId) return
-                                        generateQuiz.mutate(
-                                            { documentId, questionCount: 5, enhanceWithLlm: true },
-                                            { onSuccess: (data) => navigate(data?.quizId ? `/quizzes/${data.quizId}` : '/quizzes') }
-                                        )
-                                    }}
-                                >
-                                    {generateQuiz.isPending
-                                        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                        : <Sparkles className="w-3.5 h-3.5" />
-                                    }
-                                    Quiz me on this
                                 </Button>
                             </div>
                         </div>
