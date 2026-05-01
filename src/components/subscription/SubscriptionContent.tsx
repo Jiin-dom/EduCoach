@@ -41,7 +41,6 @@ const PREMIUM_FEATURES: string[] = [
   "Unlimited EduBuddy messages",
   "Full analytics and trends dashboard",
   "Priority quiz generation queue",
-  "Customizable study path recommendations",
 ]
 
 function getStatusBadgeClass(status: "active" | "cancelled" | "suspended") {
@@ -188,21 +187,25 @@ export function SubscriptionContent() {
                 <span className="text-muted-foreground"> / month</span>
               </div>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {FREE_FEATURES.map((feature) => (
-                <div key={feature.label} className="flex items-start gap-2 text-sm">
-                  {feature.included ? (
-                    <CheckCircle2 className="w-4 h-4 mt-0.5 text-primary" />
-                  ) : (
-                    <XCircle className="w-4 h-4 mt-0.5 text-muted-foreground" />
-                  )}
-                  <span className={feature.included ? "" : "line-through text-muted-foreground"}>{feature.label}</span>
-                </div>
-              ))}
+            <CardContent className="flex h-full flex-col">
+              <div className="space-y-3">
+                {FREE_FEATURES.map((feature) => (
+                  <div key={feature.label} className="flex items-start gap-2 text-sm">
+                    {feature.included ? (
+                      <CheckCircle2 className="w-4 h-4 mt-0.5 text-primary" />
+                    ) : (
+                      <XCircle className="w-4 h-4 mt-0.5 text-muted-foreground" />
+                    )}
+                    <span className={feature.included ? "" : "line-through text-muted-foreground"}>{feature.label}</span>
+                  </div>
+                ))}
+              </div>
 
-              <Button className="w-full mt-4" variant="secondary" disabled={subscription.plan === "free"}>
-                {subscription.plan === "free" ? "Current Plan" : "Switch to Free"}
-              </Button>
+              <div className="mt-auto pt-4">
+                <Button className="w-full" variant="secondary" disabled={subscription.plan === "free"}>
+                  {subscription.plan === "free" ? "Current Plan" : "Switch to Free"}
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -221,26 +224,34 @@ export function SubscriptionContent() {
                 <span className="text-muted-foreground"> / month</span>
               </div>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {PREMIUM_FEATURES.map((feature) => (
-                <div key={feature} className="flex items-start gap-2 text-sm font-medium">
-                  <CheckCircle2 className="w-4 h-4 mt-0.5 text-primary" />
-                  <span>{feature}</span>
-                </div>
-              ))}
+            <CardContent className="flex h-full flex-col">
+              <div className="space-y-3">
+                {PREMIUM_FEATURES.map((feature) => (
+                  <div key={feature} className="flex items-start gap-2 text-sm font-medium">
+                    <CheckCircle2 className="w-4 h-4 mt-0.5 text-primary" />
+                    <span>{feature}</span>
+                  </div>
+                ))}
+              </div>
 
               {isActualPremiumPlan ? (
-                <Button className="w-full mt-4" disabled>
-                  Premium Active
-                </Button>
+                <div className="mt-auto pt-4">
+                  <Button className="w-full" disabled>
+                    Premium Active
+                  </Button>
+                </div>
               ) : subscription.isTrialActive ? (
-                <Button className="w-full mt-4" disabled>
-                  Trial Active
-                </Button>
+                <div className="mt-auto pt-4">
+                  <Button className="w-full" disabled>
+                    Trial Active
+                  </Button>
+                </div>
               ) : (
-                <Button className="w-full mt-4" onClick={handleUpgrade}>
-                  Upgrade to Premium
-                </Button>
+                <div className="mt-auto pt-4">
+                  <Button className="w-full" onClick={handleUpgrade}>
+                    Upgrade to Premium
+                  </Button>
+                </div>
               )}
             </CardContent>
           </Card>
