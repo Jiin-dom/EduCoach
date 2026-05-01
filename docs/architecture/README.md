@@ -12,6 +12,7 @@ Two tracks live in this folder:
 | [beginners-guide-content-extraction.md](./beginners-guide-content-extraction.md) | Upload → processing → chunks, concepts, embeddings |
 | [beginners-guide-quiz-generation.md](./beginners-guide-quiz-generation.md) | How quizzes are built, adaptive mastery, NLP vs Gemini fallback |
 | [beginners-guide-learning-path.md](./beginners-guide-learning-path.md) | WMS, SM-2, calendar plan, adaptive review quizzes |
+| [beginners-guide-learning-path-calculations.md](./beginners-guide-learning-path-calculations.md) | Step-by-step formulas and examples for WMS, SM-2, priority, and decay |
 | [beginners-guide-ai-chat.md](./beginners-guide-ai-chat.md) | RAG tutor: embeddings, search your notes, grounded answers |
 | [beginners-guide-analytics.md](./beginners-guide-analytics.md) | Charts, weak topics, trends, display decay |
 
