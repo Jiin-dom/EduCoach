@@ -679,7 +679,7 @@ export function LearningPathCalendar({
                                     }, true)
                                 } else if (confirmTask.type === 'flashcards') {
                                     navigate(`/files/${confirmTask.documentId}?tab=flashcards`)
-                                } else if (confirmTask.conceptIds?.length > 0) {
+                                } else if (confirmTask.conceptIds && confirmTask.conceptIds.length > 0) {
                                     navigate(`/files/${confirmTask.documentId}?tab=concepts&concept=${confirmTask.conceptIds[0]}`)
                                 } else {
                                     navigate(`/files/${confirmTask.documentId}?tab=concepts`)
@@ -821,6 +821,7 @@ export function LearningPathCalendar({
                                         item.task.scheduledDate === todayLocal &&
                                         flashcardActivityDocumentIdsToday.has(item.task.documentId)
                                     ) return false
+                                    if (item.task.type === "quiz" && item.task.status === "ready") return true
                                     if (shouldSuppressAdaptiveQuizTask({
                                         taskType: item.task.type,
                                         taskDocumentId: item.task.documentId,
@@ -908,6 +909,7 @@ export function LearningPathCalendar({
                                             item.task.scheduledDate === todayLocal &&
                                             flashcardActivityDocumentIdsToday.has(item.task.documentId)
                                         ) return false
+                                        if (item.task.type === "quiz" && item.task.status === "ready") return true
                                         if (shouldSuppressAdaptiveQuizTask({
                                             taskType: item.task.type,
                                             taskDocumentId: item.task.documentId,
