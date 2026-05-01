@@ -3,6 +3,7 @@ import {
     buildLatestQuizIdByDocument,
     getEffectiveQuizDeadline,
 } from "./quizDeadlines"
+import { todayLocalDateString } from "./localDate"
 
 export type LearningPathMasterySource = "baseline" | "performance"
 
@@ -230,7 +231,7 @@ export function buildLearningPathPlan(input: {
     availableStudyDays?: string[] | null
 }): LearningPathPlan {
     const docsById = new Map(input.documents.map((document) => [document.id, document]))
-    const todayStr = new Date().toISOString().split("T")[0]
+    const todayStr = todayLocalDateString()
 
     const plannedReviews = input.masteryRows
         .filter((m) => {
@@ -288,11 +289,10 @@ export function buildLearningPathPlan(input: {
         masteryByDoc.set(m.document_id, list)
     }
 
+    // Keep virtual plan generation stable: do not let manually-rescheduled/persisted
+    // adaptive tasks rebalance unrelated generated tasks across days.
     const tasksPerDay = new Map<string, number>()
     const incrementDay = (date: string) => tasksPerDay.set(date, (tasksPerDay.get(date) || 0) + 1)
-    for (const t of adaptiveTaskItems) {
-        incrementDay(t.date)
-    }
 
     const getDayOfWeek = (dateStr: string): string => {
         const d = new Date(dateStr + "T00:00:00Z")

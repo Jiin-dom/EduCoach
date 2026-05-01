@@ -80,6 +80,29 @@ type PendingReschedulePayload = {
     taskId?: string;
 }
 
+type PendingCapacityRescheduleState = {
+    payload: PendingReschedulePayload;
+    targetDateStr: string;
+    type: string;
+    currentCount: number;
+    cap: number;
+} | null
+
+type MoveBlockedNoticeState = {
+    title: string;
+    description: string;
+} | null
+
+type PendingMoveState = {
+    label: string;
+    fromDate?: string;
+    targetDate: string;
+} | null
+
+type DateDetailsState = {
+    dateStr: string;
+} | null
+
 interface LearningPathCalendarProps {
     scopeFilter?: LearningPathPlanScopeFilter
     dueTodayQuizzes?: QuizItem[]
@@ -91,6 +114,11 @@ export function LearningPathCalendar({
     dueTodayQuizzes = [],
     completedTodayQuizzes = [],
 }: LearningPathCalendarProps) {
+    const debugLearningPath = (...args: unknown[]) => {
+        if (import.meta.env.DEV) {
+            console.debug("[LearningPathCalendar]", ...args)
+        }
+    }
     const navigate = useNavigate()
     const [viewMode, setViewMode] = useState<"week" | "month">("week")
     const [anchorDate, setAnchorDate] = useState(() => new Date())
@@ -104,6 +132,10 @@ export function LearningPathCalendar({
         targetDateStr: string;
         type: string;
     } | null>(null)
+    const [pendingCapacityReschedule, setPendingCapacityReschedule] = useState<PendingCapacityRescheduleState>(null)
+    const [moveBlockedNotice, setMoveBlockedNotice] = useState<MoveBlockedNoticeState>(null)
+    const [pendingMove, setPendingMove] = useState<PendingMoveState>(null)
+    const [dateDetails, setDateDetails] = useState<DateDetailsState>(null)
 
     const { data: stats } = useLearningStats();
     const { data: weeklyProgress } = useWeeklyProgress();
@@ -196,6 +228,7 @@ export function LearningPathCalendar({
     }
 
     const dueTodayCount = plan.items.filter((item) => item.date === todayLocal).length
+    const adaptiveTaskDailyCap = 1
     const confidenceTarget = Math.round((learningConfig?.confidence_threshold_mastered ?? 0.8) * 100)
     const completedQuizIds = new Set(attempts.filter((a) => !!a.completed_at).map((a) => a.quiz_id))
     const dueFlashcardsByDocument = useMemo(() => {
@@ -243,6 +276,46 @@ export function LearningPathCalendar({
     const isMovingItem = rescheduleDueDate.isPending || rescheduleAdaptiveTask.isPending
     const dragPayload = (payload: Record<string, string>) => JSON.stringify(payload)
 
+    const getVisibleDayItems = (dateStr: string) => {
+        let dayItems = getLearningPathItemsForDate(plan.items, dateStr)
+        dayItems = dayItems.filter((item) => {
+            if (item.kind !== "adaptive_task") return true
+            if (dismissedTaskIds[item.task.id]) return false
+            if (item.task.type === "quiz" && item.task.status === "ready") return true
+            if (shouldSuppressAdaptiveQuizTask({
+                taskType: item.task.type,
+                taskDocumentId: item.task.documentId,
+                taskScheduledDate: item.task.scheduledDate,
+                todayLocal,
+                completedAdaptiveDocumentIdsToday: completedDocumentIdsToday,
+            })) return false
+            if (
+                item.task.type === "quiz" &&
+                item.task.quizId &&
+                completedQuizIds.has(item.task.quizId) &&
+                item.task.scheduledDate === todayLocal
+            ) return false
+            return true
+        })
+
+        if (focusFilter !== "all") {
+            if (focusFilter === "due") {
+                if (dateStr !== todayLocal) dayItems = []
+            } else {
+                dayItems = dayItems.filter(
+                    (item) => item.kind === "planned_review" && item.mastery.display_mastery_level === focusFilter,
+                )
+            }
+        }
+
+        return dayItems
+    }
+
+    const selectedDateItems = useMemo(
+        () => (dateDetails ? getVisibleDayItems(dateDetails.dateStr) : []),
+        [dateDetails, plan.items, dismissedTaskIds, focusFilter, todayLocal, completedDocumentIdsToday, completedQuizIds],
+    )
+
     const renderFixedBadge = () => (
         <span className="ml-auto shrink-0 rounded-full border border-current/20 bg-background/50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide opacity-80 shadow-sm">
             Fixed
@@ -265,6 +338,7 @@ export function LearningPathCalendar({
         const isFuture = session.date > todayLocal
         return (
             <button
+                data-lp-task-item="true"
                 type="button"
                 draggable
                 onClick={() => {
@@ -315,6 +389,7 @@ export function LearningPathCalendar({
         const isFuture = session.date > todayLocal
         return (
             <button
+                data-lp-task-item="true"
                 type="button"
                 draggable
                 onClick={() => {
@@ -395,6 +470,7 @@ export function LearningPathCalendar({
             if (compact) {
                 return (
                     <button
+                        data-lp-task-item="true"
                         type="button"
                         onClick={handleClick}
                         className={`w-full mt-1 text-[10px] font-bold p-1.5 rounded-md truncate border flex items-center gap-1 ${colors} hover:opacity-90 transition-opacity shadow-sm ${item.quizId ? 'cursor-pointer' : 'cursor-default'}`}
@@ -409,6 +485,7 @@ export function LearningPathCalendar({
 
             return (
                 <button
+                    data-lp-task-item="true"
                     type="button"
                     onClick={handleClick}
                     className={`w-full text-left p-3 rounded-xl border text-xs mb-2 ${colors} hover:opacity-90 transition-opacity shadow-sm ${item.quizId ? 'cursor-pointer' : 'cursor-default'}`}
@@ -543,6 +620,7 @@ export function LearningPathCalendar({
 
         return (
             <button
+                data-lp-task-item="true"
                 type="button"
                 onClick={openTask}
                 draggable={!isCompleted}
@@ -576,8 +654,11 @@ export function LearningPathCalendar({
     const handleRescheduleDrop = (rawPayload: string, targetDateStr: string, bypassFatigue = false) => {
         if (!rawPayload || !targetDateStr) return
 
+        debugLearningPath("drop:received", { rawPayload, targetDateStr, todayLocal, bypassFatigue })
+
         if (targetDateStr < todayLocal) {
             toast.error("You cannot reschedule items to a past date.")
+            debugLearningPath("drop:rejected_past_date", { targetDateStr, todayLocal })
             return
         }
 
@@ -592,7 +673,23 @@ export function LearningPathCalendar({
             const source = plan.items.find((item) => item.kind === "adaptive_task" && item.task.id === payload?.taskId)
             if (!source || source.kind !== "adaptive_task") return
 
+            debugLearningPath("drop:adaptive_task_source", {
+                taskId: source.task.id,
+                type: source.task.type,
+                sourceDate: source.task.scheduledDate,
+                targetDate: targetDateStr,
+                todayLocal,
+                status: source.task.status,
+                documentId: source.task.documentId,
+                taskKey: source.task.taskKey,
+            })
+
             if (targetDateStr === todayLocal && source.task.scheduledDate > todayLocal && !bypassFatigue) {
+                debugLearningPath("drop:adaptive_task_requires_fatigue_confirm", {
+                    taskId: source.task.id,
+                    sourceDate: source.task.scheduledDate,
+                    targetDate: targetDateStr,
+                })
                 setPendingReschedule({ payload, targetDateStr, type: source.task.type })
                 return
             }
@@ -600,17 +697,108 @@ export function LearningPathCalendar({
             // Prevent moving completed quizzes
             const isCompleted = source.task.type === 'quiz' && source.task.quizId && attempts.some(a => a.quiz_id === source.task.quizId)
             if (isCompleted) {
-                toast.error("You cannot reschedule a completed quiz.")
+                setMoveBlockedNotice({
+                    title: "Move Blocked",
+                    description: "This quiz is already completed, so it cannot be moved to today. You can retake it from the quiz page instead.",
+                })
+                toast.error("Move blocked: this quiz is already completed.")
+                debugLearningPath("drop:adaptive_task_rejected_completed_quiz", {
+                    taskId: source.task.id,
+                    quizId: source.task.quizId,
+                })
                 return
             }
 
-            if (source.task.scheduledDate === targetDateStr) return
+            if (
+                source.task.type === "flashcards" &&
+                targetDateStr === todayLocal &&
+                source.task.scheduledDate > todayLocal &&
+                flashcardActivityDocumentIdsToday.has(source.task.documentId)
+            ) {
+                setMoveBlockedNotice({
+                    title: "Move Blocked",
+                    description: "You already generated or reviewed flashcards for this file today. Moving another future flashcard task to today is blocked to avoid duplicate workload.",
+                })
+                toast.info("Move blocked: flashcards for this file were already handled today.")
+                debugLearningPath("drop:adaptive_task_blocked_flashcards_already_done_today", {
+                    taskId: source.task.id,
+                    sourceDate: source.task.scheduledDate,
+                    targetDate: targetDateStr,
+                    documentId: source.task.documentId,
+                })
+                return
+            }
+
+            if (source.task.scheduledDate === targetDateStr) {
+                debugLearningPath("drop:adaptive_task_noop_same_date", {
+                    taskId: source.task.id,
+                    date: targetDateStr,
+                })
+                return
+            }
+
+            const targetAdaptiveCount = plan.items
+                .filter((item): item is Extract<LearningPathPlanItem, { kind: "adaptive_task" }> => item.kind === "adaptive_task")
+                .filter((item) => item.date === targetDateStr && item.task.id !== source.task.id)
+                .length
+
+            if (targetAdaptiveCount >= adaptiveTaskDailyCap) {
+                debugLearningPath("drop:adaptive_task_blocked_capacity_reached", {
+                    taskId: source.task.id,
+                    sourceDate: source.task.scheduledDate,
+                    targetDate: targetDateStr,
+                    currentCount: targetAdaptiveCount,
+                    cap: adaptiveTaskDailyCap,
+                })
+                setPendingCapacityReschedule({
+                    payload,
+                    targetDateStr,
+                    type: source.task.type,
+                    currentCount: targetAdaptiveCount,
+                    cap: adaptiveTaskDailyCap,
+                })
+                toast.info("Move blocked: only one card is allowed per day in calendar.")
+                return
+            }
+
+            debugLearningPath("drop:adaptive_task_mutate", {
+                taskId: source.task.id,
+                from: source.task.scheduledDate,
+                to: targetDateStr,
+                type: source.task.type,
+                taskKey: source.task.taskKey,
+            })
+            const moveToastId = `move-adaptive-${source.task.id}-${Date.now()}`
+            setPendingMove({
+                label: source.task.type === "quiz" ? "quiz" : source.task.type === "flashcards" ? "flashcards" : "review",
+                fromDate: source.task.scheduledDate,
+                targetDate: targetDateStr,
+            })
+            toast.loading(`Moving ${source.task.type} to ${targetDateStr}...`, { id: moveToastId })
 
             rescheduleAdaptiveTask.mutate(
                 { taskId: source.task.id, newScheduledDate: targetDateStr, task: source.task },
                 {
-                    onSuccess: () => toast.success(`Moved ${source.task.type} to ${targetDateStr}.`),
-                    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to move study task."),
+                    onSuccess: () => {
+                        debugLearningPath("drop:adaptive_task_mutate_success", {
+                            taskId: source.task.id,
+                            targetDate: targetDateStr,
+                            type: source.task.type,
+                            taskKey: source.task.taskKey,
+                        })
+                        toast.success(`Moved ${source.task.type} to ${targetDateStr}.`, { id: moveToastId })
+                    },
+                    onError: (error) => {
+                        debugLearningPath("drop:adaptive_task_mutate_error", {
+                            taskId: source.task.id,
+                            targetDate: targetDateStr,
+                            error: error instanceof Error ? error.message : String(error),
+                        })
+                        toast.error(error instanceof Error ? error.message : "Failed to move study task.", { id: moveToastId })
+                    },
+                    onSettled: () => {
+                        setPendingMove(null)
+                    },
                 },
             )
             return
@@ -622,7 +810,28 @@ export function LearningPathCalendar({
         if (!source || source.kind !== "planned_review") return
         const currentMastery = source.mastery
         if (!currentMastery) return
-        if (currentMastery.due_date === targetDateStr) return
+        if (currentMastery.due_date === targetDateStr) {
+            debugLearningPath("drop:planned_review_noop_same_date", {
+                conceptId,
+                date: targetDateStr,
+            })
+            return
+        }
+
+        debugLearningPath("drop:planned_review_mutate", {
+            conceptId,
+            from: currentMastery.due_date,
+            to: targetDateStr,
+            sourceDate: source.date,
+            level: currentMastery.display_mastery_level,
+        })
+        const reviewToastId = `move-review-${conceptId}-${Date.now()}`
+        setPendingMove({
+            label: "review",
+            fromDate: currentMastery.due_date,
+            targetDate: targetDateStr,
+        })
+        toast.loading(`Moving review to ${targetDateStr}...`, { id: reviewToastId })
 
         rescheduleDueDate.mutate(
             {
@@ -632,8 +841,21 @@ export function LearningPathCalendar({
                 confidence: Number(currentMastery.confidence),
             },
             {
-                onSuccess: () => toast.success(`Moved review to ${targetDateStr}.`),
-                onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to move review."),
+                onSuccess: () => {
+                    debugLearningPath("drop:planned_review_mutate_success", { conceptId, targetDate: targetDateStr })
+                    toast.success(`Moved review to ${targetDateStr}.`, { id: reviewToastId })
+                },
+                onError: (error) => {
+                    debugLearningPath("drop:planned_review_mutate_error", {
+                        conceptId,
+                        targetDate: targetDateStr,
+                        error: error instanceof Error ? error.message : String(error),
+                    })
+                    toast.error(error instanceof Error ? error.message : "Failed to move review.", { id: reviewToastId })
+                },
+                onSettled: () => {
+                    setPendingMove(null)
+                },
             },
         )
     }
@@ -713,6 +935,83 @@ export function LearningPathCalendar({
                         }}>
                             Proceed anyway
                         </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={!!pendingCapacityReschedule} onOpenChange={(open) => !open && setPendingCapacityReschedule(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>One Card Per Day</DialogTitle>
+                        <DialogDescription>
+                            The target date already has {pendingCapacityReschedule?.currentCount} card{pendingCapacityReschedule?.currentCount === 1 ? "" : "s"}. Calendar is limited to one card per day, so moving this {pendingCapacityReschedule?.type === 'quiz' ? 'quiz' : pendingCapacityReschedule?.type === 'flashcards' ? 'flashcard task' : 'review task'} is blocked. Please choose another date.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex justify-end mt-4">
+                        <Button variant="outline" onClick={() => setPendingCapacityReschedule(null)}>
+                            Got it
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={!!moveBlockedNotice} onOpenChange={(open) => !open && setMoveBlockedNotice(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>{moveBlockedNotice?.title ?? "Move Blocked"}</DialogTitle>
+                        <DialogDescription>
+                            {moveBlockedNotice?.description}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex justify-end mt-4">
+                        <Button variant="outline" onClick={() => setMoveBlockedNotice(null)}>
+                            Got it
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={!!pendingMove}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Updating Calendar</DialogTitle>
+                        <DialogDescription>
+                            Syncing your learning path move for {pendingMove?.label}. Please wait...
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="mt-4 rounded-lg border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
+                        {pendingMove?.fromDate ? (
+                            <span>
+                                Moving from <strong className="text-foreground">{pendingMove.fromDate}</strong> to{" "}
+                                <strong className="text-foreground">{pendingMove.targetDate}</strong>.
+                            </span>
+                        ) : (
+                            <span>
+                                Moving to <strong className="text-foreground">{pendingMove?.targetDate}</strong>.
+                            </span>
+                        )}
+                    </div>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={!!dateDetails} onOpenChange={(open) => !open && setDateDetails(null)}>
+                <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>Date Details</DialogTitle>
+                        <DialogDescription>
+                            {dateDetails?.dateStr
+                                ? `Tasks scheduled for ${new Date(`${dateDetails.dateStr}T00:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}`
+                                : "Tasks scheduled for this date"}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="max-h-[65vh] overflow-auto pr-1">
+                        {selectedDateItems.length > 0 ? (
+                            <div className="space-y-2">
+                                {selectedDateItems.map((item) => (
+                                    <div key={item.id}>{renderCalendarItem(item)}</div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="rounded-xl border border-dashed border-border/60 p-6 text-sm text-muted-foreground text-center">
+                                No visible tasks for this date.
+                            </div>
+                        )}
                     </div>
                 </DialogContent>
             </Dialog>
@@ -809,45 +1108,10 @@ export function LearningPathCalendar({
                 <CardContent className="pt-6">
                     {viewMode === "week" ? (
                         /* Week Layout */
-                        <div className="flex overflow-x-auto pb-4 gap-4 snap-x hide-scrollbar">
+                        <div className="flex overflow-x-auto pb-4 gap-4 snap-x pr-1 [scrollbar-width:thin] [scrollbar-color:hsl(var(--muted-foreground)/0.35)_hsl(var(--muted)/0.35)] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-muted/40 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/40 [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/60">
                             {weekDays.map((dateObj, idx) => {
                                 const dateStr = formatDateToLocalString(dateObj)
-                                let dayItems = getLearningPathItemsForDate(plan.items, dateStr)
-                                dayItems = dayItems.filter((item) => {
-                                    if (item.kind !== "adaptive_task") return true
-                                    if (dismissedTaskIds[item.task.id]) return false
-                                    if (
-                                        item.task.type === "flashcards" &&
-                                        item.task.scheduledDate === todayLocal &&
-                                        flashcardActivityDocumentIdsToday.has(item.task.documentId)
-                                    ) return false
-                                    if (item.task.type === "quiz" && item.task.status === "ready") return true
-                                    if (shouldSuppressAdaptiveQuizTask({
-                                        taskType: item.task.type,
-                                        taskDocumentId: item.task.documentId,
-                                        taskScheduledDate: item.task.scheduledDate,
-                                        todayLocal,
-                                        completedAdaptiveDocumentIdsToday: completedDocumentIdsToday,
-                                    })) return false
-                                    if (
-                                        item.task.type === "quiz" &&
-                                        item.task.quizId &&
-                                        completedQuizIds.has(item.task.quizId) &&
-                                        item.task.scheduledDate === todayLocal
-                                    ) return false
-                                    return true
-                                })
-                                
-                                // Apply focus filter
-                                if (focusFilter !== 'all') {
-                                    if (focusFilter === 'due') {
-                                        if (dateStr !== todayLocal) dayItems = [];
-                                    } else {
-                                        dayItems = dayItems.filter(item => 
-                                            item.kind === "planned_review" && item.mastery.display_mastery_level === focusFilter
-                                        );
-                                    }
-                                }
+                                const dayItems = getVisibleDayItems(dateStr)
 
                                 const isToday = dateStr === todayLocal
                                 const isPast = dateStr < todayLocal
@@ -856,6 +1120,11 @@ export function LearningPathCalendar({
                                     <div
                                         key={idx}
                                         className={`min-w-[200px] flex-1 border rounded-2xl p-3 snap-start bg-card min-h-[300px] flex flex-col ${isToday ? 'ring-2 ring-primary/20 border-primary/30' : ''} ${isPast ? 'bg-muted/40 opacity-60 grayscale-[0.2]' : ''}`}
+                                        onClick={(e) => {
+                                            const target = e.target as HTMLElement
+                                            if (target.closest('[data-lp-task-item="true"]')) return
+                                            setDateDetails({ dateStr })
+                                        }}
                                         onDragOver={(e) => { 
                                             if (!isPast) e.preventDefault() 
                                         }}
@@ -867,11 +1136,27 @@ export function LearningPathCalendar({
                                         }}
                                     >
                                         <div className="mb-4 flex items-center justify-between px-1">
-                                            <div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setDateDetails({ dateStr })}
+                                                className="text-left rounded-md px-1 -ml-1 hover:bg-muted/50 transition-colors"
+                                                title="View day details"
+                                            >
                                                 <div className={`font-bold text-sm ${isToday ? 'text-primary' : ''}`}>{dateObj.toLocaleDateString('en-US', { weekday: 'short' })}</div>
                                                 <div className="text-2xl font-black opacity-80">{dateObj.getDate()}</div>
+                                            </button>
+                                            <div className="flex items-center gap-1.5">
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-6 px-2 text-[10px] font-semibold"
+                                                    onClick={() => setDateDetails({ dateStr })}
+                                                >
+                                                    View
+                                                </Button>
+                                                {isToday && <span className="bg-primary/10 text-primary text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider">Today</span>}
                                             </div>
-                                            {isToday && <span className="bg-primary/10 text-primary text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider">Today</span>}
                                         </div>
                                         <div className="space-y-2 flex-1">
                                             {dayItems.map((item) => (
@@ -900,41 +1185,7 @@ export function LearningPathCalendar({
                                 {Array.from({ length: monthDaysCount }).map((_, i) => {
                                     const dayDate = new Date(now.getFullYear(), now.getMonth(), i + 1);
                                     const dateStr = formatDateToLocalString(dayDate);
-                                    let dayItems = getLearningPathItemsForDate(plan.items, dateStr)
-                                    dayItems = dayItems.filter((item) => {
-                                        if (item.kind !== "adaptive_task") return true
-                                        if (dismissedTaskIds[item.task.id]) return false
-                                        if (
-                                            item.task.type === "flashcards" &&
-                                            item.task.scheduledDate === todayLocal &&
-                                            flashcardActivityDocumentIdsToday.has(item.task.documentId)
-                                        ) return false
-                                        if (item.task.type === "quiz" && item.task.status === "ready") return true
-                                        if (shouldSuppressAdaptiveQuizTask({
-                                            taskType: item.task.type,
-                                            taskDocumentId: item.task.documentId,
-                                            taskScheduledDate: item.task.scheduledDate,
-                                            todayLocal,
-                                            completedAdaptiveDocumentIdsToday: completedDocumentIdsToday,
-                                        })) return false
-                                        if (
-                                            item.task.type === "quiz" &&
-                                            item.task.quizId &&
-                                            completedQuizIds.has(item.task.quizId) &&
-                                            item.task.scheduledDate === todayLocal
-                                        ) return false
-                                        return true
-                                    })
-
-                                    if (focusFilter !== 'all') {
-                                        if (focusFilter === 'due') {
-                                            if (dateStr !== todayLocal) dayItems = [];
-                                        } else {
-                                            dayItems = dayItems.filter(item => 
-                                                item.kind === "planned_review" && item.mastery.display_mastery_level === focusFilter
-                                            );
-                                        }
-                                    }
+                                    const dayItems = getVisibleDayItems(dateStr)
 
                                     const isToday = dateStr === todayLocal
                                     const isPast = dateStr < todayLocal
@@ -943,6 +1194,11 @@ export function LearningPathCalendar({
                                         <div
                                             key={i}
                                             className={`aspect-square p-1.5 sm:p-2 border rounded-xl relative min-h-[80px] sm:min-h-[100px] overflow-hidden transition-colors ${isToday ? 'bg-primary/5 ring-1 ring-primary/20 border-primary/30' : 'bg-card'} ${isPast ? 'bg-muted/40 opacity-60 grayscale-[0.2]' : 'hover:border-primary/50'}`}
+                                            onClick={(e) => {
+                                                const target = e.target as HTMLElement
+                                                if (target.closest('[data-lp-task-item="true"]')) return
+                                                setDateDetails({ dateStr })
+                                            }}
                                             onDragOver={(e) => { 
                                                 if (!isPast) e.preventDefault() 
                                             }}
@@ -953,7 +1209,25 @@ export function LearningPathCalendar({
                                                 handleRescheduleDrop(payload, dateStr)
                                             }}
                                         >
-                                            <span className={`text-xs font-bold ${isToday ? 'text-primary' : 'opacity-70'}`}>{i + 1}</span>
+                                            <div className="flex items-start justify-between gap-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setDateDetails({ dateStr })}
+                                                    className={`text-xs font-bold rounded px-1 -ml-1 hover:bg-muted/50 transition-colors ${isToday ? 'text-primary' : 'opacity-70'}`}
+                                                    title="View day details"
+                                                >
+                                                    {i + 1}
+                                                </button>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-5 px-1.5 text-[9px] font-semibold"
+                                                    onClick={() => setDateDetails({ dateStr })}
+                                                >
+                                                    View
+                                                </Button>
+                                            </div>
                                             <div className="mt-1 space-y-1">
                                                 {dayItems.slice(0, 3).map((item) => (
                                                     <div key={item.id}>{renderCalendarItem(item, true)}</div>

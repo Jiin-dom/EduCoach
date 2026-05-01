@@ -389,19 +389,50 @@ export function FlashcardsTab({ documentId, documentStatus }: FlashcardsTabProps
             </div>
 
             {dueCount > 0 ? (
-                <Button
-                    className="w-full gap-2"
-                    size="lg"
-                    onClick={() => {
-                        setSessionCards(dueCards)
-                        setStudyMode(true)
-                        setCurrentIdx(0)
-                        setFlipped(false)
-                    }}
-                >
-                    <ChevronRight className="w-4 h-4" />
-                    Study {dueCount} Due Card{dueCount !== 1 ? 's' : ''}
-                </Button>
+                <div className="space-y-3">
+                    <Button
+                        className="w-full gap-2"
+                        size="lg"
+                        onClick={() => {
+                            setSessionCards(dueCards)
+                            setStudyMode(true)
+                            setCurrentIdx(0)
+                            setFlipped(false)
+                        }}
+                    >
+                        <ChevronRight className="w-4 h-4" />
+                        Study {dueCount} Due Card{dueCount !== 1 ? 's' : ''}
+                    </Button>
+
+                    <div className="rounded-xl border border-border/60 bg-card p-3">
+                        <div className="mb-2 flex items-center justify-between">
+                            <p className="text-sm font-semibold">Due Today Cards</p>
+                            <Badge variant="secondary" className="text-[11px]">
+                                {dueCount} card{dueCount !== 1 ? 's' : ''}
+                            </Badge>
+                        </div>
+                        <div className="max-h-64 space-y-2 overflow-auto pr-1">
+                            {dueCards.map((card, idx) => (
+                                <button
+                                    key={card.id}
+                                    type="button"
+                                    onClick={() => {
+                                        setSessionCards(dueCards)
+                                        setStudyMode(true)
+                                        setCurrentIdx(idx)
+                                        setFlipped(false)
+                                    }}
+                                    className="w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-left hover:bg-muted/40 transition-colors"
+                                >
+                                    <p className="line-clamp-2 text-sm font-medium leading-snug">{card.front}</p>
+                                    <p className="mt-1 text-[11px] text-muted-foreground">
+                                        Tap to start from this card
+                                    </p>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
             ) : (
                 <div className="text-center py-6 text-muted-foreground">
                     <CheckCircle2 className="w-10 h-10 mx-auto mb-2 text-green-500" />

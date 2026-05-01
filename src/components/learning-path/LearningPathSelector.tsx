@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { ArrowRight, Calendar, FileText, Target } from "lucide-react"
+import { ArrowRight, Calendar, Clock3, FileText, Sparkles, Target } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { Badge } from "@/components/ui/badge"
@@ -60,6 +60,13 @@ function sortByTargetThenTitle(a: { targetDate: string | null; title: string }, 
     if (a.targetDate) return -1
     if (b.targetDate) return 1
     return a.title.localeCompare(b.title)
+}
+
+function estimateBadgeClass(label: string) {
+    if (label === "Strong") return "bg-emerald-100 text-emerald-700 border-emerald-200"
+    if (label === "Moderate") return "bg-amber-100 text-amber-700 border-amber-200"
+    if (label === "Limited") return "bg-rose-100 text-rose-700 border-rose-200"
+    return "bg-muted text-muted-foreground border-border"
 }
 
 export function LearningPathSelector({
@@ -124,19 +131,27 @@ export function LearningPathSelector({
         <main className="container mx-auto px-4 py-8">
             <div className="space-y-8">
                 {/* Header section */}
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-border/40">
-                    <div>
-                        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-1">Learning Path</h1>
-                        <p className="text-sm text-muted-foreground">
+                <div className="relative overflow-hidden rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/[0.08] via-background to-background p-5 sm:p-7 shadow-sm">
+                    <div className="pointer-events-none absolute -right-14 -top-14 h-40 w-40 rounded-full bg-primary/10 blur-2xl" />
+                    <div className="pointer-events-none absolute -left-12 -bottom-16 h-36 w-36 rounded-full bg-primary/10 blur-2xl" />
+                    <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div>
+                            <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-background/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-primary">
+                                <Sparkles className="h-3.5 w-3.5" />
+                                Study Planner
+                            </div>
+                            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-1">Learning Path</h1>
+                            <p className="text-sm text-muted-foreground max-w-xl">
                             Select a document or goal to focus your study plan.
-                        </p>
+                            </p>
+                        </div>
+                        <Button asChild className="gap-1.5 shadow-sm transition-all hover:scale-105 active:scale-95" size="sm">
+                            <Link to="/learning-path?scope=all">
+                                View Combined Path
+                                <ArrowRight className="w-3.5 h-3.5" />
+                            </Link>
+                        </Button>
                     </div>
-                    <Button asChild className="gap-1.5 shadow-sm transition-all hover:scale-105 active:scale-95" size="sm">
-                        <Link to="/learning-path?scope=all">
-                            View Combined Path
-                            <ArrowRight className="w-3.5 h-3.5" />
-                        </Link>
-                    </Button>
                 </div>
 
                 <section className="space-y-3">
@@ -153,39 +168,67 @@ export function LearningPathSelector({
                             </CardContent>
                         </Card>
                     ) : (
-                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                             {fileCards.map(({ document, estimate, linkedGoalsCount, progress, targetDate }) => (
-                                <Card key={document.id} className="overflow-hidden group transition-all duration-300 hover:-translate-y-1 hover:shadow-xl border-muted/60 hover:border-blue-500/30 flex flex-col">
-                                    <div className="h-1 bg-gradient-to-r from-blue-400 to-indigo-500 w-0 group-hover:w-full transition-all duration-500" />
-                                    <CardHeader className="p-4 pb-2 space-y-0 relative text-left">
+                                <Card key={document.id} className="overflow-hidden group transition-all duration-300 hover:-translate-y-1.5 hover:shadow-2xl border-primary/20 hover:border-primary/50 flex flex-col bg-gradient-to-br from-card via-card to-primary/[0.04]">
+                                    <div className="h-1.5 bg-gradient-to-r from-primary via-indigo-500 to-fuchsia-500 w-full opacity-95" />
+                                    <CardHeader className="p-5 pb-2 space-y-0 relative text-left">
                                         <div className="flex items-start justify-between gap-3 mb-3">
-                                            <div className="bg-blue-50 text-blue-600 p-2.5 rounded-xl shadow-sm ring-1 ring-blue-100/50 group-hover:scale-110 transition-transform duration-300">
+                                            <div className="bg-gradient-to-br from-primary/20 to-indigo-500/20 text-primary p-2.5 rounded-xl shadow-sm ring-1 ring-primary/25 group-hover:scale-110 transition-transform duration-300">
                                                 <FileText className="w-5 h-5" />
                                             </div>
-                                            <Badge variant="secondary" className="text-[10px] uppercase font-bold tracking-wider">{formatStatusLabel(document.status)}</Badge>
+                                            <Badge variant="secondary" className="text-[10px] uppercase font-bold tracking-wider bg-primary/10 text-primary border border-primary/20 shadow-sm">
+                                                {formatStatusLabel(document.status)}
+                                            </Badge>
                                         </div>
-                                        <CardTitle className="line-clamp-2 text-lg font-bold leading-tight">{document.title}</CardTitle>
-                                        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground mt-2.5">
-                                            {targetDate && <span className="font-medium text-foreground/80 flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> {formatDate(targetDate)}</span>}
-                                            {linkedGoalsCount > 0 && <span className="flex items-center gap-1"><Target className="w-3.5 h-3.5" /> {linkedGoalsCount} goal{linkedGoalsCount !== 1 && 's'}</span>}
-                                            {cleanLabel(document.goal_label) && <span className="truncate max-w-[120px] bg-muted px-1.5 py-0.5 rounded text-[10px]">{cleanLabel(document.goal_label)}</span>}
+                                        <CardTitle className="line-clamp-2 text-lg font-bold leading-tight mb-1">{document.title}</CardTitle>
+                                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground mt-2.5">
+                                            {targetDate && (
+                                                <span className="font-medium text-foreground/80 flex items-center gap-1 rounded-md border border-border/60 bg-muted/30 px-2 py-1">
+                                                    <Calendar className="w-3.5 h-3.5" /> {formatDate(targetDate)}
+                                                </span>
+                                            )}
+                                            {linkedGoalsCount > 0 && (
+                                                <span className="flex items-center gap-1 rounded-md border border-border/60 bg-muted/30 px-2 py-1">
+                                                    <Target className="w-3.5 h-3.5" /> {linkedGoalsCount} goal{linkedGoalsCount !== 1 && 's'}
+                                                </span>
+                                            )}
+                                            {cleanLabel(document.goal_label) && (
+                                                <span className="truncate max-w-[140px] bg-muted/60 px-2 py-1 rounded-md text-[10px] border border-border/50">
+                                                    {cleanLabel(document.goal_label)}
+                                                </span>
+                                            )}
                                         </div>
                                     </CardHeader>
-                                    <CardContent className="p-4 pt-2 mt-auto text-left">
-                                        <div className="bg-muted/30 rounded-lg p-3 space-y-2.5 mb-4">
+                                    <CardContent className="p-5 pt-2 mt-auto text-left">
+                                        <div className="grid grid-cols-2 gap-2 mb-3">
+                                            <div className="rounded-lg border border-border/60 bg-background/70 px-2.5 py-2">
+                                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Coverage</p>
+                                                <p className="text-sm font-bold text-foreground">{Math.round((estimate.coverage || 0) * 100)}%</p>
+                                            </div>
+                                            <div className="rounded-lg border border-border/60 bg-background/70 px-2.5 py-2">
+                                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Performance</p>
+                                                <p className="text-sm font-bold text-foreground">{Math.round(estimate.performance || 0)}%</p>
+                                            </div>
+                                        </div>
+                                        <div className="bg-muted/30 rounded-xl p-3 space-y-2.5 mb-4 border border-border/50">
                                             <div className="flex items-center justify-between text-xs">
                                                 <span className="font-medium text-muted-foreground">Prep Estimate</span>
-                                                <Badge variant="outline" className="text-[10px] bg-background shadow-sm">{estimate.label}</Badge>
+                                                <Badge variant="outline" className={`text-[10px] shadow-sm ${estimateBadgeClass(estimate.label)}`}>{estimate.label}</Badge>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                                <Clock3 className="w-3.5 h-3.5" />
+                                                Recommended pacing based on your current mastery
                                             </div>
                                             <div className="space-y-1.5">
                                                 <div className="flex justify-between text-[10px] font-bold">
                                                     <span>Mastered</span>
                                                     <span className="text-primary">{progress.mastered} / {Math.max(progress.total, document.concept_count || 0)}</span>
                                                 </div>
-                                                <Progress value={progress.average || 2} className="h-1.5" />
+                                                <Progress value={progress.average || 2} className="h-2" />
                                             </div>
                                         </div>
-                                        <Button asChild variant="outline" className="w-full gap-2 group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600 transition-colors border-muted-foreground/20">
+                                        <Button asChild className="w-full gap-2 bg-gradient-to-r from-primary to-indigo-600 text-white border-0 hover:from-primary/90 hover:to-indigo-600/90 shadow-sm">
                                             <Link to={`/learning-path?scope=document&id=${document.id}`}>
                                                 Open Path
                                                 <ArrowRight className="w-3.5 h-3.5" />
