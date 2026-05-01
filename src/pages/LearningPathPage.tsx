@@ -4,13 +4,11 @@ import { AlertTriangle, ArrowLeft } from "lucide-react"
 import { toast } from "sonner"
 
 import { LearningPathCalendar } from "@/components/learning-path/LearningPathCalendar"
-import { LearningPathContent } from "@/components/learning-path/LearningPathContent"
 import { LearningPathSelector } from "@/components/learning-path/LearningPathSelector"
 import { DashboardHeader } from "@/components/layout/DashboardHeader"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useDocuments } from "@/hooks/useDocuments"
 import { useConceptMasteryList } from "@/hooks/useLearning"
 import { useAdaptiveStudyTasks } from "@/hooks/useAdaptiveStudy"
@@ -464,50 +462,33 @@ export default function LearningPathPage() {
                 </main>
             ) : (
                 <>
-                    <Tabs defaultValue="schedule" className="w-full">
-                        <div className="container mx-auto px-4 pt-6 pb-4">
-                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                {resolvedScope ? (
-                                    <div className="flex items-center gap-3">
-                                        <Badge variant="secondary" className="shrink-0 shadow-sm border-muted">
-                                            {resolvedScope.kind === "document" ? "File Path" : "Study Goal"}
-                                        </Badge>
-                                        <h1 className="text-2xl font-bold truncate max-w-[300px] lg:max-w-[500px]" title={resolvedScope.title}>
-                                            {resolvedScope.title}
-                                        </h1>
-                                        {resolvedScope.documentTitle && resolvedScope.kind === "study_goal" ? (
-                                            <Badge variant="outline" className="hidden sm:inline-flex">{resolvedScope.documentTitle}</Badge>
-                                        ) : null}
-                                    </div>
-                                ) : (
-                                    <h1 className="text-2xl font-bold truncate tracking-tight">My Learning Path</h1>
-                                )}
-
-                                <TabsList className="bg-muted/80 w-full md:w-auto h-auto p-1 justify-start overflow-x-auto hide-scrollbar shadow-sm">
-                                    <TabsTrigger value="schedule" className="py-2 px-4 rounded-md">Schedule View</TabsTrigger>
-                                    <TabsTrigger value="mastery" className="py-2 px-4 rounded-md">Topics & Mastery</TabsTrigger>
-                                </TabsList>
-                            </div>
+                    <div className="container mx-auto px-4 pt-6 pb-4">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            {resolvedScope ? (
+                                <div className="flex items-center gap-3">
+                                    <Badge variant="secondary" className="shrink-0 shadow-sm border-muted">
+                                        {resolvedScope.kind === "document" ? "File Path" : "Study Goal"}
+                                    </Badge>
+                                    <h1 className="text-2xl font-bold truncate max-w-[300px] lg:max-w-[500px]" title={resolvedScope.title}>
+                                        {resolvedScope.title}
+                                    </h1>
+                                    {resolvedScope.documentTitle && resolvedScope.kind === "study_goal" ? (
+                                        <Badge variant="outline" className="hidden sm:inline-flex">{resolvedScope.documentTitle}</Badge>
+                                    ) : null}
+                                </div>
+                            ) : (
+                                <h1 className="text-2xl font-bold truncate tracking-tight">My Learning Path</h1>
+                            )}
                         </div>
+                    </div>
 
-                        <TabsContent value="schedule" className="m-0 border-0 p-0 outline-none">
-                            <div className="container mx-auto px-4 py-2">
-                                <LearningPathCalendar
-                                    scopeFilter={scopeFilter}
-                                    dueTodayQuizzes={dueTodayQuizzes}
-                                    completedTodayQuizzes={completedTodayItems}
-                                />
-                            </div>
-                        </TabsContent>
-
-                        <TabsContent value="mastery" className="m-0 border-0 p-0 outline-none">
-                            <LearningPathContent
-                                scopeFilter={scopeFilter}
-                                dueTodayQuizzes={dueTodayQuizzes}
-                                completedTodayQuizzes={completedTodayItems}
-                            />
-                        </TabsContent>
-                    </Tabs>
+                    <div className="container mx-auto px-4 py-2">
+                        <LearningPathCalendar
+                            scopeFilter={scopeFilter}
+                            dueTodayQuizzes={dueTodayQuizzes}
+                            completedTodayQuizzes={completedTodayItems}
+                        />
+                    </div>
                 </>
             )}
         </div>
